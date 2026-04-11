@@ -30,23 +30,19 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   // CORS — strict in production, flexible in development
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:8001',
-    'https://ai-agents-automations-frontend.vercel.app',
-    process.env.FRONTEND_URL,
-  ].filter(Boolean) as string[];
-  
+  const isDev = process.env.NODE_ENV !== 'production';
+  const allowedOrigins = isDev
+    ? [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://localhost:3002',
+        'http://localhost:8001',
+        'https://ai-agents-automations-frontend.vercel.app'
+      ]
+    : [process.env.FRONTEND_URL as string];
+
   app.enableCors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`CORS blocked: ${origin}`));
-    },
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

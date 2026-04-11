@@ -37,6 +37,7 @@ async function bootstrap() {
         'http://localhost:3001',
         'http://localhost:3002',
         'http://localhost:8001',
+        'https://ai-agents-automations-frontend.vercel.app'
       ]
     : [process.env.FRONTEND_URL as string];
 

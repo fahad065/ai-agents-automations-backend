@@ -13,6 +13,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 export class ContentIdeasService {
   private readonly logger = new Logger(ContentIdeasService.name);
 
+  // ── In-memory lock to prevent duplicate pipeline runs ─────────────────────
+  // Key: agentId, Value: timestamp of when pipeline started
+  private runningPipelines = new Map<string, number>();
+  private readonly PIPELINE_LOCK_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
   constructor(
     @InjectModel(ContentIdea.name)
     private ideaModel: Model<ContentIdeaDocument>,
@@ -24,13 +29,38 @@ export class ContentIdeasService {
     return this.config.get('PYTHON_SERVICE_URL') || 'http://localhost:8001';
   }
 
+  // ── Duplicate prevention helpers ──────────────────────────────────────────
+
+  private isPipelineRunning(agentId: string): boolean {
+    const startedAt = this.runningPipelines.get(agentId);
+    if (!startedAt) return false;
+    // Auto-expire stale locks
+    if (Date.now() - startedAt > this.PIPELINE_LOCK_TTL_MS) {
+      this.runningPipelines.delete(agentId);
+      return false;
+    }
+    return true;
+  }
+
+  private lockPipeline(agentId: string): void {
+    this.runningPipelines.set(agentId, Date.now());
+  }
+
+  private unlockPipeline(agentId: string): void {
+    this.runningPipelines.delete(agentId);
+  }
+
+  // ── Core methods ──────────────────────────────────────────────────────────
+
   async generateIdea(userId: string, agentId: string, topic: string, trendId?: string) {
     this.logger.log(`Generating content idea for topic: ${topic}`);
 
-    // Call Python service to generate script + metadata
     const response = await fetch(`${this.pythonUrl}/content/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
       body: JSON.stringify({
         topic,
         niche: 'dark psychology and human behavior',
@@ -59,20 +89,17 @@ export class ContentIdeasService {
 
   async getIdeas(userId: string, agentId?: string) {
     try {
-      // Validate userId before converting
-      if (!userId || !Types.ObjectId.isValid(userId)) {
-        return [];
-      }
-  
+      if (!userId || !Types.ObjectId.isValid(userId)) return [];
+
       const filter: any = {
         userId: new Types.ObjectId(userId),
         isDeleted: false,
       };
-  
+
       if (agentId && Types.ObjectId.isValid(agentId)) {
         filter.agentId = new Types.ObjectId(agentId);
       }
-  
+
       return await this.ideaModel
         .find(filter)
         .sort({ createdAt: -1 })
@@ -95,20 +122,17 @@ export class ContentIdeasService {
   }
 
   async updateStatus(ideaId: string, status: ContentIdeaStatus, extra?: Partial<ContentIdea>) {
-    // First fetch the idea so we have userId and title for notifications
     const idea = await this.ideaModel.findById(ideaId).lean();
-  
-    // Update the status
+
     const updated = await this.ideaModel.findByIdAndUpdate(
       ideaId,
       { status, ...extra },
       { new: true },
     );
-  
-    // Fire notification based on status
+
     if (idea?.userId) {
       const userId = idea.userId.toString();
-  
+
       if (status === ContentIdeaStatus.UPLOADED) {
         await this.notificationsService.onPipelineComplete(
           userId,
@@ -116,29 +140,30 @@ export class ContentIdeasService {
           (extra as any)?.youtubeUrl || '',
           (extra as any)?.totalPipelineMinutes || 0,
           1.32,
-        ).catch(() => {}); // Non-critical — don't throw
+        ).catch(() => {});
       } else if (status === ContentIdeaStatus.FAILED) {
         await this.notificationsService.onPipelineFailed(
           userId,
           idea.title,
           (extra as any)?.error || 'Unknown error',
           'Pipeline execution',
-        ).catch(() => {}); // Non-critical — don't throw
+        ).catch(() => {});
       }
     }
-  
+
     return updated;
   }
 
   async triggerFullPipeline(userId: string, ideaId: string) {
     const idea = await this.getIdeaById(userId, ideaId);
-
     this.logger.log(`Triggering full pipeline for idea: ${idea.title}`);
 
-    // Fire and forget — Python service handles the rest async
     fetch(`${this.pythonUrl}/pipeline/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+      },
       body: JSON.stringify({
         idea_id: ideaId,
         title: idea.title,
@@ -153,7 +178,6 @@ export class ContentIdeasService {
     }).catch(err => this.logger.error('Pipeline trigger failed:', err.message));
 
     await this.updateStatus(ideaId, ContentIdeaStatus.VIDEO_QUEUED);
-
     return { message: 'Pipeline started', ideaId, status: 'video_queued' };
   }
 
@@ -169,15 +193,10 @@ export class ContentIdeasService {
 
   async getRecentIdeas(userId: string) {
     try {
-      if (!userId || !Types.ObjectId.isValid(userId)) {
-        return [];
-      }
-  
+      if (!userId || !Types.ObjectId.isValid(userId)) return [];
+
       return await this.ideaModel
-        .find({
-          userId: new Types.ObjectId(userId),
-          isDeleted: false,
-        })
+        .find({ userId: new Types.ObjectId(userId), isDeleted: false })
         .sort({ createdAt: -1 })
         .limit(10)
         .select('title status youtubeUrl createdAt scheduledUploadTime topic agentId')
@@ -187,7 +206,7 @@ export class ContentIdeasService {
       return [];
     }
   }
-  
+
   async getOne(ideaId: string, userId: string) {
     if (!ideaId || !Types.ObjectId.isValid(ideaId)) {
       throw new NotFoundException('Invalid idea ID');
@@ -195,7 +214,7 @@ export class ContentIdeasService {
     if (!userId || !Types.ObjectId.isValid(userId)) {
       throw new NotFoundException('Invalid user ID');
     }
-  
+
     const idea = await this.ideaModel
       .findOne({
         _id: new Types.ObjectId(ideaId),
@@ -203,11 +222,8 @@ export class ContentIdeasService {
         isDeleted: false,
       })
       .lean();
-  
-    if (!idea) {
-      throw new NotFoundException('Content idea not found');
-    }
-  
+
+    if (!idea) throw new NotFoundException('Content idea not found');
     return idea;
   }
 
@@ -215,53 +231,51 @@ export class ContentIdeasService {
     if (!Types.ObjectId.isValid(ideaId)) {
       throw new NotFoundException('Content idea not found');
     }
-  
+
     const idea = await this.ideaModel.findOne({
       _id: new Types.ObjectId(ideaId),
       userId: new Types.ObjectId(userId),
     });
-  
+
     if (!idea) throw new NotFoundException('Content idea not found');
     if (!idea.outputFolderPath) {
       throw new BadRequestException('No output folder path on this idea');
     }
-  
-    const pythonUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8001';
-  
+
     try {
-      const response = await fetch(`${pythonUrl}/pipeline/trigger`, {
+      const response = await fetch(`${this.pythonUrl}/pipeline/trigger`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: JSON.stringify({
           folder_path: idea.outputFolderPath,
           idea_id: ideaId,
           is_first_video: false,
         }),
       });
-  
+
       const data = await response.json() as { run_id: string; status: string };
       return { runId: data.run_id, status: data.status };
     } catch (err) {
       throw new BadRequestException('Failed to trigger pipeline — is Python service running?');
     }
   }
-  
+
   async streamPipelineLogs(runId: string, res: any) {
-    const pythonUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8001';
-  
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-  
+
     try {
-      const response = await fetch(`${pythonUrl}/pipeline/logs/${runId}`);
+      const response = await fetch(`${this.pythonUrl}/pipeline/logs/${runId}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
       const reader = response.body?.getReader();
-      if (!reader) {
-        res.end();
-        return;
-      }
-  
+      if (!reader) { res.end(); return; }
+
       const decoder = new TextDecoder();
       while (true) {
         const { done, value } = await reader.read();
@@ -271,14 +285,27 @@ export class ContentIdeasService {
     } catch {
       res.write('data: __PIPELINE_FAILED__: Connection error\n\n');
     }
-  
+
     res.end();
   }
 
   async runFullPipeline(userId: string, agentId: string, niche?: string, dryRun = false) {
-    const pythonUrl = this.pythonUrl; // use instance getter
-  
-    // Get user details — query userModel directly via ideaModel's db connection
+    // ── Duplicate prevention ───────────────────────────────────────────────
+    if (this.isPipelineRunning(agentId)) {
+      const startedAt = this.runningPipelines.get(agentId);
+      const minutesAgo = Math.floor((Date.now() - startedAt!) / 1000 / 60);
+      throw new BadRequestException(
+        `Pipeline already running for this agent (started ${minutesAgo} min ago). ` +
+        `Wait for it to complete or it will auto-unlock after 4 hours.`
+      );
+    }
+
+    // Lock this agent
+    this.lockPipeline(agentId);
+
+    const pythonUrl = this.pythonUrl;
+
+    // Get user details
     let userName = 'Unknown user';
     let userEmail = '';
     try {
@@ -289,17 +316,20 @@ export class ContentIdeasService {
         userEmail = (user as any).email || '';
       }
     } catch {}
-  
+
     try {
       await this.notificationsService.onPipelineStarted(
         userId,
         'New video pipeline',
         niche || 'dark psychology',
       );
-  
+
       const response = await fetch(`${pythonUrl}/pipeline/run-from-cron`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         body: JSON.stringify({
           niche: niche || 'dark psychology and human behavior',
           agent_id: agentId,
@@ -309,13 +339,59 @@ export class ContentIdeasService {
           user_id: userId,
         }),
       });
-  
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.unlockPipeline(agentId);
+        throw new BadRequestException(
+          `Python service error ${response.status}: ${errorText.slice(0, 200)}`
+        );
+      }
+
       const data = await response.json() as { run_id: string; status: string };
+
+      // Schedule auto-unlock when pipeline completes
+      // Poll pipeline status every 30 seconds and unlock when done
+      this.schedulePipelineUnlock(agentId, data.run_id);
+
       return { runId: data.run_id, status: data.status };
-    } catch {
+
+    } catch (err: any) {
+      this.unlockPipeline(agentId);
+
+      if (err instanceof BadRequestException) throw err;
+
       throw new BadRequestException(
-        'Failed to start pipeline — is Python service running on port 8001?'
+        'Failed to start pipeline — is Python service running? ' +
+        'Check that ngrok is running and PYTHON_SERVICE_URL is set correctly in Railway.'
       );
     }
+  }
+
+  // ── Auto-unlock pipeline when complete ────────────────────────────────────
+  private schedulePipelineUnlock(agentId: string, runId: string): void {
+    const checkInterval = setInterval(async () => {
+      try {
+        const response = await fetch(
+          `${this.pythonUrl}/pipeline/status/${runId}`,
+          { headers: { 'ngrok-skip-browser-warning': 'true' } }
+        );
+        const data = await response.json() as { status: string };
+
+        if (['complete', 'failed', 'not_found'].includes(data.status)) {
+          this.unlockPipeline(agentId);
+          clearInterval(checkInterval);
+          this.logger.log(`Pipeline ${runId} finished (${data.status}) — agent ${agentId} unlocked`);
+        }
+      } catch {
+        // Non-critical — lock will auto-expire after 4 hours anyway
+      }
+    }, 30_000); // Check every 30 seconds
+
+    // Safety: clear interval after 5 hours regardless
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      this.unlockPipeline(agentId);
+    }, 5 * 60 * 60 * 1000);
   }
 }

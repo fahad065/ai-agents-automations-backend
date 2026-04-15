@@ -306,6 +306,7 @@ export class ContentIdeasService {
           dry_run: dryRun,
           user_name: userName,
           user_email: userEmail,
+          user_id: userId,
         }),
       });
   

@@ -67,29 +67,92 @@ export class AuthController {
     return { user };
   }
 
-  // ── Google OAuth (existing — for app login) ───────────────────
+  // ── Google OAuth — manual redirect to force account selection ──
 
   @SkipThrottle()
   @Get('google')
-  @UseGuards(GoogleAuthGuard)
-  googleAuth() {
-    // Handled by Passport
+  async googleAuth(@Res() res: any) {
+    const clientId = this.config.get('GOOGLE_CLIENT_ID');
+    const callbackUrl = this.config.get('GOOGLE_CALLBACK_URL');
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      response_type: 'code',
+      scope: 'email profile',
+      prompt: 'select_account',
+      access_type: 'offline',
+    });
+
+    return res.redirect(
+      `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+    );
   }
 
   @SkipThrottle()
   @Get('google/callback')
-  @UseGuards(GoogleAuthGuard)
-  async googleCallback(@Req() req: any, @Res() res: any) {
-    const result = await this.authService.googleLogin(req.user);
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('error') error: string,
+    @Res() res: any,
+  ) {
     const frontendUrl = this.config.get('FRONTEND_URL') || 'http://localhost:3000';
-    res.redirect(
-      `${frontendUrl}/auth/callback?token=${result.accessToken}&refresh=${result.refreshToken}`,
-    );
+
+    if (error || !code) {
+      return res.redirect(`${frontendUrl}/auth/login?error=cancelled`);
+    }
+
+    try {
+      const clientId = this.config.get('GOOGLE_CLIENT_ID');
+      const clientSecret = this.config.get('GOOGLE_CLIENT_SECRET');
+      const callbackUrl = this.config.get('GOOGLE_CALLBACK_URL');
+
+      // Exchange code for tokens
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: callbackUrl,
+          grant_type: 'authorization_code',
+        }),
+      });
+
+      const tokens = await tokenRes.json() as any;
+
+      if (!tokens.access_token) {
+        throw new Error('Failed to get access token');
+      }
+
+      // Get user profile
+      const profileRes = await fetch(
+        'https://www.googleapis.com/oauth2/v2/userinfo',
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+      );
+      const profile = await profileRes.json() as any;
+
+      const googleUser = {
+        googleId: profile.id,
+        email: profile.email,
+        name: profile.name,
+        avatar: profile.picture,
+      };
+
+      const result = await this.authService.googleLogin(googleUser);
+
+      return res.redirect(
+        `${frontendUrl}/auth/callback?token=${result.accessToken}&refresh=${result.refreshToken}`
+      );
+    } catch (err) {
+      console.error('[GOOGLE CALLBACK ERROR]', err);
+      return res.redirect(`${frontendUrl}/auth/login?error=oauth_failed`);
+    }
   }
 
   // ── YouTube OAuth ─────────────────────────────────────────────
 
-  // Step 1 — Redirect user to Google YouTube consent screen
   @SkipThrottle()
   @Get('youtube/connect')
   async connectYoutube(
@@ -103,7 +166,6 @@ export class AuthController {
     }
 
     try {
-      // Verify JWT manually
       const payload = await this.authService.verifyAccessToken(token);
       const url = await this.authService.getYoutubeAuthUrl(payload.sub);
       return res.redirect(url);
@@ -112,7 +174,6 @@ export class AuthController {
     }
   }
 
-  // Step 2 — Google redirects here after user approves
   @SkipThrottle()
   @Get('youtube/callback')
   async youtubeCallback(
@@ -123,27 +184,19 @@ export class AuthController {
   ) {
     const frontendUrl = this.config.get('FRONTEND_URL') || 'http://localhost:3000';
 
-    // User denied access
     if (error || !code) {
-      return res.redirect(
-        `${frontendUrl}/dashboard/agents?youtube=denied`
-      );
+      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=denied`);
     }
 
     try {
       await this.authService.handleYoutubeCallback(code, state);
-      return res.redirect(
-        `${frontendUrl}/dashboard/agents?youtube=connected`
-      );
+      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=connected`);
     } catch (err) {
       console.error('[YOUTUBE CALLBACK ERROR]', err);
-      return res.redirect(
-        `${frontendUrl}/dashboard/agents?youtube=error`
-      );
+      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=error`);
     }
   }
 
-  // Get YouTube connection status for current user
   @SkipThrottle()
   @Get('youtube/status')
   @UseGuards(JwtAuthGuard)
@@ -151,7 +204,6 @@ export class AuthController {
     return this.authService.getYoutubeStatus(req.user._id.toString());
   }
 
-  // Disconnect YouTube for current user
   @SkipThrottle()
   @Delete('youtube/disconnect')
   @UseGuards(JwtAuthGuard)
@@ -159,8 +211,6 @@ export class AuthController {
     return this.authService.disconnectYoutube(req.user._id.toString());
   }
 
-  // Get decrypted YouTube tokens — called by Python pipeline
-  // Protected by service token (JWT) — not user-facing
   @SkipThrottle()
   @Get('youtube/tokens/:userId')
   @UseGuards(JwtAuthGuard)
@@ -168,7 +218,6 @@ export class AuthController {
     @Param('userId') userId: string,
     @Req() req: any,
   ) {
-    // Only allow admin or the user themselves to fetch tokens
     const requesterId = req.user._id.toString();
     const requesterRole = req.user.role;
 

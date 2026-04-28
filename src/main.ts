@@ -9,30 +9,6 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
   });
 
-  // Security headers
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'"],
-      },
-    },
-    crossOriginEmbedderPolicy: false,
-  }));
-
-  // Compression
-  app.use(compression());
-
-  app.getHttpAdapter().get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
-
-  // Global prefix
-  app.setGlobalPrefix('api/v1');
-
   // CORS — strict in production, flexible in development
   const isDev = process.env.NODE_ENV !== 'production';
   const allowedOrigins = isDev
@@ -53,6 +29,31 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
+
+  // Security headers
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
+
+  // Compression
+  app.use(compression());
+
+  // ── Health check — before global prefix ───────────────────
+  app.getHttpAdapter().get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Global prefix
+  app.setGlobalPrefix('api/v1');
 
   // Global validation
   app.useGlobalPipes(

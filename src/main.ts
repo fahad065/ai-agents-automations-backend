@@ -41,7 +41,9 @@ async function bootstrap() {
         'http://localhost:3001',
         'http://localhost:3002',
         'http://localhost:8001',
-        'https://ai-agents-automations-frontend.vercel.app'
+        'https://ai-agents-automations-frontend.vercel.app',
+        'https://www.logicmate.io',
+        'https://logicmate.io'
       ]
     : [process.env.FRONTEND_URL as string];
 

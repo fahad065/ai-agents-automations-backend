@@ -391,7 +391,7 @@ Please check your API keys and try again from the Pipeline Monitor.
 <body>
   <div class="container">
     <div class="header">
-      <h1>⚡ NexAgent</h1>
+      <h1>⚡ LogicMate</h1>
       <p>AI Automation Platform</p>
     </div>
     <div class="body">
@@ -399,14 +399,14 @@ Please check your API keys and try again from the Pipeline Monitor.
       <p class="message">${body.replace(/\n/g, '<br>')}</p>
     </div>
     <div class="footer">
-      <p>NexAgent · AI Automation Platform · You're receiving this because you have an account.</p>
+      <p>LogicMate · AI Automation Platform · You're receiving this because you have an account.</p>
     </div>
   </div>
 </body>
 </html>`;
 
     await this.transporter.sendMail({
-      from: `"NexAgent" <${process.env.GMAIL_USER}>`,
+      from: `"LogicMate" <${process.env.GMAIL_USER}>`,
       to,
       subject,
       text: body,

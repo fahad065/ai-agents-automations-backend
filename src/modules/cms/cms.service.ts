@@ -42,20 +42,20 @@ import {
       const pages = [
         {
           slug: PageSlug.ABOUT,
-          title: 'About NexAgent',
+          title: 'About LogicMate',
           subtitle: 'We are building the future of business automation',
-          metaTitle: 'About NexAgent — AI Automation Platform',
-          metaDescription: 'Learn about NexAgent, our mission to make AI automation accessible to every business, and the team behind the platform.',
+          metaTitle: 'About LogicMate — AI Automation Platform',
+          metaDescription: 'Learn about LogicMate, our mission to make AI automation accessible to every business, and the team behind the platform.',
           content: `
             <h2>Our mission</h2>
-            <p>NexAgent exists to give every business — from solo creators to enterprise teams — access to the same AI automation capabilities that were previously only available to large tech companies with dedicated engineering teams.</p>
+            <p>LogicMate exists to give every business — from solo creators to enterprise teams — access to the same AI automation capabilities that were previously only available to large tech companies with dedicated engineering teams.</p>
   
             <h2>What we do</h2>
             <p>We build pre-configured AI agents and automation pipelines that plug into your existing tools and workflows. No code required. No ML expertise needed. Just connect your accounts, configure your niche, and let the agents run.</p>
   
             <h2>Why we built this</h2>
             <p>The founder spent months building a custom YouTube automation pipeline — trend discovery, scriptwriting, video generation, thumbnail creation, uploading — from scratch. It worked incredibly well but took hundreds of hours to build and maintain.</p>
-            <p>We realised that every creator and business owner needed this, but almost none had the technical skills to build it. NexAgent is that pipeline, productised and made available to everyone.</p>
+            <p>We realised that every creator and business owner needed this, but almost none had the technical skills to build it. LogicMate is that pipeline, productised and made available to everyone.</p>
   
             <h2>Our values</h2>
             <ul>
@@ -79,17 +79,17 @@ import {
           slug: PageSlug.CONTACT,
           title: 'Contact us',
           subtitle: 'We would love to hear from you',
-          metaTitle: 'Contact NexAgent — Get in Touch',
-          metaDescription: 'Contact the NexAgent team for support, partnerships, or general enquiries.',
+          metaTitle: 'Contact LogicMate — Get in Touch',
+          metaDescription: 'Contact the LogicMate team for support, partnerships, or general enquiries.',
           content: `
             <p>Whether you have a question about our automations, need technical support, or want to explore a partnership — we are here to help.</p>
             <p>We aim to respond to all enquiries within 24 hours on business days.</p>
           `,
           contactInfo: {
-            email: 'hello@nexagent.ai',
-            supportEmail: 'support@nexagent.ai',
-            twitter: 'https://twitter.com/nexagent',
-            linkedin: 'https://linkedin.com/company/nexagent',
+            email: 'hello@logicmate.ai',
+            supportEmail: 'support@logicmate.ai',
+            twitter: 'https://twitter.com/logicmate',
+            linkedin: 'https://linkedin.com/company/logicmate',
             address: 'Dubai, United Arab Emirates',
           },
           isPublished: true,
@@ -98,8 +98,8 @@ import {
           slug: PageSlug.PRIVACY,
           title: 'Privacy Policy',
           subtitle: 'Last updated: April 8, 2026',
-          metaTitle: 'Privacy Policy — NexAgent',
-          metaDescription: 'Read the NexAgent privacy policy to understand how we collect, use and protect your personal data.',
+          metaTitle: 'Privacy Policy — LogicMate',
+          metaDescription: 'Read the LogicMate privacy policy to understand how we collect, use and protect your personal data.',
           content: `
             <h2>1. Information we collect</h2>
             <p>We collect information you provide directly — your name, email address, and payment details when you create an account or subscribe to a plan.</p>
@@ -115,7 +115,7 @@ import {
             </ul>
   
             <h2>3. API keys and credentials</h2>
-            <p>All API keys stored in NexAgent are encrypted using AES-256 encryption before being saved to our database. Raw key values are never logged, never displayed after initial entry, and never shared with third parties.</p>
+            <p>All API keys stored in LogicMate are encrypted using AES-256 encryption before being saved to our database. Raw key values are never logged, never displayed after initial entry, and never shared with third parties.</p>
   
             <h2>4. Data sharing</h2>
             <p>We do not sell your personal data. We share data only with:</p>
@@ -130,13 +130,13 @@ import {
             <p>We retain your data for as long as your account is active. When you delete your account, your personal data is removed within 30 days. Generated content (videos, scripts) stored locally on your machine is not affected.</p>
   
             <h2>6. Your rights</h2>
-            <p>You have the right to access, correct, export, or delete your personal data at any time. Contact us at privacy@nexagent.ai to exercise these rights.</p>
+            <p>You have the right to access, correct, export, or delete your personal data at any time. Contact us at privacy@logicmate.ai to exercise these rights.</p>
   
             <h2>7. Cookies</h2>
             <p>We use essential cookies for authentication and preference storage. We do not use advertising or tracking cookies. See our Cookie Policy for details.</p>
   
             <h2>8. Contact</h2>
-            <p>For privacy-related enquiries, contact us at privacy@nexagent.ai</p>
+            <p>For privacy-related enquiries, contact us at privacy@logicmate.ai</p>
           `,
           isPublished: true,
         },
@@ -144,14 +144,14 @@ import {
           slug: PageSlug.TERMS,
           title: 'Terms of Service',
           subtitle: 'Last updated: April 8, 2026',
-          metaTitle: 'Terms of Service — NexAgent',
-          metaDescription: 'Read the NexAgent terms of service governing your use of the platform.',
+          metaTitle: 'Terms of Service — LogicMate',
+          metaDescription: 'Read the LogicMate terms of service governing your use of the platform.',
           content: `
             <h2>1. Acceptance of terms</h2>
-            <p>By accessing or using NexAgent, you agree to be bound by these Terms of Service. If you do not agree, do not use our service.</p>
+            <p>By accessing or using LogicMate, you agree to be bound by these Terms of Service. If you do not agree, do not use our service.</p>
   
             <h2>2. Description of service</h2>
-            <p>NexAgent provides AI-powered automation tools and agents for content creation, social media, email marketing, and related business workflows. The service is provided on a subscription basis.</p>
+            <p>LogicMate provides AI-powered automation tools and agents for content creation, social media, email marketing, and related business workflows. The service is provided on a subscription basis.</p>
   
             <h2>3. Account responsibilities</h2>
             <ul>
@@ -162,7 +162,7 @@ import {
             </ul>
   
             <h2>4. Acceptable use</h2>
-            <p>You may not use NexAgent to:</p>
+            <p>You may not use LogicMate to:</p>
             <ul>
               <li>Generate spam, misleading, or deceptive content</li>
               <li>Violate any applicable laws or platform terms of service (YouTube, Instagram, etc.)</li>
@@ -171,22 +171,22 @@ import {
             </ul>
   
             <h2>5. AI-generated content</h2>
-            <p>You are responsible for reviewing and complying with platform policies (YouTube, Instagram, etc.) regarding AI-generated content. NexAgent automatically sets required AI disclosure flags where applicable, but compliance with all platform rules remains your responsibility.</p>
+            <p>You are responsible for reviewing and complying with platform policies (YouTube, Instagram, etc.) regarding AI-generated content. LogicMate automatically sets required AI disclosure flags where applicable, but compliance with all platform rules remains your responsibility.</p>
   
             <h2>6. Third-party API costs</h2>
-            <p>Some automations use third-party APIs (Atlas Seedance, OpenAI, etc.) that have their own pricing. These costs are separate from your NexAgent subscription and billed directly by those providers. NexAgent is not responsible for third-party API costs or outages.</p>
+            <p>Some automations use third-party APIs (Atlas Seedance, OpenAI, etc.) that have their own pricing. These costs are separate from your LogicMate subscription and billed directly by those providers. LogicMate is not responsible for third-party API costs or outages.</p>
   
             <h2>7. Payment and cancellation</h2>
             <p>Subscriptions are billed monthly or annually. You may cancel at any time — cancellation takes effect at the end of the current billing period. No refunds are issued for partial periods.</p>
   
             <h2>8. Limitation of liability</h2>
-            <p>NexAgent is provided "as is". We are not liable for any indirect, incidental, or consequential damages arising from your use of the service, including any content generated by our AI agents.</p>
+            <p>LogicMate is provided "as is". We are not liable for any indirect, incidental, or consequential damages arising from your use of the service, including any content generated by our AI agents.</p>
   
             <h2>9. Changes to terms</h2>
             <p>We may update these terms at any time. We will notify you via email of material changes. Continued use after notification constitutes acceptance.</p>
   
             <h2>10. Contact</h2>
-            <p>Legal enquiries: legal@nexagent.ai</p>
+            <p>Legal enquiries: legal@logicmate.ai</p>
           `,
           isPublished: true,
         },
@@ -194,8 +194,8 @@ import {
           slug: PageSlug.COOKIES,
           title: 'Cookie Policy',
           subtitle: 'Last updated: April 8, 2026',
-          metaTitle: 'Cookie Policy — NexAgent',
-          metaDescription: 'Learn how NexAgent uses cookies and how you can manage your cookie preferences.',
+          metaTitle: 'Cookie Policy — LogicMate',
+          metaDescription: 'Learn how LogicMate uses cookies and how you can manage your cookie preferences.',
           content: `
             <h2>What are cookies?</h2>
             <p>Cookies are small text files stored on your device when you visit a website. They help us provide a better experience by remembering your preferences and keeping you signed in.</p>
@@ -224,24 +224,24 @@ import {
             </ul>
   
             <h2>Managing cookies</h2>
-            <p>You can control cookies through your browser settings. Disabling essential cookies will prevent you from signing in to NexAgent.</p>
+            <p>You can control cookies through your browser settings. Disabling essential cookies will prevent you from signing in to LogicMate.</p>
   
             <h2>Contact</h2>
-            <p>For cookie-related enquiries: privacy@nexagent.ai</p>
+            <p>For cookie-related enquiries: privacy@logicmate.ai</p>
           `,
           isPublished: true,
         },
         {
           slug: PageSlug.FAQ,
           title: 'Frequently Asked Questions',
-          subtitle: 'Everything you need to know about NexAgent',
-          metaTitle: 'FAQ — NexAgent',
-          metaDescription: 'Find answers to common questions about NexAgent, our AI automations, pricing, and how to get started.',
+          subtitle: 'Everything you need to know about LogicMate',
+          metaTitle: 'FAQ — LogicMate',
+          metaDescription: 'Find answers to common questions about LogicMate, our AI automations, pricing, and how to get started.',
           content: '',
           faqItems: [
             {
-              question: 'What is NexAgent?',
-              answer: 'NexAgent is an AI automation platform that lets you deploy pre-built agents and pipelines to automate content creation, social media, email marketing, and more. No coding required.',
+              question: 'What is LogicMate?',
+              answer: 'LogicMate is an AI automation platform that lets you deploy pre-built agents and pipelines to automate content creation, social media, email marketing, and more. No coding required.',
               order: 1,
             },
             {
@@ -250,13 +250,13 @@ import {
               order: 2,
             },
             {
-              question: 'Do I need technical skills to use NexAgent?',
-              answer: 'No. NexAgent is designed for non-technical users. You configure your automations through a simple dashboard — no coding, no server setup, no DevOps.',
+              question: 'Do I need technical skills to use LogicMate?',
+              answer: 'No. LogicMate is designed for non-technical users. You configure your automations through a simple dashboard — no coding, no server setup, no DevOps.',
               order: 3,
             },
             {
               question: 'What does YouTube Automation cost?',
-              answer: 'The NexAgent subscription starts at $29/month. Additionally, each video generated costs approximately $1.32 in Seedance API credits (billed directly to your Atlas account). This is separate from your NexAgent subscription.',
+              answer: 'The LogicMate subscription starts at $29/month. Additionally, each video generated costs approximately $1.32 in Seedance API credits (billed directly to your Atlas account). This is separate from your LogicMate subscription.',
               order: 4,
             },
             {
@@ -265,7 +265,7 @@ import {
               order: 5,
             },
             {
-              question: 'Which platforms does NexAgent support?',
+              question: 'Which platforms does LogicMate support?',
               answer: 'Currently YouTube (live). Social media (Instagram, Twitter, LinkedIn, TikTok), email marketing, e-commerce, content repurposing, and podcast automation are in development.',
               order: 6,
             },
@@ -275,8 +275,8 @@ import {
               order: 7,
             },
             {
-              question: 'Does NexAgent comply with YouTube\'s AI content policies?',
-              answer: 'Yes. Every video uploaded through NexAgent automatically has YouTube\'s required AI content disclosure flag set. Compliance with all other platform policies remains your responsibility.',
+              question: 'Does LogicMate comply with YouTube\'s AI content policies?',
+              answer: 'Yes. Every video uploaded through LogicMate automatically has YouTube\'s required AI content disclosure flag set. Compliance with all other platform policies remains your responsibility.',
               order: 8,
             },
             {

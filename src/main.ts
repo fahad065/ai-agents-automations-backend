@@ -26,6 +26,10 @@ async function bootstrap() {
   // Compression
   app.use(compression());
 
+  app.getHttpAdapter().get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   // Global prefix
   app.setGlobalPrefix('api/v1');
 
@@ -58,9 +62,6 @@ async function bootstrap() {
     }),
   );
 
-  app.getHttpAdapter().get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
 
   const port = process.env.PORT || 4000;
   await app.listen(port);

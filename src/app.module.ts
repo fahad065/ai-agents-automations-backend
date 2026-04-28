@@ -32,6 +32,10 @@ import { UserModulesModule } from './modules/usermodules/usermodules.module';
         retryWrites: true,
         w: 'majority',
         maxPoolSize: 10,
+        minPoolSize: 2,
+        serverSelectionTimeoutMS: 10000,
+        socketTimeoutMS: 45000,
+        heartbeatFrequencyMS: 10000,  // ping MongoDB every 10 seconds
       }),
       inject: [ConfigService],
     }),

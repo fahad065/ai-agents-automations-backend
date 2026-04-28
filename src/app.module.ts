@@ -6,14 +6,17 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { AgentsModule } from './modules/agents/agents.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { TrendsModule } from './modules/trends/trends.module';
 import { ContentIdeasModule } from './modules/content-ideas/content-ideas.module';
-import { AdminModule } from './modules/admin/admin.module';
-import { AutomationsModule } from './modules/automations/automations.module';
 import { CmsModule } from './modules/cms/cms.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PipelineRunsModule } from './modules/pipeline-runs/pipeline-runs.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { ModulesModule } from './modules/modules/modules.module';
+import { UserModulesModule } from './modules/usermodules/usermodules.module';
 
 @Module({
   imports: [
@@ -56,14 +59,17 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 
     AuthModule,
     UsersModule,
-    AgentsModule,
     ApiKeysModule,
     TrendsModule,
     ContentIdeasModule,
-    AdminModule,
-    AutomationsModule,
     CmsModule,
     NotificationsModule,
+    PipelineRunsModule,
+    SubscriptionsModule,
+    BillingModule,
+    FeedbackModule,
+    ModulesModule,
+    UserModulesModule,
   ],
   providers: [
     // Apply rate limiting globally

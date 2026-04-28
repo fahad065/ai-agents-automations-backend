@@ -1,35 +1,29 @@
-import {
-    IsOptional, IsString,
-    MaxLength, MinLength,
-  } from 'class-validator';
-  import { Transform } from 'class-transformer';
-  
-  export class UpdateProfileDto {
-    @IsOptional()
-    @IsString()
-    @MinLength(2)
-    @MaxLength(60)
-    @Transform(({ value }) => value?.trim())
-    name?: string;
-  
-    @IsOptional()
-    @IsString()
-    @MaxLength(200)
-    niche?: string;
-  
-    @IsOptional()
-    @IsString()
-    @MaxLength(20)
-    timezone?: string;
-  
-    @IsOptional()
-    @IsString()
-    @MaxLength(20)
-    scheduleTime?: string;
-  
-    @IsOptional()
-    notifyOnComplete?: boolean;
-  
-    @IsOptional()
-    notifyOnFail?: boolean;
-  }
+import { IsOptional, IsString, IsBoolean, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class OnboardingDto {
+  @IsOptional() @IsString() contentNiche?: string;
+  @IsOptional() @IsString() role?: string;
+  @IsOptional() @IsString() primaryGoal?: string;
+  @IsOptional() @IsString() experienceLevel?: string;
+  @IsOptional() @IsString() teamSize?: string;
+  @IsOptional() @IsString() monthlyBudget?: string;
+  @IsOptional() @IsString() heardAboutUs?: string;
+}
+
+export class UpdateProfileDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() phoneNumber?: string;
+  @IsOptional() @IsString() country?: string;
+  @IsOptional() @IsString() timezone?: string;
+  @IsOptional() @IsString() company?: string;
+
+  @IsOptional() @ValidateNested() @Type(() => OnboardingDto)
+  onboarding?: OnboardingDto;
+
+  @IsOptional() @IsBoolean() notifyOnComplete?: boolean;
+  @IsOptional() @IsBoolean() notifyOnFail?: boolean;
+  @IsOptional() @IsBoolean() notifyTrialExpiry?: boolean;
+  @IsOptional() @IsBoolean() notifyBilling?: boolean;
+  @IsOptional() @IsBoolean() emailUpdates?: boolean;
+}

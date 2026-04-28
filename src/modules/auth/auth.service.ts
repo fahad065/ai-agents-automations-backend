@@ -110,6 +110,39 @@ export class AuthService {
     return { user: this.sanitize(user), ...tokens };
   }
 
+  async facebookLogin(fbUser: {
+    facebookId: string;
+    email: string;
+    name: string;
+    avatar?: string;
+  }) {
+    let user = await this.userModel.findOne({
+      $or: [
+        { facebookId: fbUser.facebookId },
+        { email: fbUser.email },
+      ],
+    });
+ 
+    if (!user) {
+      user = await this.userModel.create({
+        name: fbUser.name,
+        email: fbUser.email,
+        facebookId: fbUser.facebookId,
+        avatar: fbUser.avatar,
+        provider: AuthProvider.FACEBOOK,
+      });
+    } else if (!user.facebookId) {
+      user.facebookId = fbUser.facebookId;
+      user.provider = AuthProvider.FACEBOOK;
+      if (!user.avatar && fbUser.avatar) user.avatar = fbUser.avatar;
+      await user.save();
+    }
+ 
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
+    return { user: this.sanitize(user), ...tokens };
+  }
+
   async refreshTokens(userId: string, refreshToken: string) {
     const user = await this.userModel.findById(userId);
     if (!user || !user.refreshToken) {

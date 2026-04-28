@@ -58,6 +58,10 @@ async function bootstrap() {
     }),
   );
 
+  app.getHttpAdapter().get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   const port = process.env.PORT || 4000;
   await app.listen(port);
   console.log(`Server running → http://localhost:${port}/api/v1`);

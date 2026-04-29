@@ -162,7 +162,7 @@ export class AuthController {
     const frontendUrl = this.config.get('FRONTEND_URL') || 'http://localhost:3000';
 
     if (!token) {
-      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=error&reason=unauthorized`);
+      return res.redirect(`${frontendUrl}/dashboard/modules?youtube=error&reason=unauthorized`);
     }
 
     try {
@@ -170,7 +170,7 @@ export class AuthController {
       const url = await this.authService.getYoutubeAuthUrl(payload.sub);
       return res.redirect(url);
     } catch {
-      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=error&reason=unauthorized`);
+      return res.redirect(`${frontendUrl}/dashboard/modules?youtube=error&reason=unauthorized`);
     }
   }
 
@@ -185,15 +185,15 @@ export class AuthController {
     const frontendUrl = this.config.get('FRONTEND_URL') || 'http://localhost:3000';
 
     if (error || !code) {
-      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=denied`);
+      return res.redirect(`${frontendUrl}/dashboard/modules?youtube=denied`);
     }
 
     try {
       await this.authService.handleYoutubeCallback(code, state);
-      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=connected`);
+      return res.redirect(`${frontendUrl}/dashboard/modules?youtube=connected`);
     } catch (err) {
       console.error('[YOUTUBE CALLBACK ERROR]', err);
-      return res.redirect(`${frontendUrl}/dashboard/agents?youtube=error`);
+      return res.redirect(`${frontendUrl}/dashboard/modules?youtube=error`);
     }
   }
 

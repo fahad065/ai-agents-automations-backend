@@ -2,12 +2,16 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { UserModule, UserModuleDocument, UserModuleStatus } from '../modules/schemas/user-module.schema';
+import { ConfigService } from '@nestjs/config';
+import { PipelineRun, PipelineRunDocument } from '../pipeline-runs/schemas/pipeline-run.schema';
 
 @Injectable()
 export class UserModulesService {
   constructor(
     @InjectModel(UserModule.name)
     private userModuleModel: Model<UserModuleDocument>,
+    private config: ConfigService,
+    @InjectModel(PipelineRun.name) private pipelineRunModel: Model<PipelineRunDocument>,
   ) {}
 
   // ── Subscribe to a module ─────────────────────────────────
@@ -263,5 +267,132 @@ export class UserModulesService {
 
   async markReminderSent(id: string): Promise<void> {
     await this.userModuleModel.findByIdAndUpdate(id, { trialReminderSent: true });
+  }
+
+  async runPipeline(userModuleId: string, userId: string): Promise<any> {
+    const userModule = await this.userModuleModel
+      .findOne({ _id: userModuleId, userId, isDeleted: false })
+      .lean();
+ 
+    if (!userModule) throw new NotFoundException('Module not found');
+ 
+    if (!['active', 'trial'].includes(userModule.status)) {
+      throw new BadRequestException(`Module is ${userModule.status} — cannot run`);
+    }
+ 
+    const pythonUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8001';
+ 
+    // Build request payload based on pipeline type
+    const payload: any = {
+      pipeline_type: userModule.pipelineType,
+      user_id: userId,
+      niche: userModule.niche || 'general',
+      user_module_id: userModuleId,
+    };
+ 
+    // Add pipeline-specific config
+    if (userModule.pipelineType === 'instagram') {
+      const config = userModule.config as any || {};
+      payload.instagram_account_id = config.instagramAccountId || '';
+      payload.instagram_access_token = config.instagramAccessToken || '';
+    }
+ 
+    if (userModule.pipelineType === 'youtube') {
+      payload.youtube_channel_id = userModule.youtubeChannelId || '';
+    }
+ 
+    // Call Python service
+    const response = await fetch(`${pythonUrl}/pipeline/run`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NESTJS_SERVICE_TOKEN || ''}`,
+      },
+      body: JSON.stringify(payload),
+    });
+ 
+    if (!response.ok) {
+      const error = await response.text();
+      throw new BadRequestException(`Pipeline failed to start: ${error}`);
+    }
+ 
+    const result = await response.json();
+ 
+    // Update last run time
+    await this.userModuleModel.findByIdAndUpdate(userModuleId, {
+      lastRunAt: new Date(),
+      $inc: { totalRuns: 1 },
+    });
+ 
+    return result;
+  }
+ 
+  // ── Get latest run status ─────────────────────────────────
+  async getLatestRunStatus(userModuleId: string, userId: string): Promise<any> {
+    const run = await this.pipelineRunModel
+      .findOne({ userModuleId, userId })
+      .sort({ createdAt: -1 })
+      .lean();
+ 
+    if (!run) return { status: 'no_runs', message: 'No pipeline runs yet' };
+    return run;
+  }
+
+
+  // ── Run all scheduled modules that are due ────────────────
+  async runScheduledModules(): Promise<{ ran: number; skipped: number }> {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMin = now.getMinutes();
+    const currentDay = now.getDay(); // 0=Sunday, 1=Monday
+ 
+    // Find all active/trial modules with a schedule
+    const modules = await this.userModuleModel.find({
+      status: { $in: ['active', 'trial'] },
+      scheduleFrequency: { $in: ['daily', 'weekly'] },
+      isDeleted: false,
+    }).lean();
+ 
+    let ran = 0;
+    let skipped = 0;
+ 
+    for (const module of modules) {
+      try {
+        const scheduleTime = module.scheduleTime || '08:00';
+        const [schedHour, schedMin] = scheduleTime.split(':').map(Number);
+ 
+        // Check if within 15 minute window of scheduled time
+        const scheduledMinutes = schedHour * 60 + schedMin;
+        const currentMinutes = currentHour * 60 + currentMin;
+        const withinWindow = Math.abs(currentMinutes - scheduledMinutes) <= 15;
+ 
+        if (!withinWindow) { skipped++; continue; }
+ 
+        // Weekly — only run on Monday
+        if (module.scheduleFrequency === 'weekly' && currentDay !== 1) {
+          skipped++; continue;
+        }
+ 
+        // Check if already ran today
+        if (module.lastRunAt) {
+          const lastRun = new Date(module.lastRunAt);
+          const isToday = lastRun.toDateString() === now.toDateString();
+          if (isToday) { skipped++; continue; }
+        }
+ 
+        // Run the pipeline
+        await this.runPipeline(
+          module._id.toString(),
+          module.userId.toString(),
+        );
+        ran++;
+      } catch (e) {
+        console.error(`[Cron] Failed to run module ${module._id}: ${e}`);
+        skipped++;
+      }
+    }
+ 
+    console.log(`[Cron] Ran ${ran} pipelines, skipped ${skipped}`);
+    return { ran, skipped };
   }
 }

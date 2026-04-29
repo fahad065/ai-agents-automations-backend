@@ -1,14 +1,19 @@
 import {
     Controller, Get, Post, Patch, Delete,
     Param, Query, Body, Req, UseGuards,
+    UnauthorizedException,
   } from '@nestjs/common';
   import { UserModulesService } from './usermodules.service';
   import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-  
+  import { ConfigService } from '@nestjs/config';
+
   @Controller('usermodules')
   @UseGuards(JwtAuthGuard)
   export class UserModulesController {
-    constructor(private readonly service: UserModulesService) {}
+    constructor(
+        private readonly service: UserModulesService,
+        private readonly config: ConfigService
+    ) {}
   
     // ── Subscribe to a module ─────────────────────────────────
     @Post('subscribe')
@@ -117,5 +122,32 @@ import {
     grantFreeForever(@Req() req: any, @Param('id') id: string) {
       if (req.user.role !== 'admin') return { message: 'Forbidden' };
       return this.service.grantFreeForever(id, req.user._id.toString());
+    }
+
+    // ── Run pipeline manually ─────────────────────────────────
+    @Post(':id/run')
+    async runPipeline(
+        @Param('id') id: string,
+        @Req() req: any,
+    ) {
+        return this.service.runPipeline(id, req.user._id.toString());
+    }
+    
+    // ── Get pipeline status ───────────────────────────────────
+    @Get(':id/run-status')
+    async getRunStatus(
+        @Param('id') id: string,
+        @Req() req: any,
+    ) {
+        return this.service.getLatestRunStatus(id, req.user._id.toString());
+    }
+
+    @Post('cron/trigger')
+    async cronTrigger(@Req() req: any, @Body() body: { secret: string }) {
+        const cronSecret = process.env.CRON_SECRET || 'logicmate-cron-secret';
+        if (body.secret !== cronSecret) {
+        throw new UnauthorizedException('Invalid cron secret');
+        }
+        return this.service.runScheduledModules();
     }
   }

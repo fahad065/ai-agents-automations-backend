@@ -272,8 +272,8 @@ export class UserModulesService {
   async runPipeline(userModuleId: string, userId: string): Promise<any> {
     const userModule = await this.userModuleModel
       .findOne({
-        _id: new Types.ObjectId(userModuleId),  // ← add Types.ObjectId
-        userId: new Types.ObjectId(userId),      // ← add Types.ObjectId
+        _id: new Types.ObjectId(userModuleId),
+        userId: new Types.ObjectId(userId),
         isDeleted: false,
       })
       .lean();
@@ -284,9 +284,9 @@ export class UserModulesService {
       throw new BadRequestException(`Module is ${userModule.status} — cannot run`);
     }
  
-    const pythonUrl = process.env.PYTHON_SERVICE_URL || 'http://localhost:8001';
+    const pythonUrl = process.env.PYTHON_SERVICE_URL || 'https://pipeline.logicmate.io';
  
-    // Build request payload based on pipeline type
+    // Build payload
     const payload: any = {
       pipeline_type: userModule.pipelineType,
       user_id: userId,
@@ -294,24 +294,20 @@ export class UserModulesService {
       user_module_id: userModuleId,
     };
  
-    // Add pipeline-specific config
     if (userModule.pipelineType === 'instagram') {
-      const config = userModule.config as any || {};
+      const config = (userModule as any).config || {};
       payload.instagram_account_id = config.instagramAccountId || '';
       payload.instagram_access_token = config.instagramAccessToken || '';
     }
  
     if (userModule.pipelineType === 'youtube') {
-      payload.youtube_channel_id = userModule.youtubeChannelId || '';
+      payload.youtube_channel_id = (userModule as any).youtubeChannelId || '';
     }
  
     // Call Python service
     const response = await fetch(`${pythonUrl}/pipeline/run`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NESTJS_SERVICE_TOKEN || ''}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
  
@@ -322,27 +318,30 @@ export class UserModulesService {
  
     const result = await response.json();
  
-    // Update last run time
+    // Update module stats
     await this.userModuleModel.findByIdAndUpdate(userModuleId, {
       lastRunAt: new Date(),
       $inc: { totalRuns: 1 },
     });
  
-    return result;
+    return { success: true, message: 'Pipeline started', ...result };
   }
  
-  // ── Get latest run status ─────────────────────────────────
   async getLatestRunStatus(userModuleId: string, userId: string): Promise<any> {
-    const run = await this.pipelineRunModel
-      .findOne({
-        userModuleId: new Types.ObjectId(userModuleId),  // ← add
-        userId: new Types.ObjectId(userId),               // ← add
-      })
-      .sort({ createdAt: -1 })
-      .lean();
+    try {
+      // Query by userId only since schema uses agentId not userModuleId
+      const run = await this.pipelineRunModel
+        .findOne({
+          userId: new Types.ObjectId(userId),
+        })
+        .sort({ createdAt: -1 })
+        .lean();
  
-    if (!run) return { status: 'no_runs', message: 'No pipeline runs yet' };
-    return run;
+      if (!run) return { status: 'no_runs', message: 'No pipeline runs yet' };
+      return run;
+    } catch {
+      return { status: 'no_runs', message: 'No pipeline runs yet' };
+    }
   }
 
 

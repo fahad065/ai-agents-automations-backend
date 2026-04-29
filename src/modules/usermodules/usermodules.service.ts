@@ -290,7 +290,7 @@ export class UserModulesService {
     const payload: any = {
       pipeline_type: userModule.pipelineType,
       user_id: userId,
-      niche: userModule.niche || 'general',
+      niche: (userModule as any).niche || 'general',
       user_module_id: userModuleId,
     };
  
@@ -304,27 +304,35 @@ export class UserModulesService {
       payload.youtube_channel_id = (userModule as any).youtubeChannelId || '';
     }
  
-    // Call Python service
-    const response = await fetch(`${pythonUrl}/pipeline/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
- 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new BadRequestException(`Pipeline failed to start: ${error}`);
-    }
- 
-    const result = await response.json();
- 
-    // Update module stats
+    // Update last run time immediately
     await this.userModuleModel.findByIdAndUpdate(userModuleId, {
       lastRunAt: new Date(),
       $inc: { totalRuns: 1 },
     });
  
-    return { success: true, message: 'Pipeline started', ...result };
+    // Fire and forget — pipeline takes 15-25 min, don't await
+    fetch(`${pythonUrl}/pipeline/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(async (res) => {
+        const text = await res.text();
+        if (!res.ok) {
+          console.error(`[Pipeline] Failed for user ${userId}: ${text}`);
+        } else {
+          console.log(`[Pipeline] Started for user ${userId}: ${text}`);
+        }
+      })
+      .catch((err) => {
+        console.error(`[Pipeline] Fetch error for user ${userId}: ${err.message}`);
+      });
+ 
+    // Return immediately to frontend
+    return {
+      success: true,
+      message: 'Pipeline started successfully. You will receive an email when complete.',
+    };
   }
  
   async getLatestRunStatus(userModuleId: string, userId: string): Promise<any> {

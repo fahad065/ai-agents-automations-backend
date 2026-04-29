@@ -271,7 +271,11 @@ export class UserModulesService {
 
   async runPipeline(userModuleId: string, userId: string): Promise<any> {
     const userModule = await this.userModuleModel
-      .findOne({ _id: userModuleId, userId, isDeleted: false })
+      .findOne({
+        _id: new Types.ObjectId(userModuleId),  // ← add Types.ObjectId
+        userId: new Types.ObjectId(userId),      // ← add Types.ObjectId
+        isDeleted: false,
+      })
       .lean();
  
     if (!userModule) throw new NotFoundException('Module not found');
@@ -330,7 +334,10 @@ export class UserModulesService {
   // ── Get latest run status ─────────────────────────────────
   async getLatestRunStatus(userModuleId: string, userId: string): Promise<any> {
     const run = await this.pipelineRunModel
-      .findOne({ userModuleId, userId })
+      .findOne({
+        userModuleId: new Types.ObjectId(userModuleId),  // ← add
+        userId: new Types.ObjectId(userId),               // ← add
+      })
       .sort({ createdAt: -1 })
       .lean();
  

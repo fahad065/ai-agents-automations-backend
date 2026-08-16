@@ -1,0 +1,740 @@
+import {
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+  Logger
+} from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcryptjs';
+import * as CryptoJS from 'crypto-js';
+import { User, UserDocument, AuthProvider, PlanType } from '../users/schemas/user.schema';
+import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../email/email.service';
+import * as crypto from 'crypto';
+
+@Injectable()
+export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  constructor(
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private jwtService: JwtService,
+    private config: ConfigService,
+    private notificationsService: NotificationsService,
+    private readonly emailService: EmailService
+  ) {}
+
+  // ── Encryption helpers ────────────────────────────────────────
+
+  private get encryptionKey(): string {
+    return this.config.get('ENCRYPTION_KEY') || '';
+  }
+
+  private encrypt(text: string): string {
+    return CryptoJS.AES.encrypt(text, this.encryptionKey).toString();
+  }
+
+  private decrypt(cipherText: string): string {
+    const bytes = CryptoJS.AES.decrypt(cipherText, this.encryptionKey);
+    return bytes.toString(CryptoJS.enc.Utf8);
+  }
+
+  // ── Auth methods ──────────────────────────────────────────────
+
+  async register(dto: RegisterDto) {
+    const exists = await this.userModel.findOne({ email: dto.email.toLowerCase() });
+    if (exists) throw new ConflictException('Email already registered');
+   
+    const hashed = await bcrypt.hash(dto.password, 12);
+    
+    // Generate verification token
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+   
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+   
+    const user = await this.userModel.create({
+      name: dto.name,
+      email: dto.email.toLowerCase(),
+      password: hashed,
+      isActive: true,
+      isEmailVerified: false,          // ← not verified yet
+      emailVerificationToken,
+      emailVerificationExpires,
+      planType: PlanType.TRIAL,
+      trialStartDate: new Date(),
+      trialEndDate: trialEnd,
+    });
+   
+    // Send verification email (not welcome email yet)
+    await this.emailService.sendVerificationEmail(
+      { name: user.name, email: user.email },
+      emailVerificationToken,
+    );
+   
+    // Admin alert
+    await this.emailService.sendAdminAlert(
+      `New signup: ${user.name}`,
+      `${user.name} (${user.email}) just signed up and needs to verify their email.`,
+    );
+   
+    // Create in-app notification for admin
+    await this.notificationsService.onUserRegistered(
+      user._id.toString(), user.name, user.email,
+    ).catch(() => {});
+   
+    const tokens = await this.generateTokens(user);
+    return {
+      user: this.sanitize(user),
+      ...tokens,
+      emailVerified: false,
+    };
+  }
+
+  async verifyEmail(token: string) {
+    const user = await this.userModel.findOne({
+      emailVerificationToken: token,
+      emailVerificationExpires: { $gt: new Date() },
+      isEmailVerified: false,
+    });
+   
+    if (!user) throw new BadRequestException('Invalid or expired verification link');
+   
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+   
+    // Send welcome email after verification
+    await this.emailService.sendWelcomeEmail({ name: user.name, email: user.email });
+   
+    const tokens = await this.generateTokens(user);
+    return {
+      user: this.sanitize(user),
+      ...tokens,
+      message: 'Email verified successfully!',
+    };
+  }
+   
+  // ADD resend verification method:
+  async resendVerification(email: string) {
+    const user = await this.userModel.findOne({ email: email.toLowerCase() });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.isEmailVerified) throw new BadRequestException('Email already verified');
+   
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+   
+    await this.userModel.findByIdAndUpdate(user._id, {
+      emailVerificationToken,
+      emailVerificationExpires,
+    });
+   
+    await this.emailService.sendVerificationEmail(
+      { name: user.name, email: user.email },
+      emailVerificationToken,
+    );
+   
+    return { message: 'Verification email sent' };
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.userModel
+      .findOne({ email: dto.email })
+      .select('+password');
+
+    if (!user || !user.password) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const passwordMatch = await bcrypt.compare(dto.password, user.password);
+    if (!passwordMatch) throw new UnauthorizedException('Invalid credentials');
+
+    if (!user.isActive) throw new UnauthorizedException('Account deactivated');
+
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return { user: this.sanitize(user), ...tokens };
+  }
+
+  async googleLogin(googleUser: any) {
+    let user = await this.userModel.findOne({ email: googleUser.email });
+
+    if (!user) {
+      user = await this.userModel.create({
+        name: googleUser.name,
+        email: googleUser.email,
+        googleId: googleUser.googleId,
+        avatar: googleUser.avatar,
+        provider: AuthProvider.GOOGLE,
+      });
+    } else if (!user.googleId) {
+      user.googleId = googleUser.googleId;
+      user.provider = AuthProvider.GOOGLE;
+      if (!user.avatar) user.avatar = googleUser.avatar;
+      await user.save();
+    }
+
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return { user: this.sanitize(user), ...tokens };
+  }
+
+  async facebookLogin(fbUser: {
+    facebookId: string;
+    email: string;
+    name: string;
+    avatar?: string;
+  }) {
+    let user = await this.userModel.findOne({
+      $or: [
+        { facebookId: fbUser.facebookId },
+        { email: fbUser.email },
+      ],
+    });
+ 
+    if (!user) {
+      user = await this.userModel.create({
+        name: fbUser.name,
+        email: fbUser.email,
+        facebookId: fbUser.facebookId,
+        avatar: fbUser.avatar,
+        provider: AuthProvider.FACEBOOK,
+      });
+    } else if (!user.facebookId) {
+      user.facebookId = fbUser.facebookId;
+      user.provider = AuthProvider.FACEBOOK;
+      if (!user.avatar && fbUser.avatar) user.avatar = fbUser.avatar;
+      await user.save();
+    }
+ 
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
+    return { user: this.sanitize(user), ...tokens };
+  }
+
+  async refreshTokens(userId: string, refreshToken: string) {
+    const user = await this.userModel.findById(userId);
+    if (!user || !user.refreshToken) {
+      throw new UnauthorizedException('Access denied');
+    }
+
+    const tokenMatch = await bcrypt.compare(refreshToken, user.refreshToken);
+    if (!tokenMatch) throw new UnauthorizedException('Invalid refresh token');
+
+    const tokens = await this.generateTokens(user);
+    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return tokens;
+  }
+
+  async logout(userId: string) {
+    await this.userModel.findByIdAndUpdate(userId, { refreshToken: null });
+    return { message: 'Logged out successfully' };
+  }
+
+  // ── YouTube OAuth ─────────────────────────────────────────────
+
+  async getYoutubeAuthUrl(userId: string): Promise<string> {
+    const clientId = this.config.get('GOOGLE_CLIENT_ID');
+    const backendUrl = this.config.get('BACKEND_URL') || 'http://localhost:4000';
+    const redirectUri = `${backendUrl}/api/v1/auth/youtube/callback`;
+
+    const scopes = [
+      'https://www.googleapis.com/auth/youtube.upload',
+      'https://www.googleapis.com/auth/youtube',
+      'https://www.googleapis.com/auth/youtube.force-ssl',
+    ].join(' ');
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: scopes,
+      access_type: 'offline',
+      prompt: 'consent', // always get refresh token
+      state: userId,     // pass userId through OAuth flow
+    });
+
+    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  }
+
+  async handleYoutubeCallback(code: string, userId: string): Promise<void> {
+    const clientId = this.config.get('GOOGLE_CLIENT_ID');
+    const clientSecret = this.config.get('GOOGLE_CLIENT_SECRET');
+    const backendUrl = this.config.get('BACKEND_URL') || 'http://localhost:4000';
+    const redirectUri = `${backendUrl}/api/v1/auth/youtube/callback`;
+
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokens = await tokenRes.json() as any;
+
+    if (!tokens.access_token) {
+      throw new BadRequestException('Failed to get access token from Google');
+    }
+
+    // Get YouTube channel info
+    let channelTitle = '';
+    let channelId = '';
+    let channelThumbnail = '';
+
+    try {
+      const channelRes = await fetch(
+        'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
+        { headers: { Authorization: `Bearer ${tokens.access_token}` } }
+      );
+      const channelData = await channelRes.json() as any;
+      const channel = channelData.items?.[0];
+      channelTitle = channel?.snippet?.title || '';
+      channelId = channel?.id || '';
+      channelThumbnail = channel?.snippet?.thumbnails?.default?.url || '';
+    } catch {
+      // Non-critical — continue without channel info
+    }
+
+    // Build token data object
+    const tokenData = {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expiry_date: Date.now() + ((tokens.expires_in || 3600) * 1000),
+      token_type: tokens.token_type || 'Bearer',
+      channel_id: channelId,
+      channel_title: channelTitle,
+      channel_thumbnail: channelThumbnail,
+    };
+
+    // Encrypt and store in api-keys collection
+    const encrypted = this.encrypt(JSON.stringify(tokenData));
+    const label = channelTitle
+      ? `YouTube — ${channelTitle}`
+      : 'YouTube Channel';
+
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    const existing = await ApiKeyModel.findOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'youtube_oauth',
+    });
+
+    if (existing) {
+      existing.encryptedKey = encrypted;
+      existing.label = label;
+      existing.isActive = true;
+      existing.lastUsedAt = new Date();
+      await existing.save();
+    } else {
+      await ApiKeyModel.create({
+        userId: new Types.ObjectId(userId),
+        provider: 'youtube_oauth',
+        label,
+        encryptedKey: encrypted,
+        isActive: true,
+        lastUsedAt: new Date(),
+      });
+    }
+  }
+
+  async getYoutubeStatus(userId: string): Promise<{
+    connected: boolean;
+    channelTitle?: string;
+    channelId?: string;
+    channelThumbnail?: string;
+    expired?: boolean;
+  }> {
+    try {
+      const ApiKeyModel = this.userModel.db.model('ApiKey');
+      const key = await ApiKeyModel.findOne({
+        userId: new Types.ObjectId(userId),
+        provider: 'youtube_oauth',
+        isActive: true,
+      }).select('+encryptedKey');
+
+      if (!key) return { connected: false };
+
+      const decrypted = this.decrypt(key.encryptedKey);
+      const tokenData = JSON.parse(decrypted);
+
+      const isExpired = tokenData.expiry_date < Date.now();
+
+      return {
+        connected: true,
+        channelTitle: tokenData.channel_title,
+        channelId: tokenData.channel_id,
+        channelThumbnail: tokenData.channel_thumbnail,
+        expired: isExpired,
+      };
+    } catch {
+      return { connected: false };
+    }
+  }
+
+  async disconnectYoutube(userId: string): Promise<{ message: string }> {
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    await ApiKeyModel.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
+      { isActive: false }
+    );
+    return { message: 'YouTube disconnected' };
+  }
+
+  async verifyAccessToken(token: string): Promise<{ sub: string; email: string }> {
+    return this.jwtService.verifyAsync(token, {
+      secret: this.config.get('JWT_SECRET'),
+    });
+  }
+
+  async getYoutubeTokens(userId: string): Promise<any> {
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    const key = await ApiKeyModel.findOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'youtube_oauth',
+      isActive: true,
+    }).select('+encryptedKey');
+
+    if (!key) {
+      throw new NotFoundException('YouTube not connected — please connect your channel first');
+    }
+
+    const decrypted = this.decrypt(key.encryptedKey);
+    const tokenData = JSON.parse(decrypted);
+
+    // Auto-refresh if token expired
+    if (tokenData.expiry_date < Date.now()) {
+      if (!tokenData.refresh_token) {
+        // Mark as inactive — user must reconnect
+        await ApiKeyModel.findOneAndUpdate(
+          { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
+          { isActive: false }
+        );
+        throw new UnauthorizedException(
+          'YouTube token expired and no refresh token available. Please reconnect your channel.'
+        );
+      }
+
+      const clientId = this.config.get('GOOGLE_CLIENT_ID');
+      const clientSecret = this.config.get('GOOGLE_CLIENT_SECRET');
+
+      const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          refresh_token: tokenData.refresh_token,
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      const refreshed = await refreshRes.json() as any;
+
+      if (refreshed.access_token) {
+        // Update token data with new access token
+        tokenData.access_token = refreshed.access_token;
+        tokenData.expiry_date = Date.now() + ((refreshed.expires_in || 3600) * 1000);
+
+        // Save refreshed token back to DB
+        const newEncrypted = this.encrypt(JSON.stringify(tokenData));
+        key.encryptedKey = newEncrypted;
+        key.lastUsedAt = new Date();
+        await key.save();
+
+        console.log(`[YOUTUBE] Token auto-refreshed for user ${userId}`);
+      } else {
+        // Refresh failed — mark as expired, user must reconnect
+        await ApiKeyModel.findOneAndUpdate(
+          { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
+          { isActive: false }
+        );
+        throw new UnauthorizedException(
+          'YouTube token expired. Please reconnect your channel from the Agents page.'
+        );
+      }
+    }
+
+    // Update last used timestamp
+    await ApiKeyModel.findByIdAndUpdate(key._id, { lastUsedAt: new Date() });
+
+    return {
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expiry_date: tokenData.expiry_date,
+      token_type: tokenData.token_type,
+      channel_id: tokenData.channel_id,
+      channel_title: tokenData.channel_title,
+    };
+  }
+
+  // ── Instagram OAuth ───────────────────────────────────────────
+
+  async getInstagramAuthUrl(userId: string): Promise<string> {
+    const appId = this.config.get('FACEBOOK_APP_ID');
+    const backendUrl = this.config.get('BACKEND_URL') || 'http://localhost:4000';
+    const redirectUri = `${backendUrl}/api/v1/auth/instagram/callback`;
+
+    const scopes = [
+      'instagram_basic',
+      'instagram_content_publish',
+      'pages_show_list',
+      'pages_read_engagement',
+    ].join(',');
+
+    const params = new URLSearchParams({
+      client_id: appId,
+      redirect_uri: redirectUri,
+      scope: scopes,
+      response_type: 'code',
+      state: userId,
+    });
+
+    return `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}`;
+  }
+
+  async handleInstagramCallback(code: string, userId: string): Promise<void> {
+    const appId = this.config.get('FACEBOOK_APP_ID');
+    const appSecret = this.config.get('FACEBOOK_APP_SECRET');
+    const backendUrl = this.config.get('BACKEND_URL') || 'http://localhost:4000';
+    const redirectUri = `${backendUrl}/api/v1/auth/instagram/callback`;
+
+    // Step 1: Exchange code for short-lived token
+    const shortTokenRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code,
+        }),
+    );
+    const shortTokenData = await shortTokenRes.json() as any;
+
+    if (!shortTokenData.access_token) {
+      throw new BadRequestException('Failed to get short-lived token from Facebook');
+    }
+
+    // Step 2: Exchange short-lived for long-lived token (60 days)
+    const longTokenRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?` +
+        new URLSearchParams({
+          grant_type: 'fb_exchange_token',
+          client_id: appId,
+          client_secret: appSecret,
+          fb_exchange_token: shortTokenData.access_token,
+        }),
+    );
+    const longTokenData = await longTokenRes.json() as any;
+
+    if (!longTokenData.access_token) {
+      throw new BadRequestException('Failed to exchange for long-lived Instagram token');
+    }
+
+    const accessToken = longTokenData.access_token;
+    const expiresIn = longTokenData.expires_in || 5184000; // 60 days default
+
+    // Step 3: Fetch Instagram account info
+    let username = '';
+    let accountId = '';
+
+    try {
+      const profileRes = await fetch(
+        `https://graph.instagram.com/me?fields=id,username&access_token=${accessToken}`,
+      );
+      const profile = await profileRes.json() as any;
+      username = profile.username || '';
+      accountId = profile.id || '';
+    } catch {
+      // Non-critical — continue without profile info
+    }
+
+    // Step 4: Build token data and encrypt
+    const tokenData = {
+      access_token: accessToken,
+      expires_in: expiresIn,
+      expiry_date: Date.now() + expiresIn * 1000,
+      username,
+      account_id: accountId,
+    };
+
+    const encrypted = this.encrypt(JSON.stringify(tokenData));
+    const label = username ? `Instagram — @${username}` : 'Instagram Account';
+
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    const existing = await ApiKeyModel.findOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'instagram_oauth',
+    });
+
+    if (existing) {
+      existing.encryptedKey = encrypted;
+      existing.label = label;
+      existing.isActive = true;
+      existing.lastUsedAt = new Date();
+      await existing.save();
+    } else {
+      await ApiKeyModel.create({
+        userId: new Types.ObjectId(userId),
+        provider: 'instagram_oauth',
+        label,
+        encryptedKey: encrypted,
+        isActive: true,
+        lastUsedAt: new Date(),
+      });
+    }
+  }
+
+  async getInstagramStatus(userId: string): Promise<{
+    connected: boolean;
+    username?: string;
+    accountId?: string;
+    expired?: boolean;
+  }> {
+    try {
+      const ApiKeyModel = this.userModel.db.model('ApiKey');
+      const key = await ApiKeyModel.findOne({
+        userId: new Types.ObjectId(userId),
+        provider: 'instagram_oauth',
+        isActive: true,
+      }).select('+encryptedKey');
+
+      if (!key) return { connected: false };
+
+      const decrypted = this.decrypt(key.encryptedKey);
+      const tokenData = JSON.parse(decrypted);
+
+      const isExpired = tokenData.expiry_date < Date.now();
+
+      return {
+        connected: true,
+        username: tokenData.username,
+        accountId: tokenData.account_id,
+        expired: isExpired,
+      };
+    } catch {
+      return { connected: false };
+    }
+  }
+
+  async disconnectInstagram(userId: string): Promise<{ message: string }> {
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    await ApiKeyModel.findOneAndUpdate(
+      { userId: new Types.ObjectId(userId), provider: 'instagram_oauth' },
+      { isActive: false },
+    );
+    return { message: 'Instagram disconnected' };
+  }
+
+  async getInstagramTokens(userId: string): Promise<any> {
+    const ApiKeyModel = this.userModel.db.model('ApiKey');
+    const key = await ApiKeyModel.findOne({
+      userId: new Types.ObjectId(userId),
+      provider: 'instagram_oauth',
+      isActive: true,
+    }).select('+encryptedKey');
+
+    if (!key) {
+      throw new NotFoundException(
+        'Instagram not connected — please connect your account first',
+      );
+    }
+
+    const decrypted = this.decrypt(key.encryptedKey);
+    const tokenData = JSON.parse(decrypted);
+
+    // Auto-refresh if within 7 days of expiry (Instagram refresh window)
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    if (tokenData.expiry_date - Date.now() < sevenDaysMs) {
+      try {
+        const refreshRes = await fetch(
+          `https://graph.instagram.com/refresh_access_token?` +
+            new URLSearchParams({
+              grant_type: 'ig_refresh_token',
+              access_token: tokenData.access_token,
+            }),
+        );
+        const refreshed = await refreshRes.json() as any;
+
+        if (refreshed.access_token) {
+          tokenData.access_token = refreshed.access_token;
+          tokenData.expires_in = refreshed.expires_in || 5184000;
+          tokenData.expiry_date = Date.now() + tokenData.expires_in * 1000;
+
+          const newEncrypted = this.encrypt(JSON.stringify(tokenData));
+          key.encryptedKey = newEncrypted;
+          key.lastUsedAt = new Date();
+          await key.save();
+
+          console.log(`[INSTAGRAM] Token auto-refreshed for user ${userId}`);
+        }
+      } catch (err) {
+        console.warn(`[INSTAGRAM] Token refresh failed for user ${userId}:`, err);
+      }
+    }
+
+    if (tokenData.expiry_date < Date.now()) {
+      await ApiKeyModel.findOneAndUpdate(
+        { userId: new Types.ObjectId(userId), provider: 'instagram_oauth' },
+        { isActive: false },
+      );
+      throw new UnauthorizedException(
+        'Instagram token expired. Please reconnect your account from the Modules page.',
+      );
+    }
+
+    await ApiKeyModel.findByIdAndUpdate(key._id, { lastUsedAt: new Date() });
+
+    return {
+      access_token: tokenData.access_token,
+      account_id: tokenData.account_id,
+      username: tokenData.username,
+      expiry_date: tokenData.expiry_date,
+    };
+  }
+
+  // ── Private helpers ───────────────────────────────────────────
+
+  private async generateTokens(user: UserDocument) {
+    const payload = { sub: user._id.toString(), email: user.email };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: this.config.get('JWT_SECRET'),
+        expiresIn: this.config.get('JWT_EXPIRES_IN'),
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.config.get('JWT_REFRESH_SECRET'),
+        expiresIn: this.config.get('JWT_REFRESH_EXPIRES_IN'),
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  private async saveRefreshToken(userId: string, token: string) {
+    const hashed = await bcrypt.hash(token, 10);
+    await this.userModel.findByIdAndUpdate(userId, { refreshToken: hashed });
+  }
+
+  private sanitize(user: UserDocument) {
+    const obj = user.toObject();
+    delete obj.password;
+    delete obj.refreshToken;
+    return obj;
+  }
+}

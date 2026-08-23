@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
@@ -17,6 +17,8 @@ function cosineSim(a: number[], b: number[]): number {
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
   constructor(
     @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
@@ -94,8 +96,8 @@ ${knowledgeSection}`;
       let apiKey: string | null = null;
       try {
         apiKey = await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
-      } catch {
-        // No key found
+      } catch (err) {
+        this.logger.warn(`No OpenAI key for user=${userId}: ${err?.message}`);
       }
 
       // 5. Retrieve knowledge entries
@@ -177,7 +179,12 @@ ${knowledgeSection}`;
         if (completionResponse.ok) {
           const completionData = await completionResponse.json() as any;
           reply = completionData.choices?.[0]?.message?.content?.trim() || chatbot.fallbackMessage;
+        } else {
+          const errBody = await completionResponse.text();
+          this.logger.error(`OpenAI chat completion failed (${completionResponse.status}): ${errBody}`);
         }
+      } else {
+        this.logger.warn(`chat() has no OpenAI key — returning fallback for embedKey=${embedKey}`);
       }
 
       // 8. Add assistant reply
@@ -185,7 +192,8 @@ ${knowledgeSection}`;
       await conversation.save();
 
       return { reply, sessionId, handoff: false };
-    } catch {
+    } catch (err) {
+      this.logger.error(`chat() failed for embedKey=${embedKey}: ${err?.message}`, err?.stack);
       // Fallback on any error
       const fallback = chatbot.fallbackMessage;
       conversation.messages.push({ role: 'assistant', content: fallback, timestamp: new Date() });

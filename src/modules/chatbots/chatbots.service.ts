@@ -164,7 +164,8 @@ export class ChatbotsService {
     const welcome = chatbot.channels?.website?.welcomeMessage || '';
     const welcomeAr = chatbot.channels?.website?.welcomeMessage_ar || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://www.logicmate.io';
-    const apiUrl = process.env.PUBLIC_API_URL || `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/api/v1`;
+    const backendUrl = process.env.PUBLIC_API_URL || process.env.BACKEND_URL || 'https://www.logicmate.io';
+    const apiUrl = `${backendUrl.replace(/\/$/, '')}/api/v1`;
     const embedCode = `<!-- LogicMate Chatbot Widget -->
 <script>
   window.LMChatbot = {

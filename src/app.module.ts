@@ -21,6 +21,8 @@ import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { IndustriesModule } from './modules/industries/industries.module';
 import { IndustrySubscriptionsModule } from './modules/industry-subscriptions/industry-subscriptions.module';
+import { ChatbotsModule } from './modules/chatbots/chatbots.module';
+import { ChatModule } from './modules/chat/chat.module';
 
 @Module({
   imports: [
@@ -82,6 +84,8 @@ import { IndustrySubscriptionsModule } from './modules/industry-subscriptions/in
     AdminModule,
     IndustriesModule,
     IndustrySubscriptionsModule,
+    ChatbotsModule,
+    ChatModule,
   ],
   providers: [
     // Apply rate limiting globally

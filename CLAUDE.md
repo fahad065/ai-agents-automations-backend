@@ -170,8 +170,64 @@ All Arabic content stored in `_ar` suffix fields. The backend returns the full d
 - `usermodules/usermodules.cron.ts` — daily check, expires trials past `trialEndDate`
 - `usermodules/trial-expiry.cron.ts` — related expiry handling
 
+## Chatbot module (implemented)
+
+Two NestJS modules power chatbots:
+
+### `src/modules/chatbots/` — admin/owner CRUD (all routes behind JwtAuthGuard)
+Schemas in `src/modules/chatbots/schemas/`:
+- `chatbot.schema.ts` — `Chatbot` doc: name, description, persona, language ('en'|'ar'|'both'), template, status ('draft'|'active'|'inactive'), fallbackMessage (+`_ar`), humanHandoff, unique `embedKey` (32-char hex), nested `channels.website/whatsapp/instagram` config
+- `knowledge-base.schema.ts` — `KnowledgeBase` doc: chatbotId, type ('text'|'faq'|'url'), question/answer/content/sourceUrl, `embedding` vector (`select: false`)
+- `conversation.schema.ts` — `Conversation` doc: chatbotId, sessionId, channel, embedded `messages[]` ({role, content, timestamp}), status
+
+Routes (`chatbots.controller.ts`):
+```
+POST   /api/v1/chatbots                          — create
+GET    /api/v1/chatbots                          — list user's bots
+GET    /api/v1/chatbots/:id                      — get one
+PUT    /api/v1/chatbots/:id                      — update (status, channels, fallback msgs, etc.)
+DELETE /api/v1/chatbots/:id                      — delete (cascades knowledge + conversations)
+POST   /api/v1/chatbots/:id/knowledge            — add knowledge entry (embeds via OpenAI if user has a key)
+GET    /api/v1/chatbots/:id/knowledge            — list entries
+DELETE /api/v1/chatbots/:id/knowledge/:kId       — delete entry
+GET    /api/v1/chatbots/:id/conversations        — recent conversations
+GET    /api/v1/chatbots/:id/analytics            — {totalConversations, totalMessages, avgMessagesPerConversation, handoffs, byChannel}
+GET    /api/v1/chatbots/:id/embed-code           — returns ready-to-paste <script> snippet
+```
+
+`ChatbotsService.addKnowledge()` looks up the bot owner's OpenAI key via `ApiKeysService.getDecryptedKey(userId, 'openai')`, embeds the text with `text-embedding-3-small`. If no key is present, the entry is stored with an empty embedding — the bot still works via keyword fallback, just without semantic ranking.
+
+### `src/modules/chat/` — the public AI engine (NO auth — these are customer-facing)
+`chat.service.ts` is the actual chatbot brain:
+1. Look up chatbot by `embedKey`, require `status === 'active'`
+2. Find/create `Conversation` by `sessionId`
+3. Embed the incoming message (if OpenAI key available) and rank knowledge entries by cosine similarity — top 4 go into the system prompt
+4. Call `gpt-4o-mini` with a system prompt that hard-constrains the model to only answer from the knowledge base, falling back to `chatbot.fallbackMessage` otherwise
+5. Persist both messages, return `{reply, sessionId}`
+
+Routes (`chat.controller.ts`) — all `@Public()`:
+```
+POST /api/v1/chat/:embedKey                      — @SkipThrottle() — the widget calls this
+GET  /api/v1/webhooks/whatsapp/:embedKey          — Meta webhook verification handshake
+POST /api/v1/webhooks/whatsapp/:embedKey          — incoming WhatsApp messages → chat()
+GET  /api/v1/webhooks/instagram/:embedKey         — Meta webhook verification handshake
+POST /api/v1/webhooks/instagram/:embedKey         — incoming Instagram DMs → chat()
+```
+
+### Embed code generation
+`ChatbotsService.getEmbedCode()` builds the `<script>` snippet the user pastes on their site. It reads `PUBLIC_API_URL` env var (must be set to this backend's real public URL, e.g. Railway domain + `/api/v1`) — **this must be set correctly in production or the widget will silently fail to reach the API**. Falls back to `${FRONTEND_URL}/api/v1` if unset, which is almost certainly wrong in prod — always verify `PUBLIC_API_URL` is set on Railway.
+
+The widget file itself (`chatbot-widget.js`) lives in the **frontend** repo's `public/` folder and is served from `FRONTEND_URL`.
+
+### WhatsApp / Instagram — code is ready, needs manual Meta setup
+The webhook handlers exist and will work once the bot owner:
+1. Creates a Meta Business App, adds WhatsApp product, gets a Phone Number ID + permanent access token
+2. Pastes those into the bot's Channels tab in the dashboard (`PUT /chatbots/:id` → `channels.whatsapp.phoneNumberId/accessToken`)
+3. In Meta's webhook config, points to `PUBLIC_API_URL/webhooks/whatsapp/:embedKey`
+4. Same flow for Instagram, except Instagram DM permissions (`instagram_manage_messages`) require Meta App Review — can take days
+
 ## What is next to build
-1. **Chatbot module backend** — schema, CRUD endpoints, deploy/config management
-2. **Channel integrations** — WhatsApp Business API, Instagram DM webhooks
+1. ~~Chatbot module backend~~ ✅ done
+2. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
 3. **Subscribe flow** — payment intent creation, subscription activation
 4. **Payment integration** — Stripe or regional gateway

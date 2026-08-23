@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Req, ForbiddenException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -17,5 +17,17 @@ export class AdminController {
   getRevenue(@Req() req: any) {
     if (req.user.role !== 'admin') return { message: 'Forbidden' };
     return this.adminService.getRevenue();
+  }
+
+  @Get('users')
+  listUsers(@Req() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.listUsers();
+  }
+
+  @Post('email/send')
+  sendEmail(@Req() req: any, @Body() body: { to: string[]; subject: string; html: string }) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.sendCustomEmail(body.to, body.subject, body.html);
   }
 }

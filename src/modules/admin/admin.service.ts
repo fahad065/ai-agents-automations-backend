@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { PipelineRun, PipelineRunDocument } from '../pipeline-runs/schemas/pipeline-run.schema';
 import { UserModule as UserModuleModel, UserModuleDocument } from '../modules/schemas/user-module.schema';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminService {
@@ -11,6 +12,7 @@ export class AdminService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(PipelineRun.name) private pipelineModel: Model<PipelineRunDocument>,
     @InjectModel(UserModuleModel.name) private userModuleModel: Model<UserModuleDocument>,
+    private emailService: EmailService,
   ) {}
 
   async getOverview() {
@@ -63,6 +65,24 @@ export class AdminService {
       },
       charts: { videosByDay, usersByDay },
     };
+  }
+
+  async listUsers() {
+    const users = await this.userModel
+      .find({ isDeleted: { $ne: true } })
+      .select('_id name email')
+      .sort({ createdAt: -1 })
+      .lean();
+    return users;
+  }
+
+  async sendCustomEmail(to: string[], subject: string, html: string) {
+    const results = await Promise.allSettled(
+      to.map(email => this.emailService.sendEmail(email, subject, html)),
+    );
+    const sent = results.filter(r => r.status === 'fulfilled' && (r as any).value === true).length;
+    const failed = to.length - sent;
+    return { sent, failed, total: to.length };
   }
 
   async getRevenue() {

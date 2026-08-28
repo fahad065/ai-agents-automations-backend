@@ -3,6 +3,13 @@
 ## Platform overview
 LogicMate is a B2B AI automation marketplace targeting UAE and Kenya markets. This NestJS API powers the frontend (Next.js on Vercel) and communicates with the Python pipeline service for AI job execution.
 
+## CRITICAL: bring-your-own-key (BYOK) — never add a platform-wide fallback key
+This is the core business model, not an implementation detail. Every customer must add their own API keys (OpenAI, Atlas Seedance, YouTube OAuth, etc.) via **Dashboard → API Keys** before any module — agents, automations, or chatbots — can run AI calls on their behalf. LogicMate itself holds no shared/platform API keys and pays for none of the customer's AI usage; that's the point of the product.
+
+**Concretely:** `ApiKeysService.getDecryptedKey(userId, provider)` is the only way any service should obtain a provider key. If it throws (no key on file), the correct behavior is to degrade gracefully — return the chatbot's `fallbackMessage`, skip the pipeline step, whatever fits — never to fall back to a key from `process.env` or any other shared source, even for local testing convenience.
+
+This was tried once during chatbot development: a `process.env.OPENAI_API_KEY` fallback was added to `chat.service.ts` / `chatbots.service.ts` (`resolveOpenAiKey()`) purely to unblock local testing, and was explicitly rejected and reverted by the platform owner — BYOK is the product, not a rough edge to smooth over. If a future task seems to call for a shared/platform key again (testing convenience, a "demo mode", etc.), that is a signal to stop and ask rather than add one.
+
 ## GitHub repos (all three services)
 - **Frontend (Next.js):** https://github.com/fahad065/ai-agents-automations-frontend.git
 - **This repo (backend):** https://github.com/fahad065/ai-agents-automations-backend.git
@@ -195,7 +202,7 @@ GET    /api/v1/chatbots/:id/analytics            — {totalConversations, totalM
 GET    /api/v1/chatbots/:id/embed-code           — returns ready-to-paste <script> snippet
 ```
 
-`ChatbotsService.addKnowledge()` looks up the bot owner's OpenAI key via `ApiKeysService.getDecryptedKey(userId, 'openai')`, embeds the text with `text-embedding-3-small`. If no key is present, the entry is stored with an empty embedding — the bot still works via keyword fallback, just without semantic ranking.
+`ChatbotsService.addKnowledge()` looks up the bot owner's OpenAI key via `ApiKeysService.getDecryptedKey(userId, 'openai')` — BYOK, no fallback (see the CRITICAL note near the top of this file) — embeds the text with `text-embedding-3-small`. If no key is present, the entry is stored with an empty embedding — the bot still works via keyword fallback, just without semantic ranking, and every reply is the `fallbackMessage` until the owner adds a key.
 
 ### `src/modules/chat/` — the public AI engine (NO auth — these are customer-facing)
 `chat.service.ts` is the actual chatbot brain:
@@ -215,7 +222,7 @@ POST /api/v1/webhooks/instagram/:embedKey         — incoming Instagram DMs →
 ```
 
 ### Embed code generation
-`ChatbotsService.getEmbedCode()` builds the `<script>` snippet the user pastes on their site. It reads `PUBLIC_API_URL` env var (must be set to this backend's real public URL, e.g. Railway domain + `/api/v1`) — **this must be set correctly in production or the widget will silently fail to reach the API**. Falls back to `${FRONTEND_URL}/api/v1` if unset, which is almost certainly wrong in prod — always verify `PUBLIC_API_URL` is set on Railway.
+`ChatbotsService.getEmbedCode()` builds the `<script>` snippet the user pastes on their site. It reads `BACKEND_URL` (or `PUBLIC_API_URL` if set, which takes priority) — must be this backend's real public URL, no path/trailing slash, e.g. `https://web-production-07643.up.railway.app` — and appends `/api/v1` itself. **Confirmed set correctly on Railway** (`BACKEND_URL=https://web-production-07643.up.railway.app`, `FRONTEND_URL=https://www.logicmate.io`) as of the chatbot module going live. Falls back to `'https://www.logicmate.io'` if unset, which would be wrong — if the widget ever silently fails to reach the API in prod, check these two vars first.
 
 The widget file itself (`chatbot-widget.js`) lives in the **frontend** repo's `public/` folder and is served from `FRONTEND_URL`.
 

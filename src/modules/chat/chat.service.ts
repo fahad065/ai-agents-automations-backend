@@ -41,6 +41,17 @@ export class ChatService {
     return data.data[0].embedding as number[];
   }
 
+  // LogicMate is bring-your-own-key: every chatbot owner must add their own
+  // OpenAI key via Dashboard → API Keys before their bot can reply with AI.
+  // No platform-wide fallback — each customer's usage is billed on their own key.
+  private async resolveOpenAiKey(userId: string): Promise<string | null> {
+    try {
+      return await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
+    } catch {
+      return null;
+    }
+  }
+
   private buildSystemPrompt(chatbot: ChatbotDocument, knowledgeSnippets: string[]): string {
     let languageInstruction = 'Respond in the same language the user writes in.';
     if (chatbot.language === 'en') languageInstruction = 'Only respond in English.';
@@ -91,13 +102,11 @@ ${knowledgeSection}`;
     conversation.messages.push({ role: 'user', content: message, timestamp: new Date() });
 
     try {
-      // 4. Get OpenAI key
+      // 4. Get the bot owner's own OpenAI key (BYOK — no platform fallback)
       const userId = chatbot.userId.toString();
-      let apiKey: string | null = null;
-      try {
-        apiKey = await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
-      } catch (err) {
-        this.logger.warn(`No OpenAI key for user=${userId}: ${err?.message}`);
+      const apiKey = await this.resolveOpenAiKey(userId);
+      if (!apiKey) {
+        this.logger.warn(`No OpenAI key on file for chatbot owner — returning fallbackMessage for embedKey=${embedKey}`);
       }
 
       // 5. Retrieve knowledge entries
@@ -183,8 +192,6 @@ ${knowledgeSection}`;
           const errBody = await completionResponse.text();
           this.logger.error(`OpenAI chat completion failed (${completionResponse.status}): ${errBody}`);
         }
-      } else {
-        this.logger.warn(`chat() has no OpenAI key — returning fallback for embedKey=${embedKey}`);
       }
 
       // 8. Add assistant reply

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
@@ -10,6 +10,8 @@ import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 
 @Injectable()
 export class ChatbotsService {
+  private readonly logger = new Logger(ChatbotsService.name);
+
   constructor(
     @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
@@ -73,6 +75,17 @@ export class ChatbotsService {
     return data.data[0].embedding as number[];
   }
 
+  // LogicMate is bring-your-own-key: every chatbot owner must add their own
+  // OpenAI key via Dashboard → API Keys before knowledge base embedding works.
+  // No platform-wide fallback — each customer's usage is billed on their own key.
+  private async resolveOpenAiKey(userId: string): Promise<string | null> {
+    try {
+      return await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
+    } catch {
+      return null;
+    }
+  }
+
   async addKnowledge(chatbotId: string, userId: string, dto: any): Promise<KnowledgeBaseDocument> {
     // Verify ownership
     await this.findOne(chatbotId, userId);
@@ -80,7 +93,8 @@ export class ChatbotsService {
     let embedding: number[] = [];
 
     try {
-      const apiKey = await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
+      const apiKey = await this.resolveOpenAiKey(userId);
+      if (!apiKey) throw new Error('No OpenAI key available');
 
       let textToEmbed = '';
       if (dto.type === 'faq') {
@@ -92,8 +106,9 @@ export class ChatbotsService {
       if (textToEmbed) {
         embedding = await this.getEmbedding(textToEmbed, apiKey);
       }
-    } catch {
+    } catch (err) {
       // No API key or embedding failed — store without embedding
+      this.logger.warn(`addKnowledge() embedding skipped for chatbot=${chatbotId}: ${err?.message}`);
       embedding = [];
     }
 

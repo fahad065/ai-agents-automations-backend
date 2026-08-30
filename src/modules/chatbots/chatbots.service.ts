@@ -7,6 +7,33 @@ import { KnowledgeBase, KnowledgeBaseDocument } from './schemas/knowledge-base.s
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
+import { BillingService } from '../billing/billing.service';
+import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
+import { EmailService } from '../email/email.service';
+
+// Fields the chatbot's own owner is allowed to change via PUT /chatbots/:id.
+// Deliberately excludes `billing` and `embedKey` — those are admin-only /
+// system-generated and must never be settable by the customer themselves.
+const CUSTOMER_EDITABLE_FIELDS = [
+  'name',
+  'description',
+  'persona',
+  'language',
+  'template',
+  'status',
+  'fallbackMessage',
+  'fallbackMessage_ar',
+  'humanHandoff',
+  'channels',
+];
+
+function pickCustomerEditable(dto: any): any {
+  const out: any = {};
+  for (const key of CUSTOMER_EDITABLE_FIELDS) {
+    if (dto[key] !== undefined) out[key] = dto[key];
+  }
+  return out;
+}
 
 @Injectable()
 export class ChatbotsService {
@@ -17,6 +44,8 @@ export class ChatbotsService {
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     private apiKeysService: ApiKeysService,
+    private billingService: BillingService,
+    private emailService: EmailService,
   ) {}
 
   async create(userId: string, dto: any): Promise<ChatbotDocument> {
@@ -40,9 +69,27 @@ export class ChatbotsService {
     return chatbot;
   }
 
+  // Admin-only lookup — no ownership check. Only ever call this from a route
+  // that has already verified req.user.role === 'admin'.
+  async findOneAdmin(id: string): Promise<ChatbotDocument> {
+    const chatbot = await this.chatbotModel.findById(id);
+    if (!chatbot) throw new NotFoundException('Chatbot not found');
+    return chatbot;
+  }
+
+  // Admin-only — every customer's chatbot, with owner name/email populated
+  // so admin can tell whose bot they're pricing.
+  async findAllAdmin(): Promise<any[]> {
+    return this.chatbotModel
+      .find()
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 })
+      .lean();
+  }
+
   async update(id: string, userId: string, dto: any): Promise<ChatbotDocument> {
     const chatbot = await this.findOne(id, userId);
-    Object.assign(chatbot, dto);
+    Object.assign(chatbot, pickCustomerEditable(dto));
     return chatbot.save();
   }
 
@@ -192,5 +239,98 @@ export class ChatbotsService {
 </script>
 <script src="${frontendUrl}/chatbot-widget.js" async></script>`;
     return { embedCode };
+  }
+
+  // ── Pricing & billing (admin-set, manual bank-transfer payment) ────────
+
+  // Admin only — sets what this specific chatbot costs. No fixed public
+  // tiers yet: every deal is priced by hand until real patterns emerge.
+  async updatePricing(
+    id: string,
+    dto: { setupFee?: number; monthlyFee?: number; currency?: string; trialEndsAt?: string; notes?: string },
+  ): Promise<ChatbotDocument> {
+    const chatbot = await this.findOneAdmin(id);
+
+    if (dto.setupFee !== undefined) chatbot.billing.setupFee = dto.setupFee;
+    if (dto.monthlyFee !== undefined) chatbot.billing.monthlyFee = dto.monthlyFee;
+    if (dto.currency !== undefined) chatbot.billing.currency = dto.currency;
+    if (dto.trialEndsAt !== undefined) chatbot.billing.trialEndsAt = new Date(dto.trialEndsAt);
+    if (dto.notes !== undefined) chatbot.billing.notes = dto.notes;
+
+    // First time a real price is set, move it out of "trial" so the
+    // customer sees they owe a setup payment (unless it's already active).
+    if (chatbot.billing.status === 'trial' && (chatbot.billing.setupFee > 0 || chatbot.billing.monthlyFee > 0)) {
+      chatbot.billing.status = 'awaiting_setup_payment';
+    }
+
+    return chatbot.save();
+  }
+
+  // Customer calls this after making the bank transfer. Creates a PENDING
+  // billing record and alerts the admin — mirrors the existing
+  // /users/notify-payment pattern used for agents/automations.
+  async notifyPayment(
+    chatbotId: string,
+    userId: string,
+    dto: { kind: 'setup' | 'monthly'; transactionRef: string; notes?: string },
+  ): Promise<{ ok: true }> {
+    const chatbot = await this.findOne(chatbotId, userId);
+    const amount = dto.kind === 'setup' ? chatbot.billing.setupFee : chatbot.billing.monthlyFee;
+
+    await this.billingService.create({
+      userId,
+      chatbotId,
+      moduleType: 'chatbot',
+      moduleName: chatbot.name,
+      amount,
+      description: `${dto.kind === 'setup' ? 'Setup fee' : 'Monthly fee'} — ${chatbot.name} — ref ${dto.transactionRef}${dto.notes ? ` — ${dto.notes}` : ''}`,
+      type: dto.kind === 'setup' ? BillingType.SETUP : BillingType.SUBSCRIPTION,
+      status: BillingStatus.PENDING,
+    });
+
+    await this.emailService.sendAdminAlert(
+      `💰 Chatbot payment notification — ${chatbot.name}`,
+      `Chatbot: ${chatbot.name} (${chatbotId})<br>
+       Kind: ${dto.kind}<br>
+       Amount: ${chatbot.billing.currency} ${amount}<br>
+       Transaction Ref: ${dto.transactionRef}<br>
+       Notes: ${dto.notes || 'none'}<br><br>
+       Go to admin dashboard to confirm and activate.`,
+    );
+
+    return { ok: true };
+  }
+
+  // Admin only — confirms a payment was received and activates billing.
+  async confirmPayment(
+    id: string,
+    dto: { kind: 'setup' | 'monthly'; billingRecordId?: string },
+  ): Promise<ChatbotDocument> {
+    const chatbot = await this.findOneAdmin(id);
+    const now = new Date();
+
+    if (dto.kind === 'setup') {
+      chatbot.billing.setupPaidAt = now;
+      chatbot.billing.status = 'active';
+    }
+    if (chatbot.billing.monthlyFee > 0) {
+      chatbot.billing.lastBillingDate = now;
+      const next = new Date(now);
+      next.setDate(next.getDate() + 30);
+      chatbot.billing.nextBillingDate = next;
+      if (chatbot.billing.status !== 'active') chatbot.billing.status = 'active';
+    }
+
+    if (dto.billingRecordId) {
+      await this.billingService.updateStatus(dto.billingRecordId, BillingStatus.PAID);
+    }
+
+    return chatbot.save();
+  }
+
+  async getBillingHistory(chatbotId: string, userId: string, isAdmin: boolean) {
+    const chatbot = isAdmin ? await this.findOneAdmin(chatbotId) : await this.findOne(chatbotId, userId);
+    const history = await this.billingService.findByChatbot(chatbotId);
+    return { billing: chatbot.billing, history };
   }
 }

@@ -9,6 +9,7 @@ import {
   Req,
   Query,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChatbotsService } from './chatbots.service';
@@ -17,6 +18,13 @@ import { ChatbotsService } from './chatbots.service';
 @UseGuards(JwtAuthGuard)
 export class ChatbotsController {
   constructor(private chatbotsService: ChatbotsService) {}
+
+  // Must come before ':id' routes so Nest doesn't match "admin" as an :id.
+  @Get('admin/all')
+  findAllAdmin(@Req() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.chatbotsService.findAllAdmin();
+  }
 
   @Post()
   create(@Req() req: any, @Body() body: any) {
@@ -79,5 +87,30 @@ export class ChatbotsController {
   @Get(':id/embed-code')
   getEmbedCode(@Req() req: any, @Param('id') id: string) {
     return this.chatbotsService.getEmbedCode(id, req.user._id.toString());
+  }
+
+  // ── Pricing & billing ──────────────────────────────────────
+
+  @Get(':id/billing')
+  getBillingHistory(@Req() req: any, @Param('id') id: string) {
+    const isAdmin = req.user.role === 'admin';
+    return this.chatbotsService.getBillingHistory(id, req.user._id.toString(), isAdmin);
+  }
+
+  @Put(':id/pricing')
+  updatePricing(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.chatbotsService.updatePricing(id, body);
+  }
+
+  @Post(':id/notify-payment')
+  notifyPayment(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.chatbotsService.notifyPayment(id, req.user._id.toString(), body);
+  }
+
+  @Post(':id/confirm-payment')
+  confirmPayment(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.chatbotsService.confirmPayment(id, body);
   }
 }

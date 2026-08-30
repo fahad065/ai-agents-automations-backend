@@ -18,8 +18,10 @@ export class BillingService {
     amount: number;
     description: string;
     type?: string;
+    status?: string;
     pipelineRunId?: string;
     subscriptionId?: string;
+    chatbotId?: string;
     apiCosts?: { openai?: number; seedance?: number; atlas?: number };
   }): Promise<BillingDocument> {
     return this.billingModel.create({
@@ -29,12 +31,24 @@ export class BillingService {
       amount: data.amount,
       description: data.description,
       type: data.type || BillingType.USAGE,
-      status: BillingStatus.PAID,
+      status: data.status || BillingStatus.PAID,
       pipelineRunId: data.pipelineRunId ? new Types.ObjectId(data.pipelineRunId) : undefined,
       subscriptionId: data.subscriptionId ? new Types.ObjectId(data.subscriptionId) : undefined,
+      chatbotId: data.chatbotId ? new Types.ObjectId(data.chatbotId) : undefined,
       apiCosts: data.apiCosts || {},
       billingDate: new Date(),
     });
+  }
+
+  async updateStatus(id: string, status: BillingStatus): Promise<BillingDocument | null> {
+    return this.billingModel.findByIdAndUpdate(id, { status }, { new: true });
+  }
+
+  async findByChatbot(chatbotId: string) {
+    return this.billingModel
+      .find({ chatbotId: new Types.ObjectId(chatbotId), isDeleted: false })
+      .sort({ billingDate: -1 })
+      .lean();
   }
 
   // Get billing records

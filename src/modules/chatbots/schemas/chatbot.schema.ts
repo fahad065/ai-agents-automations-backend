@@ -63,6 +63,41 @@ export class ChatbotChannels {
   instagram: InstagramChannel;
 }
 
+@Schema({ _id: false })
+export class ChatbotBilling {
+  // Set by admin only — never writable by the chatbot's owner.
+  @Prop({ default: 0 })
+  setupFee: number;
+
+  @Prop({ default: 0 })
+  monthlyFee: number;
+
+  @Prop({ default: 'USD' })
+  currency: string;
+
+  @Prop({
+    enum: ['trial', 'awaiting_setup_payment', 'active', 'past_due', 'suspended'],
+    default: 'trial',
+  })
+  status: 'trial' | 'awaiting_setup_payment' | 'active' | 'past_due' | 'suspended';
+
+  @Prop()
+  trialEndsAt?: Date;
+
+  @Prop()
+  setupPaidAt?: Date;
+
+  @Prop()
+  lastBillingDate?: Date;
+
+  @Prop()
+  nextBillingDate?: Date;
+
+  // Admin-only internal notes about the deal (not shown to the customer).
+  @Prop()
+  notes?: string;
+}
+
 @Schema({ timestamps: true })
 export class Chatbot {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
@@ -102,6 +137,9 @@ export class Chatbot {
 
   @Prop({ type: ChatbotChannels, default: () => ({}) })
   channels: ChatbotChannels;
+
+  @Prop({ type: ChatbotBilling, default: () => ({}) })
+  billing: ChatbotBilling;
 }
 
 export const ChatbotSchema = SchemaFactory.createForClass(Chatbot);

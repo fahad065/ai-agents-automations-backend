@@ -7,6 +7,7 @@ export enum BillingType {
   SUBSCRIPTION = 'subscription',
   USAGE        = 'usage',
   REFUND       = 'refund',
+  SETUP        = 'setup',
 }
 
 export enum BillingStatus {
@@ -31,6 +32,9 @@ export class Billing {
 
   @Prop({ type: Types.ObjectId })
   subscriptionId?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId })
+  chatbotId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId })
   pipelineRunId?: Types.ObjectId;

@@ -147,6 +147,16 @@ GET  /api/v1/auth/google/callback → redirect to frontend /auth/callback?token=
 - `JwtAuthGuard` — default on all routes, use `@Public()` decorator to bypass
 - `AdminGuard` — checks `user.role === "admin"`, add after JwtAuthGuard
 - `PipelineSecretGuard` — verifies `NESTJS_SERVICE_TOKEN` header from Python service
+- Several controllers (admin.controller.ts, chatbots.controller.ts) instead do an inline `if (req.user.role !== 'admin') throw new ForbiddenException()` per-route rather than a route-level guard — same effect, just check which pattern a given controller uses before adding a new admin route to it.
+
+## Admin routes (`admin.controller.ts` / `admin.service.ts`)
+```
+GET  /api/v1/admin/overview        — platform stats (users, agents, videos, pipeline runs, cost)
+GET  /api/v1/admin/revenue         — cost-by-module + top users by spend
+GET  /api/v1/admin/users           — {_id, name, email} for every user — used to populate the Email Sender "To" dropdown
+POST /api/v1/admin/email/send      — {to: string[], subject, html} → sends via EmailService.sendEmail() to each recipient, returns {sent, failed, total}
+```
+All four check `req.user.role === 'admin'` inline. `admin/email/send` backs the frontend's Settings → Email Sender tab (multi-select recipients, rich text editor) — see the frontend CLAUDE.md.
 
 ## Modules API routes
 ```
@@ -233,8 +243,32 @@ The webhook handlers exist and will work once the bot owner:
 3. In Meta's webhook config, points to `PUBLIC_API_URL/webhooks/whatsapp/:embedKey`
 4. Same flow for Instagram, except Instagram DM permissions (`instagram_manage_messages`) require Meta App Review — can take days
 
+### Chatbot pricing & billing (implemented)
+No fixed public tiers — every chatbot's price is set by hand from the dashboard, per deal, since early customers don't fit a single tier yet. Reuses the existing `Billing` ledger collection (`src/modules/billing/`) and the same manual bank-transfer "notify us, we confirm" pattern already used for agents/automations (`payment-instructions-page.tsx` on the frontend), rather than building a parallel payment system.
+
+`Chatbot.billing` sub-document (added to `chatbot.schema.ts`):
+```
+setupFee, monthlyFee, currency ("USD"),
+status ("trial" | "awaiting_setup_payment" | "active" | "past_due" | "suspended"),
+trialEndsAt?, setupPaidAt?, lastBillingDate?, nextBillingDate?, notes?
+```
+`notes` is admin-only deal context (e.g. "multi-location discount agreed via call"), never shown to the customer.
+
+Routes added to `chatbots.controller.ts`:
+```
+GET  /api/v1/chatbots/admin/all          — admin only: every customer's chatbots, userId populated with {name,email}. Must be declared before the ':id' routes so Nest doesn't match "admin" as an :id param.
+PUT  /api/v1/chatbots/:id/pricing        — admin only: set setupFee/monthlyFee/currency/trialEndsAt/notes. First time a real price is set, billing.status auto-flips 'trial' → 'awaiting_setup_payment'.
+POST /api/v1/chatbots/:id/notify-payment — owner: {kind:'setup'|'monthly', transactionRef, notes} → creates a PENDING Billing record (chatbotId-linked) + emails the admin alert
+POST /api/v1/chatbots/:id/confirm-payment — admin only: {kind, billingRecordId?} → flips billing.status to 'active', computes nextBillingDate (+30 days), marks the Billing record PAID
+GET  /api/v1/chatbots/:id/billing        — {billing, history} — either the owner or an admin can read it
+```
+
+**Security fix that shipped alongside this:** `ChatbotsService.update()` used to do a raw `Object.assign(chatbot, dto)` — once `billing` existed on the schema, a customer could have overwritten their own `setupFee`/`monthlyFee`/`status` through the ordinary `PUT /chatbots/:id` they already had access to. Fixed with a `CUSTOMER_EDITABLE_FIELDS` whitelist (name, description, persona, language, template, status, fallbackMessage(+_ar), humanHandoff, channels) — `billing` and `embedKey` are deliberately excluded and only reachable through the admin-gated routes above. If you ever add a new field to the `Chatbot` schema that a customer should be able to edit, add it to that whitelist explicitly — don't revert to `Object.assign(chatbot, dto)`.
+
+`Billing` schema (`src/modules/billing/schemas/billing.schema.ts`) gained a `chatbotId?: Types.ObjectId` (links a ledger entry back to the bot that generated it) and a `SETUP` `BillingType` (alongside the existing `SUBSCRIPTION`/`USAGE`/`REFUND`) for the one-time fee specifically.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
-2. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
-3. **Subscribe flow** — payment intent creation, subscription activation
-4. **Payment integration** — Stripe or regional gateway
+2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
+3. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
+4. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing

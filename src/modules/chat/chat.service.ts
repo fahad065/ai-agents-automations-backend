@@ -6,6 +6,7 @@ import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowle
 import { Conversation, ConversationDocument } from '../chatbots/schemas/conversation.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
+import { isChatbotBillingActive } from '../chatbots/billing-status.util';
 
 function cosineSim(a: number[], b: number[]): number {
   if (!a.length || !b.length) return 0;
@@ -82,6 +83,19 @@ ${knowledgeSection}`;
     if (!chatbot || chatbot.status !== 'active') {
       return {
         reply: "This chatbot is not currently available.",
+        sessionId,
+        handoff: false,
+      };
+    }
+
+    // Billing gate — a trial that has run out (or a suspended/past-due
+    // subscription) stops answering even though the owner never flipped
+    // `status` themselves. Without this check a lapsed trial would keep
+    // answering for free indefinitely, since `status` and `billing.status`
+    // are tracked separately.
+    if (!isChatbotBillingActive(chatbot)) {
+      return {
+        reply: chatbot.fallbackMessage,
         sessionId,
         handoff: false,
       };

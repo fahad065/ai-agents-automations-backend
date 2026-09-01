@@ -10,6 +10,7 @@ import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { BillingService } from '../billing/billing.service';
 import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
 import { EmailService } from '../email/email.service';
+import { ChatbotPlansService } from '../chatbot-plans/chatbot-plans.service';
 
 // Fields the chatbot's own owner is allowed to change via PUT /chatbots/:id.
 // Deliberately excludes `billing` and `embedKey` — those are admin-only /
@@ -43,18 +44,57 @@ export class ChatbotsService {
     @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
+    @InjectModel('User') private userModel: Model<any>,
     private apiKeysService: ApiKeysService,
     private billingService: BillingService,
     private emailService: EmailService,
+    private plansService: ChatbotPlansService,
   ) {}
 
+  // Every new chatbot starts a 30-day (or plan-defined) free trial automatically —
+  // no admin step required. If `dto.planId` is set, the chatbot inherits that
+  // plan's fees, currency and trial length so it's ready for self-serve signup;
+  // omit it to keep today's hand-negotiated-deal flow (admin sets pricing later
+  // via PUT /:id/pricing, trial length defaults to 30 days).
   async create(userId: string, dto: any): Promise<ChatbotDocument> {
     const embedKey = crypto.randomBytes(16).toString('hex');
+    const { planId, ...rest } = dto;
+
+    let trialDays = 30;
+    const billing: any = {};
+
+    if (planId) {
+      const plan = await this.plansService.findById(planId);
+      if (!plan) throw new NotFoundException('Plan not found');
+      trialDays = plan.trialDays;
+      billing.planId = plan._id;
+      billing.setupFee = plan.setupFee;
+      billing.monthlyFee = plan.monthlyFee;
+      billing.currency = plan.currency;
+    }
+
+    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+    billing.trialEndsAt = trialEndsAt;
+
     const chatbot = await this.chatbotModel.create({
-      ...dto,
+      ...rest,
       userId: new Types.ObjectId(userId),
       embedKey,
+      billing,
     });
+
+    try {
+      const user = await this.userModel.findById(userId).lean();
+      if (user) {
+        await this.emailService.sendTrialStartedEmail(
+          { name: (user as any).name, email: (user as any).email },
+          { moduleName: chatbot.name, trialEndDate: trialEndsAt },
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`create() trial-started email failed for chatbot=${chatbot._id}: ${err?.message}`);
+    }
+
     return chatbot;
   }
 
@@ -89,7 +129,25 @@ export class ChatbotsService {
 
   async update(id: string, userId: string, dto: any): Promise<ChatbotDocument> {
     const chatbot = await this.findOne(id, userId);
-    Object.assign(chatbot, pickCustomerEditable(dto));
+    const changes = pickCustomerEditable(dto);
+
+    // Plan-gated channels: only enforced once a plan is actually assigned
+    // (billing.planId) — hand-negotiated deals with no plan keep working as
+    // before. A customer on Starter (website only) can't self-enable WhatsApp
+    // or Instagram by just PUTing channels.whatsapp.enabled = true.
+    if (chatbot.billing?.planId && changes.channels) {
+      const plan = await this.plansService.findById(chatbot.billing.planId.toString());
+      if (plan) {
+        if (changes.channels.whatsapp?.enabled && !plan.channelsAllowed.whatsapp) {
+          throw new ForbiddenException(`WhatsApp is not included in the ${plan.name} plan — upgrade to enable it.`);
+        }
+        if (changes.channels.instagram?.enabled && !plan.channelsAllowed.instagram) {
+          throw new ForbiddenException(`Instagram is not included in the ${plan.name} plan — upgrade to enable it.`);
+        }
+      }
+    }
+
+    Object.assign(chatbot, changes);
     return chatbot.save();
   }
 

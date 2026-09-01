@@ -186,6 +186,7 @@ All Arabic content stored in `_ar` suffix fields. The backend returns the full d
 ## Cron jobs
 - `usermodules/usermodules.cron.ts` — daily check, expires trials past `trialEndDate`
 - `usermodules/trial-expiry.cron.ts` — related expiry handling
+- `chatbots/chatbot-billing.cron.ts` — daily (10 AM UTC, staggered from the 9 AM usermodules cron), warns at 3 days left then flips `billing.status` once a chatbot trial actually expires — see Chatbot pricing & billing below
 
 ## Chatbot module (implemented)
 
@@ -267,8 +268,30 @@ GET  /api/v1/chatbots/:id/billing        — {billing, history} — either the o
 
 `Billing` schema (`src/modules/billing/schemas/billing.schema.ts`) gained a `chatbotId?: Types.ObjectId` (links a ledger entry back to the bot that generated it) and a `SETUP` `BillingType` (alongside the existing `SUBSCRIPTION`/`USAGE`/`REFUND`) for the one-time fee specifically.
 
+### Chatbot plan catalog + automatic 30-day trial (implemented)
+Global self-serve plan catalog, alongside (not replacing) the manual per-deal pricing above — an admin can still hand-set `setupFee`/`monthlyFee` on any chatbot via `/pricing` with no plan assigned, and that flow is untouched. A plan is opt-in: only chatbots created with a `planId` get plan-driven behavior.
+
+**New module `src/modules/chatbot-plans/`** — `ChatbotPlan` schema: `name`, `slug` (unique), `tagline`, `setupFee`, `monthlyFee`, `currency`, `trialDays` (default 30), `maxBots`, `channelsAllowed{website,whatsapp,instagram}`, `features[]`, `sortOrder`, `isActive`.
+```
+GET    /api/v1/chatbot-plans              — public, active plans only, sorted — for the pricing page
+GET    /api/v1/admin/chatbot-plans        — admin: all plans incl. inactive
+POST   /api/v1/admin/chatbot-plans        — admin: create a plan
+PUT    /api/v1/admin/chatbot-plans/:id    — admin: edit a plan
+DELETE /api/v1/admin/chatbot-plans/:id    — admin: delete a plan
+POST   /api/v1/admin/chatbot-plans/seed   — admin: inserts the 4 default tiers (Starter $29/Growth $49/Business $99/Agency $299) only if the catalog is empty — same pattern as `CmsService.seedPages()`, not an automatic onModuleInit seed
+```
+
+**`Chatbot.billing` gained two fields:** `planId?` (ref `ChatbotPlan`) and `trialReminderSent` (bool, set once the 3-day-left email goes out so it never double-sends).
+
+**`ChatbotsService.create()`** now sets `billing.trialEndsAt` automatically (plan's `trialDays`, or 30 if no `planId` given — every chatbot gets a real trial window now, not just ones an admin manually dated) and, when `planId` is passed, copies that plan's `setupFee`/`monthlyFee`/`currency` onto the chatbot and fires `EmailService.sendTrialStartedEmail()`.
+
+**Plan-gated channels:** `ChatbotsService.update()` now blocks a customer from flipping `channels.whatsapp.enabled` / `channels.instagram.enabled` to `true` via the ordinary `PUT /chatbots/:id` if their assigned plan's `channelsAllowed` doesn't include that channel (`ForbiddenException` naming the plan). Only enforced when `billing.planId` is set — un-planned/manual-deal bots are unaffected. **Not yet enforced: `maxBots`** — a plan's bot-count cap is informational/marketing copy only right now, since billing lives per-chatbot (`Chatbot.billing`) rather than per-account; enforcing "3 bots on Business" needs an account-level plan concept, not a per-bot one. Flagging this rather than half-implementing it.
+
+**Critical gap fixed alongside this:** `ChatService.chat()` (the live public engine) previously only checked `chatbot.status === 'active'` — it never looked at `chatbot.billing.status` at all, so a chatbot whose trial had lapsed (or whose subscription was `past_due`/`suspended`) kept answering for free forever unless an admin noticed and manually flipped `status` to `'inactive'` too. Fixed via a new shared helper, `src/modules/chatbots/billing-status.util.ts` → `isChatbotBillingActive(chatbot)`, called from `chat.service.ts` right after the existing status check; on failure it returns the bot's own `fallbackMessage` rather than exposing billing internals to the widget/WhatsApp/Instagram end user. This check is real-time (re-derives from `trialEndsAt` directly) so it doesn't depend on the cron having already run today — the cron's job is just the reminder emails and moving `billing.status` forward, not the actual gate.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
-3. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
-4. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing
+3. ~~Chatbot plan catalog + automatic trial~~ ✅ done — see above. Frontend still needs a pricing page reading `GET /chatbot-plans` and a plan picker on chatbot creation; `maxBots` still unenforced (see note above)
+4. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
+5. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing

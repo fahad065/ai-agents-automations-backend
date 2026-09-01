@@ -96,6 +96,17 @@ export class ChatbotBilling {
   // Admin-only internal notes about the deal (not shown to the customer).
   @Prop()
   notes?: string;
+
+  // Self-serve plan this chatbot is subscribed to (see chatbot-plans module).
+  // Optional — legacy/hand-negotiated deals set setupFee/monthlyFee directly
+  // via /pricing and are never assigned a plan; channel-gating and maxBots
+  // enforcement only apply once a plan is actually set.
+  @Prop({ type: Types.ObjectId, ref: 'ChatbotPlan' })
+  planId?: Types.ObjectId;
+
+  // Set once by ChatbotsCron so the "3 days left" reminder email fires only once.
+  @Prop({ default: false })
+  trialReminderSent: boolean;
 }
 
 @Schema({ timestamps: true })

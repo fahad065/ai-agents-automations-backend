@@ -23,6 +23,7 @@ import { IndustriesModule } from './modules/industries/industries.module';
 import { IndustrySubscriptionsModule } from './modules/industry-subscriptions/industry-subscriptions.module';
 import { ChatbotsModule } from './modules/chatbots/chatbots.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { ChatbotPlansModule } from './modules/chatbot-plans/chatbot-plans.module';
 
 @Module({
   imports: [
@@ -86,6 +87,7 @@ import { ChatModule } from './modules/chat/chat.module';
     IndustrySubscriptionsModule,
     ChatbotsModule,
     ChatModule,
+    ChatbotPlansModule,
   ],
   providers: [
     // Apply rate limiting globally

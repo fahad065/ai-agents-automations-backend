@@ -6,6 +6,7 @@ export type ModuleDocument = ModuleTemplate & Document;
 export enum ModuleType {
   AGENT      = 'agent',
   AUTOMATION = 'automation',
+  CHATBOT    = 'chatbot',
 }
 
 export enum ModuleCategory {

@@ -6,7 +6,7 @@ import { Chatbot, ChatbotDocument } from './schemas/chatbot.schema';
 import { EmailService } from '../email/email.service';
 
 // Runs the same job the agents/automations side already has (see
-// usermodules/trial-expiry.cron.ts) but for chatbots: warn 3 days before a
+// usermodules/trial-expiry.cron.ts) but for chatbots: warn 5 days before a
 // trial ends, then flip billing.status once it actually does. The chat
 // engine (chat.service.ts) also re-checks trialEndsAt in real time via
 // isChatbotBillingActive(), so a lapsed trial can never answer for free
@@ -27,12 +27,12 @@ export class ChatbotBillingCron {
   async checkChatbotTrials() {
     this.logger.log('[ChatbotBillingCron] Checking chatbot trials...');
 
-    // 3-day warning
+    // 5-day warning
     try {
-      const threeDaysOut = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+      const fiveDaysOut = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
       const expiring = await this.chatbotModel.find({
         'billing.status': 'trial',
-        'billing.trialEndsAt': { $lte: threeDaysOut, $gt: new Date() },
+        'billing.trialEndsAt': { $lte: fiveDaysOut, $gt: new Date() },
         'billing.trialReminderSent': { $ne: true },
       });
 

@@ -89,7 +89,7 @@ createdAt, updatedAt
 
 ### Module / CMS template (`modules/schemas/module.schema.ts`)
 ```
-_id, name, name_ar, slug, type ("agent" | "automation"),
+_id, name, name_ar, slug, type ("agent" | "automation" | "chatbot"),
 pipelineCategory ("standalone" | "niche_pipeline"),
 nicheSlug, tagline, tagline_ar, description, description_ar,
 capabilities[], capabilities_ar[], availableIn["UAE","Kenya"],
@@ -160,11 +160,13 @@ All four check `req.user.role === 'admin'` inline. `admin/email/send` backs the 
 
 ## Modules API routes
 ```
-GET  /api/v1/modules              — public catalog
+GET  /api/v1/modules              — public catalog (filter with ?moduleType=agent|automation|chatbot)
 GET  /api/v1/modules/:slug        — public single module
 POST /api/v1/admin/cms-modules    — admin create
 PUT  /api/v1/admin/cms-modules/:id — admin update
 ```
+
+**`moduleType: 'chatbot'`** — added so the 6 chatbot marketing/detail pages (`/chatbots/[slug]`) can reuse the exact same catalog + admin CMS editor (`/dashboard/cms-modules`) as agents/automations, rather than a parallel content model. `SEED_MODULES` in `modules.service.ts` seeds 6 chatbot template docs on boot (`restaurant-chatbot`, `real-estate-chatbot`, `clinic-chatbot`, `ecommerce-chatbot`, `gym-chatbot`, `education-chatbot`) with real heroStats/features/faq content — same upsert-by-slug seeding as everything else in that array, so admin edits afterward are never overwritten. **The `pricing` sub-doc on these is unused** — chatbot pricing is global across all templates and comes from `GET /chatbot-plans` (see Chatbot plan catalog below), not a per-module monthly/annual figure like agents/automations use.
 
 ## UserModules (subscriptions)
 ```
@@ -186,7 +188,7 @@ All Arabic content stored in `_ar` suffix fields. The backend returns the full d
 ## Cron jobs
 - `usermodules/usermodules.cron.ts` — daily check, expires trials past `trialEndDate`
 - `usermodules/trial-expiry.cron.ts` — related expiry handling
-- `chatbots/chatbot-billing.cron.ts` — daily (10 AM UTC, staggered from the 9 AM usermodules cron), warns at 3 days left then flips `billing.status` once a chatbot trial actually expires — see Chatbot pricing & billing below
+- `chatbots/chatbot-billing.cron.ts` — daily (10 AM UTC, staggered from the 9 AM usermodules cron), warns at 5 days left then flips `billing.status` once a chatbot trial actually expires — see Chatbot pricing & billing below
 
 ## Chatbot module (implemented)
 
@@ -271,17 +273,17 @@ GET  /api/v1/chatbots/:id/billing        — {billing, history} — either the o
 ### Chatbot plan catalog + automatic 30-day trial (implemented)
 Global self-serve plan catalog, alongside (not replacing) the manual per-deal pricing above — an admin can still hand-set `setupFee`/`monthlyFee` on any chatbot via `/pricing` with no plan assigned, and that flow is untouched. A plan is opt-in: only chatbots created with a `planId` get plan-driven behavior.
 
-**New module `src/modules/chatbot-plans/`** — `ChatbotPlan` schema: `name`, `slug` (unique), `tagline`, `setupFee`, `monthlyFee`, `currency`, `trialDays` (default 30), `maxBots`, `channelsAllowed{website,whatsapp,instagram}`, `features[]`, `sortOrder`, `isActive`.
+**New module `src/modules/chatbot-plans/`** — `ChatbotPlan` schema: `name`, `slug` (unique), `tagline`, `setupFee`, `monthlyFee`, `currency`, `trialDays` (default 30), `maxBots`, `channelsAllowed{website,whatsapp,instagram}`, `features[]`, `sortOrder`, `isActive`, `isCustom` (renders as a "Contact us" card with no fixed price — same pattern as `ModulePricing.hasCustomPlan`), `customLabel`.
 ```
 GET    /api/v1/chatbot-plans              — public, active plans only, sorted — for the pricing page
 GET    /api/v1/admin/chatbot-plans        — admin: all plans incl. inactive
 POST   /api/v1/admin/chatbot-plans        — admin: create a plan
 PUT    /api/v1/admin/chatbot-plans/:id    — admin: edit a plan
 DELETE /api/v1/admin/chatbot-plans/:id    — admin: delete a plan
-POST   /api/v1/admin/chatbot-plans/seed   — admin: inserts the 4 default tiers (Starter $29/Growth $49/Business $99/Agency $299) only if the catalog is empty — same pattern as `CmsService.seedPages()`, not an automatic onModuleInit seed
+POST   /api/v1/admin/chatbot-plans/seed   — admin: inserts the 3 default tiers (Basic $29/mo website-only, Pro $49/mo + WhatsApp/Instagram, Enterprise custom/`isCustom`) only if the catalog is empty — same pattern as `CmsService.seedPages()`, not an automatic onModuleInit seed
 ```
 
-**`Chatbot.billing` gained two fields:** `planId?` (ref `ChatbotPlan`) and `trialReminderSent` (bool, set once the 3-day-left email goes out so it never double-sends).
+**`Chatbot.billing` gained two fields:** `planId?` (ref `ChatbotPlan`) and `trialReminderSent` (bool, set once the 5-day-left email goes out so it never double-sends).
 
 **`ChatbotsService.create()`** now sets `billing.trialEndsAt` automatically (plan's `trialDays`, or 30 if no `planId` given — every chatbot gets a real trial window now, not just ones an admin manually dated) and, when `planId` is passed, copies that plan's `setupFee`/`monthlyFee`/`currency` onto the chatbot and fires `EmailService.sendTrialStartedEmail()`.
 
@@ -292,6 +294,6 @@ POST   /api/v1/admin/chatbot-plans/seed   — admin: inserts the 4 default tiers
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
-3. ~~Chatbot plan catalog + automatic trial~~ ✅ done — see above. Frontend still needs a pricing page reading `GET /chatbot-plans` and a plan picker on chatbot creation; `maxBots` still unenforced (see note above)
+3. ~~Chatbot plan catalog + automatic trial~~ ✅ done — see above. Frontend pricing page + template detail pages now in progress on the frontend repo; `maxBots` still unenforced (see note above)
 4. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live
 5. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing

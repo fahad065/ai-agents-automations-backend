@@ -58,6 +58,15 @@ export class ChatbotPlan {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  // Custom/enterprise tier — rendered as a "Contact us" card with no fixed
+  // price instead of a $/mo figure, same pattern as ModulePricing.hasCustomPlan
+  // on the agents/automations detail pages.
+  @Prop({ default: false })
+  isCustom: boolean;
+
+  @Prop({ default: 'Contact us for custom pricing' })
+  customLabel: string;
 }
 
 export const ChatbotPlanSchema = SchemaFactory.createForClass(ChatbotPlan);

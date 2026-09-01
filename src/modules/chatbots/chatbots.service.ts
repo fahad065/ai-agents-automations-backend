@@ -10,7 +10,7 @@ import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { BillingService } from '../billing/billing.service';
 import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
 import { EmailService } from '../email/email.service';
-import { ChatbotPlansService } from '../chatbot-plans/chatbot-plans.service';
+import { ModulesService } from '../modules/modules.service';
 
 // Fields the chatbot's own owner is allowed to change via PUT /chatbots/:id.
 // Deliberately excludes `billing` and `embedKey` — those are admin-only /
@@ -48,33 +48,34 @@ export class ChatbotsService {
     private apiKeysService: ApiKeysService,
     private billingService: BillingService,
     private emailService: EmailService,
-    private plansService: ChatbotPlansService,
+    private modulesService: ModulesService,
   ) {}
 
-  // Every new chatbot starts a 30-day (or plan-defined) free trial automatically —
-  // no admin step required. If `dto.planId` is set, the chatbot inherits that
-  // plan's fees, currency and trial length so it's ready for self-serve signup;
-  // omit it to keep today's hand-negotiated-deal flow (admin sets pricing later
-  // via PUT /:id/pricing, trial length defaults to 30 days).
+  // Every new chatbot starts a 30-day free trial automatically — no admin
+  // step required. If `dto.moduleSlug` is set (the marketing detail page's
+  // pricing section passes it), the chatbot inherits that template's
+  // `module.pricing.monthly` as its billed rate — same pricing mechanism as
+  // agents/automations, admin-edited from the same /dashboard/cms-modules
+  // form. Omit it to keep the hand-negotiated-deal flow (dashboard's own
+  // "+ New Chatbot" modal): admin sets pricing later via PUT /:id/pricing.
   async create(userId: string, dto: any): Promise<ChatbotDocument> {
     const embedKey = crypto.randomBytes(16).toString('hex');
-    const { planId, ...rest } = dto;
+    const { moduleSlug, ...rest } = dto;
 
-    let trialDays = 30;
     const billing: any = {};
 
-    if (planId) {
-      const plan = await this.plansService.findById(planId);
-      if (!plan) throw new NotFoundException('Plan not found');
-      trialDays = plan.trialDays;
-      billing.planId = plan._id;
-      billing.setupFee = plan.setupFee;
-      billing.monthlyFee = plan.monthlyFee;
-      billing.currency = plan.currency;
+    if (moduleSlug) {
+      try {
+        const module = await this.modulesService.findOne(moduleSlug);
+        billing.setupFee = 0;
+        billing.monthlyFee = module.pricing?.monthly || 0;
+        billing.currency = 'USD';
+      } catch (err) {
+        this.logger.warn(`create() couldn't load module "${moduleSlug}" for pricing: ${err?.message}`);
+      }
     }
 
-    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
-    billing.trialEndsAt = trialEndsAt;
+    billing.trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     const chatbot = await this.chatbotModel.create({
       ...rest,
@@ -88,7 +89,7 @@ export class ChatbotsService {
       if (user) {
         await this.emailService.sendTrialStartedEmail(
           { name: (user as any).name, email: (user as any).email },
-          { moduleName: chatbot.name, trialEndDate: trialEndsAt },
+          { moduleName: chatbot.name, trialEndDate: billing.trialEndsAt },
         );
       }
     } catch (err) {
@@ -127,26 +128,12 @@ export class ChatbotsService {
       .lean();
   }
 
+  // One plan, everything included — same story as agents/automations. No
+  // per-tier channel gating: once subscribed, a chatbot owner can enable
+  // website/WhatsApp/Instagram freely.
   async update(id: string, userId: string, dto: any): Promise<ChatbotDocument> {
     const chatbot = await this.findOne(id, userId);
     const changes = pickCustomerEditable(dto);
-
-    // Plan-gated channels: only enforced once a plan is actually assigned
-    // (billing.planId) — hand-negotiated deals with no plan keep working as
-    // before. A customer on Starter (website only) can't self-enable WhatsApp
-    // or Instagram by just PUTing channels.whatsapp.enabled = true.
-    if (chatbot.billing?.planId && changes.channels) {
-      const plan = await this.plansService.findById(chatbot.billing.planId.toString());
-      if (plan) {
-        if (changes.channels.whatsapp?.enabled && !plan.channelsAllowed.whatsapp) {
-          throw new ForbiddenException(`WhatsApp is not included in the ${plan.name} plan — upgrade to enable it.`);
-        }
-        if (changes.channels.instagram?.enabled && !plan.channelsAllowed.instagram) {
-          throw new ForbiddenException(`Instagram is not included in the ${plan.name} plan — upgrade to enable it.`);
-        }
-      }
-    }
-
     Object.assign(chatbot, changes);
     return chatbot.save();
   }

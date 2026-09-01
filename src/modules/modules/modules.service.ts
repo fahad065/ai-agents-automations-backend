@@ -495,10 +495,13 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
 
   // ── CHATBOT TEMPLATES ────────────────────────────────────────────────────
   // moduleType: 'chatbot' — these back the /chatbots/[slug] detail pages.
-  // `pricing` is deliberately left at its schema default ({monthly:0, annual:0,
-  // features:[]}) and unused for this moduleType: chatbot pricing is global
-  // across all templates and comes from GET /chatbot-plans (Basic/Pro/Enterprise),
-  // not from a per-module pricing sub-doc like agents/automations use.
+  // Priced exactly like agents/automations: one monthly/annual figure + an
+  // optional "Custom" contact-us card via `pricing.hasCustomPlan`, editable
+  // by admin from the same /dashboard/cms-modules form (Pricing tab) — no
+  // separate chatbot-only pricing system. Numbers below are a starting
+  // point reflecting rough market value per vertical (a qualified
+  // real-estate lead is worth far more than a restaurant reservation);
+  // admin can freely edit them from the dashboard.
 
   {
     name: 'Restaurant Menu Bot',
@@ -512,6 +515,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Menu Q&A', 'Table reservations', 'Daily specials', 'Allergen info', 'WhatsApp ordering'],
+    pricing: {
+      monthly: 39, annual: 31,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
+      hasCustomPlan: true, customLabel: 'Need it for multiple restaurant locations or a custom ordering integration?',
+    },
     heroStats: [{ label: 'Response time', value: 'Instant' }, { label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Setup time', value: '< 1 day' }],
     features: [
       { icon: '📋', title: 'Menu & allergen Q&A', description: 'Answers questions about dishes, ingredients and allergens straight from your uploaded menu — no more repeating the same answers to every customer.' },
@@ -537,6 +545,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Buyer/renter qualification', 'Listing search', 'Viewing scheduling', 'Lead capture'],
+    pricing: {
+      monthly: 79, annual: 63,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Lead capture & analytics', 'Priority support'],
+      hasCustomPlan: true, customLabel: 'Need it across multiple agencies, brokers, or a custom CRM integration?',
+    },
     heroStats: [{ label: 'Lead response', value: 'Instant' }, { label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Conversion boost', value: '+40%' }],
     features: [
       { icon: '🎯', title: 'Buyer & renter qualification', description: 'Asks the right questions — budget, timeline, property type — before a lead ever reaches your agents.' },
@@ -562,6 +575,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Appointment booking', 'Clinic FAQs', 'Service pricing', 'Reminder-ready'],
+    pricing: {
+      monthly: 59, annual: 47,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Priority support'],
+      hasCustomPlan: true, customLabel: 'Need it across multiple clinic branches or a custom EMR/booking integration?',
+    },
     heroStats: [{ label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Setup time', value: '< 1 day' }, { label: 'No-show reduction', value: 'Fewer calls missed' }],
     features: [
       { icon: '📅', title: 'Appointment booking', description: 'Handles booking requests directly in the chat, in Arabic or English, without tying up your front desk.' },
@@ -587,6 +605,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Order tracking Q&A', 'Return policy', 'Product Q&A', 'WhatsApp support'],
+    pricing: {
+      monthly: 49, annual: 39,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
+      hasCustomPlan: true, customLabel: 'Need it for multiple stores or a custom order-tracking integration?',
+    },
     heroStats: [{ label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Response time', value: 'Instant' }, { label: 'Setup time', value: '< 1 day' }],
     features: [
       { icon: '📦', title: 'Order status Q&A', description: 'Answers "where’s my order" style questions instantly from your policies and info, cutting the most common support ticket type.' },
@@ -612,6 +635,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Membership plan Q&A', 'Free trial booking', 'Class schedule Q&A', 'WhatsApp enquiries'],
+    pricing: {
+      monthly: 39, annual: 31,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
+      hasCustomPlan: true, customLabel: 'Need it across multiple gym locations or a custom membership-system integration?',
+    },
     heroStats: [{ label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Response time', value: 'Instant' }, { label: 'Setup time', value: '< 1 day' }],
     features: [
       { icon: '💳', title: 'Membership plan Q&A', description: 'Explains pricing tiers and what’s included in each membership straight from your knowledge base.' },
@@ -637,6 +665,11 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     platforms: ['website', 'whatsapp', 'instagram'],
     capabilities: ['Course Q&A', 'Admissions FAQs', 'Application guidance', 'WhatsApp enquiries'],
+    pricing: {
+      monthly: 59, annual: 47,
+      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Priority support'],
+      hasCustomPlan: true, customLabel: 'Need it across multiple campuses or a custom admissions-system integration?',
+    },
     heroStats: [{ label: 'Availability', value: '24/7' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Response time', value: 'Instant' }, { label: 'Setup time', value: '< 1 day' }],
     features: [
       { icon: '📚', title: 'Course Q&A', description: 'Answers questions about courses, duration and requirements straight from your knowledge base, day or night.' },
@@ -663,6 +696,7 @@ export class ModulesService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedModules();
+    await this.backfillChatbotPricing();
   }
 
   private async seedModules() {
@@ -676,6 +710,27 @@ export class ModulesService implements OnModuleInit {
       if (result.upsertedCount) seeded++;
     }
     this.logger.log(`Modules seeded: ${seeded} new / ${SEED_MODULES.length} total`);
+  }
+
+  // One-time-per-doc backfill: the 6 chatbot templates were originally seeded
+  // with pricing.monthly left at 0 (chatbot pricing used to live in a
+  // separate chatbot-plans catalog). Now that chatbots are priced exactly
+  // like agents/automations (see the comment above the chatbot SEED_MODULES
+  // entries), any doc already sitting in the DB from before that change needs
+  // its pricing filled in too — $setOnInsert above only affects brand-new
+  // documents, not ones that already exist. Only touches docs where
+  // pricing.monthly is still 0, so an admin's manual edit is never overwritten.
+  private async backfillChatbotPricing() {
+    const chatbotSeeds = SEED_MODULES.filter((m) => m.moduleType === 'chatbot' && m.pricing);
+    let updated = 0;
+    for (const m of chatbotSeeds) {
+      const result = await this.moduleModel.updateOne(
+        { slug: m.slug, moduleType: 'chatbot', 'pricing.monthly': { $in: [0, null] } },
+        { $set: { pricing: m.pricing } },
+      );
+      if (result.modifiedCount) updated++;
+    }
+    if (updated) this.logger.log(`Backfilled pricing on ${updated} existing chatbot module(s)`);
   }
 
   // ── Public — list all active modules ─────────────────────

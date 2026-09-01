@@ -15,19 +15,31 @@ export class PlanChannels {
   instagram: boolean;
 }
 
-// The self-serve pricing catalog for chatbots (Starter/Growth/Business/Agency-style
-// tiers). A plan controls what a customer can enable (channelsAllowed), how many
-// bots they can run (maxBots), and the fee + trial length applied automatically
-// when a chatbot is created against it. Existing hand-negotiated deals keep working
-// unassigned to any plan — planId on Chatbot.billing is optional, and enforcement
-// (see ChatbotsService.update) only kicks in once a plan is actually assigned.
+// The self-serve pricing catalog for chatbots — Basic/Pro/Enterprise tiers,
+// priced per template (templateSlug) rather than one flat price for every
+// vertical, since a qualified real-estate lead is worth a lot more than a
+// restaurant reservation and pricing should reflect that. A plan controls
+// what a customer can enable (channelsAllowed), how many bots they can run
+// (maxBots), and the fee + trial length applied automatically when a chatbot
+// is created against it. Existing hand-negotiated deals keep working
+// unassigned to any plan — planId on Chatbot.billing is optional, and
+// enforcement (see ChatbotsService.update) only kicks in once a plan is
+// actually assigned.
 @Schema({ timestamps: true })
 export class ChatbotPlan {
   @Prop({ required: true })
   name: string;
 
-  @Prop({ required: true, unique: true })
+  // Tier identifier within a template, e.g. 'basic' | 'pro' | 'enterprise'.
+  // Not globally unique on its own — see the compound index below.
+  @Prop({ required: true })
   slug: string;
+
+  // Which chatbot template (ModuleTemplate.slug, e.g. 'restaurant-chatbot')
+  // this tier's pricing applies to. Every plan belongs to exactly one
+  // template — there is no more "one global catalog for every vertical".
+  @Prop({ required: true })
+  templateSlug: string;
 
   @Prop()
   tagline?: string;
@@ -70,4 +82,4 @@ export class ChatbotPlan {
 }
 
 export const ChatbotPlanSchema = SchemaFactory.createForClass(ChatbotPlan);
-ChatbotPlanSchema.index({ slug: 1 }, { unique: true });
+ChatbotPlanSchema.index({ templateSlug: 1, slug: 1 }, { unique: true });

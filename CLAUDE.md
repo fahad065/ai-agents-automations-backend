@@ -166,7 +166,7 @@ POST /api/v1/admin/cms-modules    — admin create
 PUT  /api/v1/admin/cms-modules/:id — admin update
 ```
 
-**`moduleType: 'chatbot'`** — added so the 6 chatbot marketing/detail pages (`/chatbots/[slug]`) can reuse the exact same catalog + admin CMS editor (`/dashboard/cms-modules`) as agents/automations, rather than a parallel content model. `SEED_MODULES` in `modules.service.ts` seeds 6 chatbot template docs on boot (`restaurant-chatbot`, `real-estate-chatbot`, `clinic-chatbot`, `ecommerce-chatbot`, `gym-chatbot`, `education-chatbot`) with real heroStats/features/faq content — same upsert-by-slug seeding as everything else in that array, so admin edits afterward are never overwritten. **The `pricing` sub-doc on these is unused** — chatbot pricing is global across all templates and comes from `GET /chatbot-plans` (see Chatbot plan catalog below), not a per-module monthly/annual figure like agents/automations use.
+**`moduleType: 'chatbot'`** — added so the 6 chatbot marketing/detail pages (`/chatbots/[slug]`) can reuse the exact same catalog + admin CMS editor (`/dashboard/cms-modules`) as agents/automations, rather than a parallel content model. `SEED_MODULES` in `modules.service.ts` seeds 6 chatbot template docs on boot (`restaurant-chatbot`, `real-estate-chatbot`, `clinic-chatbot`, `ecommerce-chatbot`, `gym-chatbot`, `education-chatbot`) with real heroStats/features/faq content — same upsert-by-slug seeding as everything else in that array, so admin edits afterward are never overwritten. **The `pricing` sub-doc on these is unused** — chatbot pricing comes from `GET /chatbot-plans?template=<slug>` instead (see Chatbot plan catalog below), not a per-module monthly/annual figure like agents/automations use. Pricing is per-template (market value differs by vertical), not one flat number reused everywhere.
 
 ## UserModules (subscriptions)
 ```
@@ -271,16 +271,19 @@ GET  /api/v1/chatbots/:id/billing        — {billing, history} — either the o
 `Billing` schema (`src/modules/billing/schemas/billing.schema.ts`) gained a `chatbotId?: Types.ObjectId` (links a ledger entry back to the bot that generated it) and a `SETUP` `BillingType` (alongside the existing `SUBSCRIPTION`/`USAGE`/`REFUND`) for the one-time fee specifically.
 
 ### Chatbot plan catalog + automatic 30-day trial (implemented)
-Global self-serve plan catalog, alongside (not replacing) the manual per-deal pricing above — an admin can still hand-set `setupFee`/`monthlyFee` on any chatbot via `/pricing` with no plan assigned, and that flow is untouched. A plan is opt-in: only chatbots created with a `planId` get plan-driven behavior.
+Self-serve plan catalog, alongside (not replacing) the manual per-deal pricing above — an admin can still hand-set `setupFee`/`monthlyFee` on any chatbot via `/pricing` with no plan assigned, and that flow is untouched. A plan is opt-in: only chatbots created with a `planId` get plan-driven behavior.
 
-**New module `src/modules/chatbot-plans/`** — `ChatbotPlan` schema: `name`, `slug` (unique), `tagline`, `setupFee`, `monthlyFee`, `currency`, `trialDays` (default 30), `maxBots`, `channelsAllowed{website,whatsapp,instagram}`, `features[]`, `sortOrder`, `isActive`, `isCustom` (renders as a "Contact us" card with no fixed price — same pattern as `ModulePricing.hasCustomPlan`), `customLabel`.
+**Pricing is per-template, not one flat catalog.** Originally this was a single global Basic/Pro/Enterprise set shared by all 6 chatbot templates; that was wrong for the business — a qualified real-estate lead is worth far more than a restaurant reservation, so each template now has its own Basic/Pro/Enterprise pricing reflecting rough market value for that vertical (see `tiersFor()` in `chatbot-plans.service.ts` for the reasoning per template, e.g. `real-estate-chatbot` Basic/Pro is $49/$89 vs `restaurant-chatbot` at $29/$49). Enterprise is always `isCustom` (no fixed price) regardless of template. These are starting points, not fixed law — edit freely via the admin catalog.
+
+**New module `src/modules/chatbot-plans/`** — `ChatbotPlan` schema: `name`, `slug` (tier id: `'basic'|'pro'|'enterprise'`), `templateSlug` (which `ModuleTemplate.slug` this pricing applies to — e.g. `'restaurant-chatbot'`; `{templateSlug, slug}` is the compound-unique key, `slug` alone is **not** unique), `tagline`, `setupFee`, `monthlyFee`, `currency`, `trialDays` (default 30), `maxBots`, `channelsAllowed{website,whatsapp,instagram}`, `features[]`, `sortOrder`, `isActive`, `isCustom` (renders as a "Contact us" card with no fixed price — same pattern as `ModulePricing.hasCustomPlan`), `customLabel`.
 ```
-GET    /api/v1/chatbot-plans              — public, active plans only, sorted — for the pricing page
+GET    /api/v1/chatbot-plans?template=restaurant-chatbot  — public: just that template's 3 tiers (what the detail page uses)
+GET    /api/v1/chatbot-plans                              — public: every plan across every template (what /pricing uses to compute each template's starting price)
 GET    /api/v1/admin/chatbot-plans        — admin: all plans incl. inactive
 POST   /api/v1/admin/chatbot-plans        — admin: create a plan
 PUT    /api/v1/admin/chatbot-plans/:id    — admin: edit a plan
 DELETE /api/v1/admin/chatbot-plans/:id    — admin: delete a plan
-POST   /api/v1/admin/chatbot-plans/seed   — admin: inserts the 3 default tiers (Basic $29/mo website-only, Pro $49/mo + WhatsApp/Instagram, Enterprise custom/`isCustom`) only if the catalog is empty — same pattern as `CmsService.seedPages()`, not an automatic onModuleInit seed
+POST   /api/v1/admin/chatbot-plans/seed   — admin: upserts the 18 default tiers (6 templates × Basic/Pro/Enterprise) by `{templateSlug, slug}` — same upsert-and-safe-to-rerun pattern as `SEED_MODULES` in `modules.service.ts`, replacing the old "only if the catalog is empty" all-or-nothing seed now that plans are no longer one flat global set
 ```
 
 **`Chatbot.billing` gained two fields:** `planId?` (ref `ChatbotPlan`) and `trialReminderSent` (bool, set once the 5-day-left email goes out so it never double-sends).

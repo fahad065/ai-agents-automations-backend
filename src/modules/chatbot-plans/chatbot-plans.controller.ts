@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ChatbotPlansService } from './chatbot-plans.service';
@@ -7,11 +7,14 @@ import { ChatbotPlansService } from './chatbot-plans.service';
 export class ChatbotPlansController {
   constructor(private plansService: ChatbotPlansService) {}
 
-  // ─── Public — the pricing page reads this ──────────────────────
+  // ─── Public — the pricing page + chatbot detail pages read this ──
+  // ?template=restaurant-chatbot returns just that template's 3 tiers;
+  // omitted, returns every plan across every template (for computing each
+  // template's starting price on the standalone /pricing page).
 
   @Get('chatbot-plans')
-  findActive() {
-    return this.plansService.findActive();
+  findActive(@Query('template') template?: string) {
+    return this.plansService.findActive(template);
   }
 
   // ─── Admin ──────────────────────────────────────────────────────

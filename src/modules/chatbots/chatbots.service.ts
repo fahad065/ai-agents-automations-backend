@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
@@ -138,6 +138,24 @@ export class ChatbotsService {
   async update(id: string, userId: string, dto: any, isAdmin = false): Promise<ChatbotDocument> {
     const chatbot = await this.findOne(id, userId, isAdmin);
     const changes = pickCustomerEditable(dto);
+
+    // Setup/exploration stays open to an unverified account — only going
+    // live is gated. Deliberately not a full account lock/deadline: that
+    // would punish anyone still mid-setup for a slow inbox, and the
+    // verification link itself already expires in 24h (see
+    // AuthService.register()) with a one-click resend, so there's already
+    // a natural forcing function without adding a second one here.
+    if (changes.status === 'active' && chatbot.status !== 'active') {
+      const owner = await this.userModel.findById(chatbot.userId).select('isEmailVerified').lean();
+      if (!owner || !(owner as any).isEmailVerified) {
+        throw new BadRequestException(
+          isAdmin
+            ? 'This chatbot\'s owner needs to verify their email before it can go live.'
+            : 'Verify your email before making this chatbot live.',
+        );
+      }
+    }
+
     Object.assign(chatbot, changes);
     return chatbot.save();
   }

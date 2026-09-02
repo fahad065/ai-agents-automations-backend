@@ -71,7 +71,7 @@ export class AuthController {
 
   @SkipThrottle()
   @Get('google')
-  async googleAuth(@Res() res: any) {
+  async googleAuth(@Query('redirect') redirect: string, @Res() res: any) {
     const clientId = this.config.get('GOOGLE_CLIENT_ID');
     const callbackUrl = this.config.get('GOOGLE_CALLBACK_URL');
 
@@ -83,6 +83,12 @@ export class AuthController {
       prompt: 'select_account',
       access_type: 'offline',
     });
+    // Google's OAuth `state` param round-trips opaque data through the
+    // whole consent-screen detour and hands it back verbatim on callback —
+    // used here purely to carry the frontend's post-login destination
+    // (e.g. /chatbots/some-slug?autostart=1) through, since GoogleButton's
+    // navigation is a full page redirect with no other way to preserve it.
+    if (redirect) params.set('state', redirect);
 
     return res.redirect(
       `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
@@ -94,9 +100,11 @@ export class AuthController {
   async googleCallback(
     @Query('code') code: string,
     @Query('error') error: string,
+    @Query('state') state: string,
     @Res() res: any,
   ) {
     const frontendUrl = this.config.get('FRONTEND_URL') || 'http://localhost:3000';
+    const redirectParam = state ? `&redirect=${encodeURIComponent(state)}` : '';
 
     if (error || !code) {
       return res.redirect(`${frontendUrl}/auth/login?error=cancelled`);
@@ -143,7 +151,7 @@ export class AuthController {
       const result = await this.authService.googleLogin(googleUser);
 
       return res.redirect(
-        `${frontendUrl}/auth/callback?token=${result.accessToken}&refresh=${result.refreshToken}`
+        `${frontendUrl}/auth/callback?token=${result.accessToken}&refresh=${result.refreshToken}${redirectParam}`
       );
     } catch (err) {
       console.error('[GOOGLE CALLBACK ERROR]', err);

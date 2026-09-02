@@ -168,17 +168,27 @@ export class AuthService {
     let user = await this.userModel.findOne({ email: googleUser.email });
 
     if (!user) {
+      // Google has already verified this person owns this email address as
+      // part of the OAuth handshake — isEmailVerified: true from the start,
+      // not the schema's false default. Without this, every Google signup
+      // would sit permanently "unverified" (no verification email is ever
+      // sent for this path) and get blocked by anything gated on
+      // isEmailVerified, e.g. ChatbotsService.update()'s go-live check.
       user = await this.userModel.create({
         name: googleUser.name,
         email: googleUser.email,
         googleId: googleUser.googleId,
         avatar: googleUser.avatar,
         provider: AuthProvider.GOOGLE,
+        isEmailVerified: true,
       });
     } else if (!user.googleId) {
       user.googleId = googleUser.googleId;
       user.provider = AuthProvider.GOOGLE;
       if (!user.avatar) user.avatar = googleUser.avatar;
+      // Linking Google to an existing (possibly still-unverified) account is
+      // itself proof of ownership of the email — same reasoning as above.
+      user.isEmailVerified = true;
       await user.save();
     }
 

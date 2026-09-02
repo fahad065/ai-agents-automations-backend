@@ -300,6 +300,15 @@ Given the platform's actual sales motion (cold outreach → you close the deal �
 - **Real correctness bug caught while wiring this up, not a hypothetical:** `addKnowledge()` used to resolve the OpenAI key via `resolveOpenAiKey(userId)` where `userId` was whoever called the route. Once admin can call this route for a client's bot, that would have looked up the *admin's* API key (or failed) instead of the bot owner's — silently breaking BYOK's per-customer billing. Fixed by resolving the key from `chatbot.userId` (the bot's actual owner) after `findOne()`, never from the caller.
 - `notifyPayment()` intentionally did **not** get an `isAdmin` param — it's the customer-facing "I've paid" action; an admin doing this on a client's behalf isn't a real scenario the platform needs.
 
+### OpenAI key gate on chatbot setup + admin-on-behalf-of-client API keys (implemented, 2026-09)
+Every chatbot capability — knowledge-base embedding, the live `/chat/:embedKey` engine itself — needs the bot **owner's** own OpenAI key on file (BYOK, see the CRITICAL note at the top of this file). Previously that only surfaced as a silent failure at chat time (empty embeddings, every reply falling back to `fallbackMessage`) with no prompt anywhere to actually add one. The frontend now checks for it up front and blocks into a dialog before setup — see frontend CLAUDE.md.
+
+To support that (and the admin-onboarding flow above, where the admin may be the one adding the client's key on their behalf during setup), `api-keys.controller.ts` gained the same admin-bypass shape as `chatbots.controller.ts`:
+- `POST /api-keys`: admin can pass `{ userId: '<clientId>', ...rest }` to save the key under that client's account instead of their own. Ignored for non-admins.
+- `GET /api-keys`: admin can pass `?userId=<clientId>` to read a specific client's keys (e.g. checking whether the chatbot's owner has an OpenAI key). Ignored for non-admins — meaningfully, this makes it safe for the frontend to *always* pass `?userId=<bot.userId>` regardless of who's viewing, since it's a no-op for a non-admin client checking their own bot (resolves to their own id either way).
+
+`ApiKeysService.saveKey()`/`getKeys()` needed no changes — both already took `userId` as a plain parameter; only the controller was hardcoded to `req.user._id`.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer

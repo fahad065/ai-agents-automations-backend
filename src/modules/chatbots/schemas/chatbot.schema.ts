@@ -120,7 +120,7 @@ export class Chatbot {
   language: 'en' | 'ar' | 'both';
 
   @Prop({
-    enum: ['restaurant', 'real_estate', 'clinic', 'ecommerce', 'gym', 'education', 'custom'],
+    enum: ['restaurant', 'real_estate', 'clinic', 'ecommerce', 'gym', 'education', 'salon', 'hotel', 'auto_dealership', 'custom'],
   })
   template?: string;
 

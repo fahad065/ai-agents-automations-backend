@@ -103,10 +103,14 @@ export class ChatbotsService {
     return this.chatbotModel.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 });
   }
 
-  async findOne(id: string, userId: string): Promise<ChatbotDocument> {
+  // isAdmin bypasses the ownership check — lets an admin view/manage a
+  // client's chatbot through the same routes the client themselves uses
+  // (onboarding a client after a deal closes, or helping with support),
+  // without duplicating every method for an admin-only variant.
+  async findOne(id: string, userId: string, isAdmin = false): Promise<ChatbotDocument> {
     const chatbot = await this.chatbotModel.findById(id);
     if (!chatbot) throw new NotFoundException('Chatbot not found');
-    if (chatbot.userId.toString() !== userId) throw new ForbiddenException('Access denied');
+    if (!isAdmin && chatbot.userId.toString() !== userId) throw new ForbiddenException('Access denied');
     return chatbot;
   }
 
@@ -131,15 +135,15 @@ export class ChatbotsService {
   // One plan, everything included — same story as agents/automations. No
   // per-tier channel gating: once subscribed, a chatbot owner can enable
   // website/WhatsApp/Instagram freely.
-  async update(id: string, userId: string, dto: any): Promise<ChatbotDocument> {
-    const chatbot = await this.findOne(id, userId);
+  async update(id: string, userId: string, dto: any, isAdmin = false): Promise<ChatbotDocument> {
+    const chatbot = await this.findOne(id, userId, isAdmin);
     const changes = pickCustomerEditable(dto);
     Object.assign(chatbot, changes);
     return chatbot.save();
   }
 
-  async delete(id: string, userId: string): Promise<{ message: string }> {
-    const chatbot = await this.findOne(id, userId);
+  async delete(id: string, userId: string, isAdmin = false): Promise<{ message: string }> {
+    const chatbot = await this.findOne(id, userId, isAdmin);
     const chatbotId = chatbot._id as Types.ObjectId;
     await Promise.all([
       this.chatbotModel.findByIdAndDelete(chatbotId),
@@ -178,14 +182,17 @@ export class ChatbotsService {
     }
   }
 
-  async addKnowledge(chatbotId: string, userId: string, dto: any): Promise<KnowledgeBaseDocument> {
-    // Verify ownership
-    await this.findOne(chatbotId, userId);
+  async addKnowledge(chatbotId: string, userId: string, dto: any, isAdmin = false): Promise<KnowledgeBaseDocument> {
+    // Verify ownership (or admin access)
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
 
     let embedding: number[] = [];
 
     try {
-      const apiKey = await this.resolveOpenAiKey(userId);
+      // Always embeds with the bot OWNER's key (BYOK) — an admin adding
+      // knowledge on a client's behalf still bills the client's own key,
+      // never a platform-wide fallback.
+      const apiKey = await this.resolveOpenAiKey(chatbot.userId.toString());
       if (!apiKey) throw new Error('No OpenAI key available');
 
       let textToEmbed = '';
@@ -211,16 +218,16 @@ export class ChatbotsService {
     });
   }
 
-  async listKnowledge(chatbotId: string, userId: string): Promise<KnowledgeBaseDocument[]> {
-    await this.findOne(chatbotId, userId);
+  async listKnowledge(chatbotId: string, userId: string, isAdmin = false): Promise<KnowledgeBaseDocument[]> {
+    await this.findOne(chatbotId, userId, isAdmin);
     return this.knowledgeBaseModel
       .find({ chatbotId: new Types.ObjectId(chatbotId) })
       .select('-embedding')
       .sort({ createdAt: -1 });
   }
 
-  async deleteKnowledge(chatbotId: string, knowledgeId: string, userId: string): Promise<{ message: string }> {
-    await this.findOne(chatbotId, userId);
+  async deleteKnowledge(chatbotId: string, knowledgeId: string, userId: string, isAdmin = false): Promise<{ message: string }> {
+    await this.findOne(chatbotId, userId, isAdmin);
     const result = await this.knowledgeBaseModel.findOneAndDelete({
       _id: new Types.ObjectId(knowledgeId),
       chatbotId: new Types.ObjectId(chatbotId),
@@ -229,16 +236,16 @@ export class ChatbotsService {
     return { message: 'Knowledge entry deleted' };
   }
 
-  async getConversations(chatbotId: string, userId: string, limit = 20): Promise<ConversationDocument[]> {
-    await this.findOne(chatbotId, userId);
+  async getConversations(chatbotId: string, userId: string, limit = 20, isAdmin = false): Promise<ConversationDocument[]> {
+    await this.findOne(chatbotId, userId, isAdmin);
     return this.conversationModel
       .find({ chatbotId: new Types.ObjectId(chatbotId) })
       .sort({ createdAt: -1 })
       .limit(Number(limit));
   }
 
-  async getAnalytics(chatbotId: string, userId: string): Promise<any> {
-    await this.findOne(chatbotId, userId);
+  async getAnalytics(chatbotId: string, userId: string, isAdmin = false): Promise<any> {
+    await this.findOne(chatbotId, userId, isAdmin);
 
     const conversations = await this.conversationModel.find({
       chatbotId: new Types.ObjectId(chatbotId),
@@ -265,8 +272,8 @@ export class ChatbotsService {
     };
   }
 
-  async getEmbedCode(chatbotId: string, userId: string): Promise<{ embedCode: string }> {
-    const chatbot = await this.findOne(chatbotId, userId);
+  async getEmbedCode(chatbotId: string, userId: string, isAdmin = false): Promise<{ embedCode: string }> {
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
     const color = chatbot.channels?.website?.customColor || '#7c3aed';
     const welcome = chatbot.channels?.website?.welcomeMessage || '';
     const welcomeAr = chatbot.channels?.website?.welcomeMessage_ar || '';

@@ -26,9 +26,15 @@ export class ChatbotsController {
     return this.chatbotsService.findAllAdmin();
   }
 
+  // Admin can pass body.userId to create the bot under a specific client's
+  // account instead of their own — the "close the deal, build it for them"
+  // onboarding flow. Regular users can't set userId (ignored unless admin).
   @Post()
   create(@Req() req: any, @Body() body: any) {
-    return this.chatbotsService.create(req.user._id.toString(), body);
+    const isAdmin = req.user.role === 'admin';
+    const { userId: targetUserId, ...rest } = body;
+    const ownerId = isAdmin && targetUserId ? targetUserId : req.user._id.toString();
+    return this.chatbotsService.create(ownerId, rest);
   }
 
   @Get()
@@ -38,32 +44,32 @@ export class ChatbotsController {
 
   @Get(':id')
   findOne(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.findOne(id, req.user._id.toString());
+    return this.chatbotsService.findOne(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Put(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() body: any) {
-    return this.chatbotsService.update(id, req.user._id.toString(), body);
+    return this.chatbotsService.update(id, req.user._id.toString(), body, req.user.role === 'admin');
   }
 
   @Delete(':id')
   delete(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.delete(id, req.user._id.toString());
+    return this.chatbotsService.delete(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Post(':id/knowledge')
   addKnowledge(@Req() req: any, @Param('id') id: string, @Body() body: any) {
-    return this.chatbotsService.addKnowledge(id, req.user._id.toString(), body);
+    return this.chatbotsService.addKnowledge(id, req.user._id.toString(), body, req.user.role === 'admin');
   }
 
   @Get(':id/knowledge')
   listKnowledge(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.listKnowledge(id, req.user._id.toString());
+    return this.chatbotsService.listKnowledge(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Delete(':id/knowledge/:kId')
   deleteKnowledge(@Req() req: any, @Param('id') id: string, @Param('kId') kId: string) {
-    return this.chatbotsService.deleteKnowledge(id, kId, req.user._id.toString());
+    return this.chatbotsService.deleteKnowledge(id, kId, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Get(':id/conversations')
@@ -76,17 +82,18 @@ export class ChatbotsController {
       id,
       req.user._id.toString(),
       limit ? parseInt(limit, 10) : 20,
+      req.user.role === 'admin',
     );
   }
 
   @Get(':id/analytics')
   getAnalytics(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.getAnalytics(id, req.user._id.toString());
+    return this.chatbotsService.getAnalytics(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Get(':id/embed-code')
   getEmbedCode(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.getEmbedCode(id, req.user._id.toString());
+    return this.chatbotsService.getEmbedCode(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   // ── Pricing & billing ──────────────────────────────────────

@@ -324,6 +324,17 @@ User asked whether the Google sign-in path had the same fixes as the email path 
 
 Facebook/Apple were checked too — `AuthService.facebookLogin()` exists but has no controller route wired to it (dead code, unreachable), and there's no Apple integration at all, so neither needed a fix; Google is the only live social-auth path today.
 
+### Forgot / reset password (implemented, 2026-09)
+Was entirely fake until now — the frontend's forgot-password form was a `setTimeout` mock with a comment saying the real API call would come later, and no `/reset-password` frontend page or backend endpoint existed at all. `EmailService.sendPasswordResetEmail()` already existed and was fully correct (built ahead of the rest of the flow, never called by anything).
+
+- `User` schema: `passwordResetToken?`/`passwordResetExpires?`, same shape as the existing `emailVerificationToken`/`emailVerificationExpires` pair.
+- `AuthService.forgotPassword(email)`: generates a 32-byte hex token, 1-hour expiry (matches the email copy's own promise), saves it, calls `sendPasswordResetEmail()`. **Always returns the same generic message** regardless of whether the email exists — a differing response here would let a caller enumerate registered users.
+- `AuthService.resetPassword(token, newPassword)`: looks up by token + unexpired only, `BadRequestException('Invalid or expired reset link')` otherwise. On success: rehashes with bcrypt cost 12 (matching `register()`), clears the token, and clears `refreshToken` too — forces re-login on every other session, since a password reset is exactly the moment a stolen refresh token should stop working.
+- Two new routes, same 5-req/60s throttle as `register`, no guard (public like `register`/`login`): `POST /auth/forgot-password`, `POST /auth/reset-password`.
+- Fixed the reset email's link target — it pointed at a bare `/reset-password`, which doesn't match this app's actual convention (every other auth page lives under `/auth/*`); now `/auth/reset-password`, matching the new frontend page.
+
+**Verification note:** this sandbox has no network path to MongoDB Atlas, the Resend API, or the production site (confirmed via direct connection attempts — all rejected by the egress policy), so this was verified via a clean `nest build` plus a careful line-by-line trace against the already-proven `emailVerificationToken`/`resendVerification` pattern it mirrors, not a live database-backed run. Worth a real signup + forgot-password test against the deployed environment to confirm actual email delivery end to end.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer

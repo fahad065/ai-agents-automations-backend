@@ -144,6 +144,53 @@ export class AuthService {
     return { message: 'Verification email sent' };
   }
 
+  // Deliberately returns the same generic message whether or not the
+  // email exists — telling a caller "no account with that email" turns
+  // this endpoint into a way to enumerate registered users.
+  async forgotPassword(email: string) {
+    const user = await this.userModel.findOne({ email: email.toLowerCase() });
+    const genericResponse = {
+      message: 'If an account exists for that email, a password reset link has been sent.',
+    };
+    if (!user) return genericResponse;
+
+    const passwordResetToken = crypto.randomBytes(32).toString('hex');
+    // Matches the 1-hour window already promised in
+    // EmailService.sendPasswordResetEmail's copy.
+    const passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
+
+    await this.userModel.findByIdAndUpdate(user._id, {
+      passwordResetToken,
+      passwordResetExpires,
+    });
+
+    await this.emailService.sendPasswordResetEmail(
+      { name: user.name, email: user.email },
+      passwordResetToken,
+    );
+
+    return genericResponse;
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.userModel.findOne({
+      passwordResetToken: token,
+      passwordResetExpires: { $gt: new Date() },
+    });
+
+    if (!user) throw new BadRequestException('Invalid or expired reset link');
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    // Force re-login on every other device/session — a password reset is
+    // exactly the moment a stolen refresh token should stop working.
+    user.refreshToken = undefined;
+    await user.save();
+
+    return { message: 'Password reset successful — sign in with your new password.' };
+  }
+
   async login(dto: LoginDto) {
     const user = await this.userModel
       .findOne({ email: dto.email })

@@ -336,7 +336,7 @@ export class EmailService {
 
   // ── 7. Password Reset ─────────────────────────────────────
   async sendPasswordResetEmail(user: { name: string; email: string }, resetToken: string): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/auth/reset-password?token=${resetToken}`;
     const html = this.base(`
       <div style="padding:40px 36px;text-align:center;">
         <div style="font-size:48px;margin-bottom:12px;">🔐</div>

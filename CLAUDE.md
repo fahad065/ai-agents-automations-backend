@@ -403,6 +403,18 @@ User asked to confirm whether Analytics/WhatsApp/Instagram were actually gated b
 
 See frontend CLAUDE.md for the config-page gating UI, the 3-tier pricing cards, and the admin tier editor.
 
+## Admin notification emails: destination fix + redesign (implemented, 2026-09)
+User reported the platform's internal signup/verification alerts were landing at a personal Gmail address (`knowledgetruth2023@gmail.com`) instead of `hello@logicmate.io`, and asked for the templates to look more attractive.
+
+- **`EmailService.adminEmail`** — the hardcoded fallback (used whenever `ADMIN_NOTIFY_EMAIL` isn't set in the environment) changed from `knowledgetruth2023@gmail.com` to `hello@logicmate.io`. This is the address every internal admin notification goes to: new-signup alerts, payment success/failure, and any ad-hoc `sendAdminAlert()` call.
+- **Real duplication found while tracing the two emails the user saw**: `AuthService.register()` fires `sendAdminAlert('New signup: ${name}', ...)` immediately at registration, and `AuthService.verifyEmail()` calls `sendWelcomeEmail()`, which *also* sent its own hardcoded `[LogicMate] New signup: name (email)` admin email — so every signup produced two separately-worded "new signup" admin emails, the second one firing at verification time, not at signup, which reads as a second/different person signing up. Fixed by renaming the second one to `[LogicMate Admin] Email verified: name` — accurate to when it actually fires, and no longer a confusing duplicate of the first.
+- **New shared `adminNotificationCard(emoji, title, accent, bodyHtml)` + `adminInfoRows(rows)` helpers** replace three separate crude `<p style="font-family:sans-serif;padding:20px;">` blocks (the two signup emails above, plus `sendPaymentSuccessEmail`'s and `sendPaymentFailedEmail`'s admin copies) with one consistent, on-brand card — wrapped in the same dark `base()` template every customer-facing email already uses (LogicMate wordmark header, dark card, accent-colored title/emoji, footer), instead of unstyled inline HTML that looked out of place next to the rest of the email system.
+- `sendAdminAlert()` (still the general-purpose one-off alert method, used by `AuthService.register()`'s new-signup notification) now renders through the same card.
+
+**Not touched**: the actual `sendAdminAlert('New signup: ...')` call site in `AuthService.register()` and its wording — only the destination address and template design changed, per what was asked. If `ADMIN_NOTIFY_EMAIL` is already set on Railway to something else, that env var still wins over the new `hello@logicmate.io` fallback — worth checking Railway's env vars if admin alerts still don't land at `hello@logicmate.io` after this deploys.
+
+Verified via a clean `nest build`; no live-email send was possible in this sandbox (no network path to the Resend API, same limitation noted throughout this file), so the HTML was traced against the already-proven `base()`/`sendVerificationEmail()` pattern it now shares.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer

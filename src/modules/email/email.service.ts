@@ -7,7 +7,7 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly apiKey = process.env.RESEND_API_KEY || '';
   private readonly from = process.env.SMTP_FROM || 'noreply@logicmate.io';
-  private readonly adminEmail = process.env.ADMIN_NOTIFY_EMAIL || 'knowledgetruth2023@gmail.com';
+  private readonly adminEmail = process.env.ADMIN_NOTIFY_EMAIL || 'hello@logicmate.io';
 
   // ── Core send via Resend HTTP API ─────────────────────────
   private async send(
@@ -79,6 +79,36 @@ export class EmailService {
 </body></html>`;
   }
 
+  // ── Admin notification card ───────────────────────────────
+  // Shared, styled replacement for the old crude `<p style="font-family:sans-serif">`
+  // blocks previously duplicated across sendWelcomeEmail/sendPaymentSuccessEmail/
+  // sendPaymentFailedEmail/sendAdminAlert — every internal admin notification
+  // (new signup, verified, payment events, ad-hoc alerts) now shares one look.
+  private adminNotificationCard(emoji: string, title: string, accent: string, bodyHtml: string): string {
+    return this.base(`
+      <div style="padding:32px 32px 28px;">
+        <div style="text-align:center;margin-bottom:20px;">
+          <div style="font-size:36px;margin-bottom:8px;">${emoji}</div>
+          <h1 style="color:${accent};font-size:18px;font-weight:700;margin:0;">${title}</h1>
+        </div>
+        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;">
+          ${bodyHtml}
+        </div>
+        <p style="color:#404040;font-size:11px;margin:18px 0 0;text-align:center;">
+          ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })} UTC
+        </p>
+      </div>
+    `);
+  }
+
+  private adminInfoRows(rows: { label: string; value: string }[]): string {
+    return rows.map((r, i) => `
+      <div style="display:flex;justify-content:space-between;gap:16px;padding:${i === 0 ? '0 0 12px' : '12px 0'} 0;${i < rows.length - 1 ? 'border-bottom:1px solid rgba(255,255,255,0.06);' : ''}">
+        <span style="color:#737373;font-size:13px;">${r.label}</span>
+        <span style="color:#e5e5e5;font-size:13px;font-weight:600;text-align:right;">${r.value}</span>
+      </div>`).join('');
+  }
+
   // ── 1. Welcome Email ──────────────────────────────────────
   async sendWelcomeEmail(user: { name: string; email: string }): Promise<void> {
     const html = this.base(`
@@ -104,8 +134,15 @@ export class EmailService {
       </div>
     `);
     await this.send(user.email, '🎉 Welcome to LogicMate!', html);
-    await this.send(this.adminEmail, `[LogicMate] New signup: ${user.name} (${user.email})`,
-      `<p style="font-family:sans-serif;padding:20px;">New user signed up:<br><strong>${user.name}</strong><br>${user.email}<br><small>${new Date().toISOString()}</small></p>`);
+    // Named "Email verified", not "New signup" — this only fires from verifyEmail(),
+    // and register() already sent its own "New signup" admin alert (sendAdminAlert
+    // below) the moment the account was created. Reusing "New signup" wording here
+    // would read as a second, different signup instead of what actually happened.
+    await this.send(this.adminEmail, `[LogicMate Admin] Email verified: ${user.name}`,
+      this.adminNotificationCard('✅', 'Email verified', '#22c55e', this.adminInfoRows([
+        { label: 'Name', value: user.name },
+        { label: 'Email', value: user.email },
+      ])));
   }
 
   // ── 2. Pipeline Complete ──────────────────────────────────
@@ -381,8 +418,13 @@ export class EmailService {
       </div>
     `);
     await this.send(user.email, `✅ Payment confirmed — ${data.plan} Plan`, html);
-    await this.send(this.adminEmail, `[LogicMate] Payment: ${user.name} subscribed to ${data.plan} ($${data.amount})`,
-      `<p style="font-family:sans-serif;padding:20px;">Payment received:<br><strong>${user.name}</strong> (${user.email})<br>Plan: ${data.plan}<br>Amount: $${data.amount}<br>${new Date().toISOString()}</p>`);
+    await this.send(this.adminEmail, `[LogicMate Admin] Payment received: ${user.name} (${data.plan})`,
+      this.adminNotificationCard('💰', 'Payment received', '#22c55e', this.adminInfoRows([
+        { label: 'Name', value: user.name },
+        { label: 'Email', value: user.email },
+        { label: 'Plan', value: data.plan },
+        { label: 'Amount', value: `$${data.amount.toFixed(2)}` },
+      ])));
   }
 
   // ── 9. Payment Failed ─────────────────────────────────────
@@ -403,18 +445,20 @@ export class EmailService {
       </div>
     `);
     await this.send(user.email, `⚠️ Payment failed — action required`, html);
-    await this.send(this.adminEmail, `[LogicMate] Payment FAILED: ${user.name} (${data.plan})`,
-      `<p style="font-family:sans-serif;padding:20px;">Payment failed:<br><strong>${user.name}</strong> (${user.email})<br>Plan: ${data.plan}<br>Reason: ${data.reason || 'unknown'}</p>`);
+    await this.send(this.adminEmail, `[LogicMate Admin] Payment FAILED: ${user.name} (${data.plan})`,
+      this.adminNotificationCard('⚠️', 'Payment failed', '#ef4444', this.adminInfoRows([
+        { label: 'Name', value: user.name },
+        { label: 'Email', value: user.email },
+        { label: 'Plan', value: data.plan },
+        { label: 'Reason', value: data.reason || 'Unknown' },
+      ])));
   }
 
   // ── 10. Admin Alert ───────────────────────────────────────
   async sendAdminAlert(subject: string, message: string): Promise<void> {
-    await this.send(this.adminEmail, `[LogicMate Admin] ${subject}`,
-      `<div style="font-family:sans-serif;padding:20px;background:#111;color:#e5e5e5;">
-        <h2 style="color:#a78bfa;">LogicMate Admin Alert</h2>
-        <p>${message}</p>
-        <p style="color:#525252;font-size:12px;">${new Date().toISOString()}</p>
-      </div>`);
+    const html = this.adminNotificationCard('🔔', subject, '#a78bfa',
+      `<p style="color:#d4d4d4;font-size:14px;line-height:1.6;margin:0;">${message}</p>`);
+    await this.send(this.adminEmail, `[LogicMate Admin] ${subject}`, html);
   }
 
   async sendVerificationEmail(user: { name: string; email: string }, token: string): Promise<void> {

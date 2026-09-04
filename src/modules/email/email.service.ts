@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class EmailService {
@@ -8,7 +10,13 @@ export class EmailService {
   private readonly adminEmail = process.env.ADMIN_NOTIFY_EMAIL || 'knowledgetruth2023@gmail.com';
 
   // ── Core send via Resend HTTP API ─────────────────────────
-  private async send(to: string | string[], subject: string, html: string, cc?: string): Promise<boolean> {
+  private async send(
+    to: string | string[],
+    subject: string,
+    html: string,
+    cc?: string,
+    attachments?: { filename: string; content: string }[],
+  ): Promise<boolean> {
     try {
       const body: any = {
         from: `LogicMate <${this.from}>`,
@@ -17,6 +25,7 @@ export class EmailService {
         html,
       };
       if (cc) body.cc = [cc];
+      if (attachments?.length) body.attachments = attachments;
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -430,5 +439,61 @@ export class EmailService {
       </div>
     `);
     await this.send(user.email, '✉️ Verify your LogicMate email address', html);
+  }
+
+  // ── 12. Chatbot Setup Guide ───────────────────────────────
+  // Sent once, right after a new chatbot is created (ChatbotsService.create()),
+  // to whichever account owns the bot — the client themselves, or the client
+  // an admin created it for on their behalf. Explains the client/admin split
+  // documented in CLAUDE.md: the client fills in Overview + Knowledge Base and
+  // adds their own OpenAI key, while WhatsApp/Instagram (real Meta Business
+  // App setup) is handled by the LogicMate team. The same content also lives
+  // permanently in the dashboard's "Guide to Setup" tab, so losing this email
+  // isn't a dead end — the PDF is a nice-to-have, not the only copy.
+  private setupGuidePdfCache: string | null | undefined;
+
+  private loadSetupGuidePdfBase64(): string | null {
+    if (this.setupGuidePdfCache !== undefined) return this.setupGuidePdfCache;
+    try {
+      const pdfPath = path.join(__dirname, '..', '..', 'assets', 'chatbot-setup-guide.pdf');
+      this.setupGuidePdfCache = fs.readFileSync(pdfPath).toString('base64');
+    } catch (e) {
+      this.logger.warn(`Chatbot setup guide PDF not found, sending email without attachment: ${e.message}`);
+      this.setupGuidePdfCache = null;
+    }
+    return this.setupGuidePdfCache;
+  }
+
+  async sendChatbotSetupGuideEmail(user: { name: string; email: string }, data: { chatbotName: string }): Promise<void> {
+    const dashboardUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots`;
+    const html = this.base(`
+      <div style="padding:40px 36px;">
+        <div style="font-size:48px;margin-bottom:12px;text-align:center;">🤖</div>
+        <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;text-align:center;">"${data.chatbotName}" is created!</h1>
+        <p style="color:#737373;font-size:14px;margin:0 0 24px;text-align:center;">Here's exactly what happens next</p>
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">Hi ${user.name || 'there'}, your chatbot is set up but still private — it starts answering real customers once its content is added and a channel is connected. We've attached a quick setup guide (PDF), and the short version is below.</p>
+        <div style="background:#0d1f14;border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:18px 20px;margin:0 0 16px;">
+          <p style="color:#4ade80;font-size:13px;font-weight:600;margin:0 0 10px;">✅ What you'll do — no technical skills needed</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.9;margin:0;">
+            1. <strong style="color:#e5e5e5;">Overview tab</strong> — name, description, persona, language<br/>
+            2. <strong style="color:#e5e5e5;">Knowledge Base tab</strong> — your menu, hours, prices, FAQs<br/>
+            3. <strong style="color:#e5e5e5;">Your OpenAI key</strong> — free account at platform.openai.com, paste it in (or send it to us)
+          </p>
+        </div>
+        <div style="background:#1a1530;border:1px solid rgba(124,58,237,0.25);border-radius:10px;padding:18px 20px;margin:0 0 28px;">
+          <p style="color:#a78bfa;font-size:13px;font-weight:600;margin:0 0 10px;">🔧 What our team handles for you</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.9;margin:0;">
+            WhatsApp and Instagram both need a Meta Business App connection — real technical setup we take care of. Just reply to this email with the number/account you'd like connected.
+          </p>
+        </div>
+        <div style="text-align:center;">
+          <a href="${dashboardUrl}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">Open Your Chatbot →</a>
+        </div>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">This same guide is always available under the "Guide to Setup" tab in your chatbot's dashboard.<br/>Questions? Reply to this email or write to hello@logicmate.io</p>
+      </div>
+    `);
+    const pdf = this.loadSetupGuidePdfBase64();
+    const attachments = pdf ? [{ filename: 'LogicMate-Chatbot-Setup-Guide.pdf', content: pdf }] : undefined;
+    await this.send(user.email, `🤖 "${data.chatbotName}" is created — here's what's next`, html, undefined, attachments);
   }
 }

@@ -91,9 +91,16 @@ export class ChatbotsService {
           { name: (user as any).name, email: (user as any).email },
           { moduleName: chatbot.name, trialEndDate: billing.trialEndsAt },
         );
+        // Setup-guide email always goes to the bot's actual owner, not the
+        // caller — matters when an admin creates this chatbot on a client's
+        // behalf (see the isAdmin flow), where the caller and owner differ.
+        await this.emailService.sendChatbotSetupGuideEmail(
+          { name: (user as any).name, email: (user as any).email },
+          { chatbotName: chatbot.name },
+        );
       }
     } catch (err) {
-      this.logger.warn(`create() trial-started email failed for chatbot=${chatbot._id}: ${err?.message}`);
+      this.logger.warn(`create() onboarding email(s) failed for chatbot=${chatbot._id}: ${err?.message}`);
     }
 
     return chatbot;

@@ -2,19 +2,99 @@ import {
     Injectable,
     NotFoundException,
     BadRequestException,
+    OnModuleInit,
+    Logger,
   } from '@nestjs/common';
   import { InjectModel } from '@nestjs/mongoose';
   import { Model, Types } from 'mongoose';
   import { Page, PageDocument, PageSlug } from './schemas/page.schema';
   import { BlogPost, BlogPostDocument, BlogCategory } from './schemas/blog-post.schema';
-  
+
+  // Shared between seedPages() (the full POST /cms/seed reseed) and the
+  // onModuleInit() backfill below, so the two never drift out of sync.
+  const SEED_ABOUT_PAGE = {
+    content: `
+      <h2>Our mission</h2>
+      <p>LogicMate exists to give every business — from solo creators to enterprise teams, anywhere in the world — access to the same AI automation capabilities that were previously only available to large tech companies with dedicated engineering teams.</p>
+
+      <h2>What we do</h2>
+      <p>We build pre-configured AI agents, automations and chatbots that plug into your existing tools and workflows. No code required. No ML expertise needed. Just connect your accounts, configure your niche, and let them run.</p>
+
+      <h2>Why we built this</h2>
+      <p>The founder spent months building a custom YouTube automation pipeline — trend discovery, scriptwriting, video generation, thumbnail creation, uploading — from scratch. It worked incredibly well but took hundreds of hours to build and maintain.</p>
+      <p>We realised that every creator and business owner needed this, but almost none had the technical skills to build it. LogicMate is that pipeline, productised and made available to businesses everywhere — not limited to any single region or market.</p>
+
+      <h2>Our values</h2>
+      <ul>
+        <li><strong>Transparency</strong> — We tell you exactly what our agents do, what they cost, and how they work.</li>
+        <li><strong>Quality over quantity</strong> — We would rather have 10 agents that work perfectly than 100 that work poorly.</li>
+        <li><strong>Accessible pricing</strong> — AI automation should not cost thousands of dollars per month. We keep prices low by building efficient pipelines.</li>
+        <li><strong>Privacy first</strong> — Your API keys are encrypted. Your content is yours. We never train on your data.</li>
+      </ul>
+    `,
+    content_ar: `
+      <h2>مهمتنا</h2>
+      <p>لوجيك ميت موجودة لإعطاء كل عمل تجاري — من صنّاع المحتوى الأفراد إلى فرق الشركات الكبيرة، في أي مكان بالعالم — إمكانية الوصول لنفس قدرات أتمتة الذكاء الاصطناعي التي كانت متاحة فقط لشركات التقنية الكبرى ذات الفرق الهندسية المتخصصة.</p>
+
+      <h2>شنو نسوي</h2>
+      <p>نبني وكلاء ذكاء اصطناعي وأتمتة وشات بوتات جاهزة تتوصل بأدواتك وسير عملك الحالي. بدون كود. بدون خبرة بالذكاء الاصطناعي. بس وصّل حساباتك، حدد تخصصك، وخلّهم يشتغلون.</p>
+
+      <h2>ليش بنينا هذا</h2>
+      <p>المؤسس قضى شهور يبني خط أتمتة يوتيوب مخصص — من اكتشاف الترندات، كتابة السكربت، إنشاء الفيديو، وصنع الصورة المصغّرة، إلى الرفع — من الصفر. اشتغل بشكل ممتاز لكن أخذ مئات الساعات لبنائه وصيانته.</p>
+      <p>أدركنا إن كل صانع محتوى وصاحب عمل يحتاج هذا، لكن أغلبهم ما عندهم المهارات التقنية لبنائه. لوجيك ميت هو ذاك الخط، مُنتَج ومتاح لأي عمل تجاري في أي مكان — مو مقتصر على منطقة أو سوق واحد.</p>
+
+      <h2>قيمنا</h2>
+      <ul>
+        <li><strong>الشفافية</strong> — نقولك بالضبط شنو يسوّي وكلاؤنا، وكم يكلفون، وكيف يشتغلون.</li>
+        <li><strong>الجودة فوق الكمية</strong> — نفضّل 10 وكلاء يشتغلون بشكل مثالي على 100 يشتغلون بشكل رديء.</li>
+        <li><strong>أسعار في متناول الجميع</strong> — أتمتة الذكاء الاصطناعي ما لازم تكلّف آلاف الدولارات شهرياً. نخلّي الأسعار منخفضة ببناء خطوط فعّالة.</li>
+        <li><strong>الخصوصية أولاً</strong> — مفاتيح API الخاصة فيك مشفّرة. محتواك ملكك. ما ندرّب أنظمتنا على بياناتك.</li>
+      </ul>
+    `,
+  };
+
   @Injectable()
-  export class CmsService {
+  export class CmsService implements OnModuleInit {
+    private readonly logger = new Logger(CmsService.name);
+
     constructor(
       @InjectModel(Page.name) private pageModel: Model<PageDocument>,
       @InjectModel(BlogPost.name) private blogModel: Model<BlogPostDocument>,
     ) {}
-  
+
+    async onModuleInit() {
+      await this.backfillAboutGlobalMarketContent();
+    }
+
+    // One-time-per-doc backfill: the About page's content used to frame
+    // LogicMate as GCC/UAE-and-Kenya-only ("...in the GCC", "UAE and Kenyan
+    // businesses"). The platform now targets international markets too, so
+    // this rewrites the page to reflect that. Gated on `lastEditedBy` not
+    // being set — that field is only ever written by updatePage() (a real
+    // admin edit via PUT /cms/admin/pages/:slug from the dashboard), never
+    // by seedPages(), so its absence reliably means "still exactly what the
+    // seed script wrote, no admin customization to protect". Note
+    // seedPages() (the POST /cms/seed admin endpoint) is NOT run on every
+    // boot the way this is — this backfill is what actually delivers the
+    // content update to already-deployed databases.
+    private async backfillAboutGlobalMarketContent() {
+      const seed = SEED_ABOUT_PAGE;
+      const result = await this.pageModel.updateOne(
+        {
+          slug: PageSlug.ABOUT,
+          lastEditedBy: { $exists: false },
+          $or: [
+            { content: { $ne: seed.content } },
+            { content_ar: { $exists: false } },
+          ],
+        },
+        { $set: { content: seed.content, content_ar: seed.content_ar } },
+      );
+      if (result.modifiedCount) {
+        this.logger.log('About page content backfilled to global-market copy');
+      }
+    }
+
     // ─── Pages ───────────────────────────────────────────────────
   
     async getPage(slug: string) {
@@ -46,25 +126,7 @@ import {
           subtitle: 'We are building the future of business automation',
           metaTitle: 'About LogicMate — AI Automation Platform',
           metaDescription: 'Learn about LogicMate, our mission to make AI automation accessible to every business, and the team behind the platform.',
-          content: `
-            <h2>Our mission</h2>
-            <p>LogicMate exists to give every business — from solo creators to enterprise teams — access to the same AI automation capabilities that were previously only available to large tech companies with dedicated engineering teams.</p>
-  
-            <h2>What we do</h2>
-            <p>We build pre-configured AI agents and automation pipelines that plug into your existing tools and workflows. No code required. No ML expertise needed. Just connect your accounts, configure your niche, and let the agents run.</p>
-  
-            <h2>Why we built this</h2>
-            <p>The founder spent months building a custom YouTube automation pipeline — trend discovery, scriptwriting, video generation, thumbnail creation, uploading — from scratch. It worked incredibly well but took hundreds of hours to build and maintain.</p>
-            <p>We realised that every creator and business owner needed this, but almost none had the technical skills to build it. LogicMate is that pipeline, productised and made available to everyone.</p>
-  
-            <h2>Our values</h2>
-            <ul>
-              <li><strong>Transparency</strong> — We tell you exactly what our agents do, what they cost, and how they work.</li>
-              <li><strong>Quality over quantity</strong> — We would rather have 10 agents that work perfectly than 100 that work poorly.</li>
-              <li><strong>Accessible pricing</strong> — AI automation should not cost thousands of dollars per month. We keep prices low by building efficient pipelines.</li>
-              <li><strong>Privacy first</strong> — Your API keys are encrypted. Your content is yours. We never train on your data.</li>
-            </ul>
-          `,
+          ...SEED_ABOUT_PAGE,
           teamMembers: [
             {
               name: 'Fahad Faheem',

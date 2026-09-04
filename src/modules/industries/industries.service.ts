@@ -13,8 +13,8 @@ const SEED_INDUSTRIES = [
   {
     slug: 'real_estate', name: 'Real Estate', name_ar: 'العقارات',
     icon: '🏢', color: '#0ea5e9', sortOrder: 2, availableIn: ['UAE', 'Kenya'],
-    description: 'Qualify leads on WhatsApp and follow up 24/7 across UAE and Kenyan markets.',
-    description_ar: 'أهّل العملاء المحتملين عبر واتساب وتابع معهم على مدار الساعة في أسواق الإمارات وكينيا.',
+    description: 'Qualify leads on WhatsApp and follow up 24/7 across UAE, Kenya and international markets.',
+    description_ar: 'أهّل العملاء المحتملين عبر واتساب وتابع معهم على مدار الساعة في أسواق الإمارات وكينيا وحول العالم.',
   },
   {
     slug: 'healthcare', name: 'Healthcare & Clinics', name_ar: 'الرعاية الصحية والعيادات',
@@ -88,6 +88,7 @@ export class IndustriesService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seed();
+    await this.backfillRealEstateGlobalMarketDescription();
   }
 
   private async seed() {
@@ -99,6 +100,26 @@ export class IndustriesService implements OnModuleInit {
       );
     }
     this.logger.log(`Industries seeded (${SEED_INDUSTRIES.length})`);
+  }
+
+  // One-time backfill: $setOnInsert above only reaches brand-new docs, so
+  // the real_estate doc already in the DB from before the copy update won't
+  // pick it up. Gated on an exact match of the old description text — if an
+  // admin has since edited this field via the dashboard it won't match, so
+  // their edit is never overwritten.
+  private async backfillRealEstateGlobalMarketDescription() {
+    const seed = SEED_INDUSTRIES.find((i) => i.slug === 'real_estate');
+    if (!seed) return;
+    const result = await this.industryModel.updateOne(
+      {
+        slug: 'real_estate',
+        description: 'Qualify leads on WhatsApp and follow up 24/7 across UAE and Kenyan markets.',
+      },
+      { $set: { description: seed.description, description_ar: seed.description_ar } },
+    );
+    if (result.modifiedCount) {
+      this.logger.log('Real estate industry description backfilled to global-market copy');
+    }
   }
 
   async findAll(country?: string, lang = 'en'): Promise<any[]> {

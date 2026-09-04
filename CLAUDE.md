@@ -375,13 +375,43 @@ needsSetup: boolean   // OR of the three flags above
 
 Frontend renders this as a filterable queue (`chatbots-page.tsx` admin view) — see frontend CLAUDE.md.
 
+## Tiered chatbot pricing: Basic/Pro/Custom + real feature gating (implemented, 2026-09)
+User asked to confirm whether Analytics/WhatsApp/Instagram were actually gated by plan (they weren't — every chatbot got every feature regardless of what was paid, since no tier concept existed at all) and proposed a 3-tier structure. Confirmed via `AskUserQuestion` before building: the proposed **Basic / Pro / Custom** split, with all changes shipped together in one pass rather than phased.
+
+**Pricing, derived from what was already live** — every template's *existing* single-plan price became its **Basic** tier price unchanged (no surprise increase on what any early customer might already expect); Pro is a clean tier-up per niche value band, ~20% annual discount matching the site's existing convention:
+
+| Niche band | Basic /mo | Pro /mo |
+|---|---|---|
+| Restaurant, Gym, Salon | $39 | $79 |
+| E-commerce | $49 | $99 |
+| Clinic, Education | $59 | $119 |
+| Real Estate, Hotel, Auto Dealership | $79 | $149 |
+
+**Feature split** (resolves the Basic-should-not-show-Analytics question directly): **Basic** = website widget + knowledge base + email notifications only. **Pro** = adds WhatsApp + Instagram + Analytics/insights dashboard + priority support. **Custom** = everything in Pro + custom integrations (CRM/POS) + multiple bots on one account + dedicated onboarding — "Contact us," no fixed price, reuses the existing `pricing.hasCustomPlan`/`customLabel(_ar)` fields agents/automations already use for the same purpose.
+
+**Schema** — `ModuleTemplate` (`module.schema.ts`) gained `pricingTiers: PricingTier[]` (`{key: 'basic'|'pro', monthly, annual, features[], features_ar[]}`), chatbot-only; agents/automations leave it empty and keep using the existing single-plan `pricing` field untouched. Deliberately kept **both** fields on chatbot docs: `pricing.monthly/annual/features` still holds the Basic tier's numbers (kept in sync, not removed) so every pre-existing reader of the old single-plan shape — the admin CMS Pricing tab, `pricing-page.tsx`'s card grid — keeps working with zero changes, showing what is now correctly the Basic/entry price. `Chatbot.billing` (`chatbot.schema.ts`) gained `tier: 'basic'|'pro'|'custom'` (default `'basic'`) — this is the actual gate, admin-only (never in `CUSTOMER_EDITABLE_FIELDS`), changed the same way `monthlyFee`/`setupFee` already are: by hand, via `PUT /:id/pricing`, which gained a `tier` field.
+
+**All 9 chatbot `SEED_MODULES` entries restructured** with the table above (`pricingTiers` array added, `pricing.features` trimmed to the Basic set). Backfills added, same self-healing `onModuleInit` pattern as everything else in this file: `ModulesService.backfillChatbotPricingTiers()` (gated on `pricingTiers` still empty — an admin form to edit tiers doesn't exist yet, so this is really about idempotency and future-proofing) and a new `ChatbotsService.onModuleInit()` that backfills `billing.tier` to `'pro'` on any existing chatbot doc that already has WhatsApp or Instagram credentials configured — without this, a bot with a working WhatsApp integration would have silently lost it the moment this deployed, since the schema default is `'basic'`.
+
+**Real server-side enforcement, not just a hidden UI tab** — the user specifically asked "are we disabling it?", so this isn't UI-only:
+- `ChatbotsService.getAnalytics()` throws `ForbiddenException` if `billing.tier === 'basic'`.
+- `ChatbotsService.update()` throws if a Basic-tier chatbot's `PUT` body tries to set `channels.whatsapp.enabled` or `channels.instagram.enabled` to `true`. The frontend already prevents this UI action entirely for Basic (the toggle is replaced with a locked card), so this is defense-in-depth against a direct API call, not the primary UX.
+
+**`ChatbotsService.create()`** now accepts `dto.tier` (`'basic'|'pro'`, defaults to `'basic'` for anything else including `'custom'` — Custom has no self-serve purchase flow, its "Contact us" card is a `mailto:` link, never a POST here) and resolves the chosen tier's `monthly` from `module.pricingTiers` onto `billing.monthlyFee`, alongside setting `billing.tier`.
+
+**Superseded note from the earlier "self-serve pricing" section**: that section's claim that there's "no more per-tier channel gating" is no longer accurate — this pass reintroduces real tier-based gating, deliberately, per this explicit user request. Kept the earlier section's text as historical record rather than editing it, since it was correct at the time.
+
+See frontend CLAUDE.md for the config-page gating UI, the 3-tier pricing cards, and the admin tier editor.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
-3. ~~Chatbot self-serve pricing + automatic trial~~ ✅ done — see above. Now unified with the agents/automations pricing mechanism (module.pricing, admin-editable); no more per-tier channel gating or `maxBots` concept to enforce.
+3. ~~Chatbot self-serve pricing + automatic trial~~ ✅ done — see above (note: its "no per-tier gating" claim was superseded by the Tiered chatbot pricing section further below).
 4. ~~9 bilingual chatbot templates~~ ✅ done — see above
 5. ~~Admin can build/manage a chatbot for a client~~ ✅ done — see above
 6. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live. Onboarding model decided (see above): admin does the Meta setup per client, not the client — no self-serve OAuth flow (Meta Embedded Signup) built yet, revisit once manual per-client setup becomes the real bottleneck.
 7. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing
 8. ~~Admin "needs setup" queue/filter on the chatbot admin list~~ ✅ done — see above
-9. **Tiered chatbot pricing (Basic/Pro/Custom) + plan-based feature gating** — proposed, pending user confirmation on exact tiers/pricing. Not built yet.
+9. ~~Tiered chatbot pricing (Basic/Pro/Custom) + plan-based feature gating~~ ✅ done — see above
+10. **Admin form UI for editing `pricingTiers`** — `pricingTiers` is only editable via `SEED_MODULES`/direct DB edit today, same gap `hasCustomPlan` already has in `admin-modules.tsx`'s Pricing tab. Real follow-up if tier pricing needs to change without a redeploy.
+11. **Self-serve Basic→Pro upgrade payment flow** — deliberately not built; upgrades go through admin manually setting `tier` via `PUT /:id/pricing`, same hand-set-price model chatbot billing already uses everywhere else. A real "request upgrade → pay → admin confirms" flow (mirroring `notifyPayment`/`confirmPayment`) would be the natural next step if manual tier-flipping becomes the bottleneck.

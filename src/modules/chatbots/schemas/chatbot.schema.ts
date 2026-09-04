@@ -75,6 +75,16 @@ export class ChatbotBilling {
   @Prop({ default: 'USD' })
   currency: string;
 
+  // Which of the module's pricingTiers this chatbot is on — drives feature
+  // gating (Analytics tab, WhatsApp/Instagram channels) in
+  // ChatbotsService/chatbots.controller and the frontend config page. See
+  // backend CLAUDE.md's "Tiered chatbot pricing" section. Admin-only —
+  // never in CUSTOMER_EDITABLE_FIELDS, same as monthlyFee/setupFee; a
+  // customer upgrades by asking, admin flips this via PUT /:id/pricing,
+  // matching the existing hand-set-price billing model.
+  @Prop({ enum: ['basic', 'pro', 'custom'], default: 'basic' })
+  tier: 'basic' | 'pro' | 'custom';
+
   @Prop({
     enum: ['trial', 'awaiting_setup_payment', 'active', 'past_due', 'suspended'],
     default: 'trial',

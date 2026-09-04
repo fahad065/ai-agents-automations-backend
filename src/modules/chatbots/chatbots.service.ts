@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
@@ -37,7 +37,7 @@ function pickCustomerEditable(dto: any): any {
 }
 
 @Injectable()
-export class ChatbotsService {
+export class ChatbotsService implements OnModuleInit {
   private readonly logger = new Logger(ChatbotsService.name);
 
   constructor(
@@ -51,25 +51,58 @@ export class ChatbotsService {
     private modulesService: ModulesService,
   ) {}
 
+  // Self-healing backfill (same pattern as ModulesService's) for the
+  // billing.tier field added alongside tiered chatbot pricing (see backend
+  // CLAUDE.md). Every existing chatbot doc reads tier: 'basic' by default
+  // (the schema default), which is correct for the vast majority — but a
+  // bot that already has WhatsApp or Instagram credentials configured is
+  // clearly already using a Pro-tier feature, and gating it to Basic on
+  // this deploy would silently break a channel that was working a moment
+  // ago. Only touches docs still at the 'basic' default, so an admin who's
+  // already set a tier explicitly (including deliberately downgrading one)
+  // is never overwritten.
+  async onModuleInit() {
+    const result = await this.chatbotModel.updateMany(
+      {
+        'billing.tier': 'basic',
+        $or: [
+          { 'channels.whatsapp.enabled': true, 'channels.whatsapp.phoneNumberId': { $exists: true, $ne: '' } },
+          { 'channels.instagram.enabled': true, 'channels.instagram.accountId': { $exists: true, $ne: '' } },
+        ],
+      },
+      { $set: { 'billing.tier': 'pro' } },
+    );
+    if (result.modifiedCount) {
+      this.logger.log(`Backfilled billing.tier to 'pro' on ${result.modifiedCount} chatbot(s) with an already-configured WhatsApp/Instagram channel`);
+    }
+  }
+
   // Every new chatbot starts a 30-day free trial automatically — no admin
   // step required. If `dto.moduleSlug` is set (the marketing detail page's
-  // pricing section passes it), the chatbot inherits that template's
-  // `module.pricing.monthly` as its billed rate — same pricing mechanism as
-  // agents/automations, admin-edited from the same /dashboard/cms-modules
-  // form. Omit it to keep the hand-negotiated-deal flow (dashboard's own
-  // "+ New Chatbot" modal): admin sets pricing later via PUT /:id/pricing.
+  // pricing section passes it), the chatbot inherits that template's tier
+  // pricing (`module.pricingTiers`, see backend CLAUDE.md's "Tiered chatbot
+  // pricing" section) as its billed rate. `dto.tier` selects which one —
+  // only 'basic'/'pro' are ever accepted here since 'custom' is a
+  // Contact-Us-only tier with no self-serve purchase flow (the frontend's
+  // Custom card is a mailto link, never a POST to this route); anything
+  // else defaults to 'basic', the safest/cheapest tier. Omitting moduleSlug
+  // entirely keeps the hand-negotiated-deal flow (dashboard's own
+  // "+ New Chatbot" modal): admin sets pricing/tier later via PUT /:id/pricing.
   async create(userId: string, dto: any): Promise<ChatbotDocument> {
     const embedKey = crypto.randomBytes(16).toString('hex');
-    const { moduleSlug, ...rest } = dto;
+    const { moduleSlug, tier: requestedTier, ...rest } = dto;
 
     const billing: any = {};
+    const tier = requestedTier === 'pro' ? 'pro' : 'basic';
 
     if (moduleSlug) {
       try {
         const module = await this.modulesService.findOne(moduleSlug);
+        const tierPricing = module.pricingTiers?.find((t: any) => t.key === tier);
         billing.setupFee = 0;
-        billing.monthlyFee = module.pricing?.monthly || 0;
+        billing.monthlyFee = tierPricing?.monthly ?? module.pricing?.monthly ?? 0;
         billing.currency = 'USD';
+        billing.tier = tierPricing ? tier : 'basic';
       } catch (err) {
         this.logger.warn(`create() couldn't load module "${moduleSlug}" for pricing: ${err?.message}`);
       }
@@ -193,6 +226,20 @@ export class ChatbotsService {
       }
     }
 
+    // Tier gate — WhatsApp/Instagram are Pro+ features (see backend
+    // CLAUDE.md's "Tiered chatbot pricing"). The config page's UI already
+    // replaces these toggles with a locked upgrade prompt on Basic, so this
+    // is defense-in-depth against a direct API call bypassing that, not
+    // the primary UX — hence a clear error rather than a silent strip.
+    if (chatbot.billing.tier === 'basic') {
+      if (changes.channels?.whatsapp?.enabled === true) {
+        throw new ForbiddenException('WhatsApp integration requires the Pro plan. Upgrade to enable it.');
+      }
+      if (changes.channels?.instagram?.enabled === true) {
+        throw new ForbiddenException('Instagram integration requires the Pro plan. Upgrade to enable it.');
+      }
+    }
+
     Object.assign(chatbot, changes);
     return chatbot.save();
   }
@@ -300,7 +347,13 @@ export class ChatbotsService {
   }
 
   async getAnalytics(chatbotId: string, userId: string, isAdmin = false): Promise<any> {
-    await this.findOne(chatbotId, userId, isAdmin);
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
+
+    // Analytics is a Pro+ feature — the config page hides this tab entirely
+    // for Basic, this is the server-side backstop for a direct API call.
+    if (chatbot.billing.tier === 'basic') {
+      throw new ForbiddenException('Analytics requires the Pro plan. Upgrade to unlock it.');
+    }
 
     const conversations = await this.conversationModel.find({
       chatbotId: new Types.ObjectId(chatbotId),
@@ -354,7 +407,7 @@ export class ChatbotsService {
   // tiers yet: every deal is priced by hand until real patterns emerge.
   async updatePricing(
     id: string,
-    dto: { setupFee?: number; monthlyFee?: number; currency?: string; trialEndsAt?: string; notes?: string },
+    dto: { setupFee?: number; monthlyFee?: number; currency?: string; trialEndsAt?: string; notes?: string; tier?: 'basic' | 'pro' | 'custom' },
   ): Promise<ChatbotDocument> {
     const chatbot = await this.findOneAdmin(id);
 
@@ -363,6 +416,11 @@ export class ChatbotsService {
     if (dto.currency !== undefined) chatbot.billing.currency = dto.currency;
     if (dto.trialEndsAt !== undefined) chatbot.billing.trialEndsAt = new Date(dto.trialEndsAt);
     if (dto.notes !== undefined) chatbot.billing.notes = dto.notes;
+    // The only way a chatbot's tier changes today — an upgrade request is
+    // handled by admin here, same hand-set-price model as everything else
+    // in this method. See backend CLAUDE.md's "Tiered chatbot pricing"
+    // section for why a self-serve upgrade-payment flow wasn't built yet.
+    if (dto.tier !== undefined) chatbot.billing.tier = dto.tier;
 
     // First time a real price is set, move it out of "trial" so the
     // customer sees they owe a setup payment (unless it's already active).

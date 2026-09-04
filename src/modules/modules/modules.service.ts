@@ -521,11 +521,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة القائمة', 'حجز الطاولات', 'عروض اليوم', 'معلومات الحساسية', 'الطلب عبر واتساب'],
     pricing: {
       monthly: 39, annual: 31,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم بالإيميل'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it for multiple restaurant locations or a custom ordering integration?',
       customLabel_ar: 'تحتاجه لعدة فروع مطعم أو ربط مخصص مع نظام الطلبات؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 39, annual: 31, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 79, annual: 63, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Response time', label_ar: 'وقت الرد', value: 'Instant' },
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
@@ -562,11 +566,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['فرز المشترين والمستأجرين', 'البحث عن عقارات', 'حجز مواعيد المعاينة', 'التقاط العملاء'],
     pricing: {
       monthly: 79, annual: 63,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Lead capture & analytics', 'Priority support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'التقاط العملاء وتحليلات', 'دعم ذو أولوية'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple agencies, brokers, or a custom CRM integration?',
       customLabel_ar: 'تحتاجه لعدة مكاتب عقارية أو وسطاء أو ربط مخصص مع نظام CRM؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 79, annual: 63, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 149, annual: 119, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Lead response', label_ar: 'سرعة الرد على العميل', value: 'Instant' },
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
@@ -603,11 +611,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['حجز المواعيد', 'أسئلة العيادة الشائعة', 'أسعار الخدمات', 'جاهز للتذكيرات'],
     pricing: {
       monthly: 59, annual: 47,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Priority support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم ذو أولوية'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple clinic branches or a custom EMR/booking integration?',
       customLabel_ar: 'تحتاجه لعدة فروع عيادة أو ربط مخصص مع نظام السجلات الطبية أو الحجز؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 59, annual: 47, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 119, annual: 95, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -644,11 +656,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة تتبع الطلبات', 'سياسة الإرجاع', 'أسئلة المنتجات', 'دعم عبر واتساب'],
     pricing: {
       monthly: 49, annual: 39,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم بالإيميل'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it for multiple stores or a custom order-tracking integration?',
       customLabel_ar: 'تحتاجه لعدة متاجر أو ربط مخصص مع نظام تتبع الطلبات؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 49, annual: 39, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 99, annual: 79, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -685,11 +701,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة باقات العضوية', 'حجز تجربة مجانية', 'أسئلة جدول الحصص', 'استفسارات عبر واتساب'],
     pricing: {
       monthly: 39, annual: 31,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم بالإيميل'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple gym locations or a custom membership-system integration?',
       customLabel_ar: 'تحتاجه لعدة فروع نادي أو ربط مخصص مع نظام العضويات؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 39, annual: 31, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 79, annual: 63, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -726,11 +746,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة الدورات', 'أسئلة القبول الشائعة', 'إرشاد التقديم', 'استفسارات عبر واتساب'],
     pricing: {
       monthly: 59, annual: 47,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Priority support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم ذو أولوية'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple campuses or a custom admissions-system integration?',
       customLabel_ar: 'تحتاجه لعدة فروع أو ربط مخصص مع نظام القبول؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 59, annual: 47, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 119, annual: 95, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -767,11 +791,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة الخدمات والأسعار', 'حجز المواعيد', 'توفر الأخصائيين', 'الحجز عبر واتساب'],
     pricing: {
       monthly: 39, annual: 31,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Email support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم بالإيميل'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple branches or a custom booking-system integration?',
       customLabel_ar: 'تحتاجه لعدة فروع أو ربط مخصص مع نظام الحجوزات؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 39, annual: 31, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 79, annual: 63, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -807,11 +835,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة الحجوزات', 'معلومات المرافق', 'توصيات محلية', 'دعم الضيوف عبر واتساب'],
     pricing: {
       monthly: 79, annual: 63,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics dashboard', 'Priority support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات', 'دعم ذو أولوية'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple properties or a custom PMS/booking-engine integration?',
       customLabel_ar: 'تحتاجه لعدة منشآت أو ربط مخصص مع نظام إدارة الفندق أو الحجوزات؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 79, annual: 63, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 149, annual: 119, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -847,11 +879,15 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     capabilities_ar: ['أسئلة المخزون', 'أسئلة التمويل الشائعة', 'حجز تجربة قيادة', 'التقاط العملاء عبر واتساب'],
     pricing: {
       monthly: 79, annual: 63,
-      features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Lead capture & analytics', 'Priority support'],
-      features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'التقاط العملاء وتحليلات', 'دعم ذو أولوية'],
+      features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
+      features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple showrooms or a custom inventory/CRM integration?',
       customLabel_ar: 'تحتاجه لعدة معارض أو ربط مخصص مع نظام المخزون أو CRM؟',
     },
+    pricingTiers: [
+      { key: 'basic', monthly: 79, annual: 63, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 149, annual: 119, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+    ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },
       { label: 'Languages', label_ar: 'اللغات', value: 'AR + EN' },
@@ -883,6 +919,7 @@ export class ModulesService implements OnModuleInit {
   async onModuleInit() {
     await this.seedModules();
     await this.backfillChatbotPricing();
+    await this.backfillChatbotPricingTiers();
     await this.backfillChatbotArabicContent();
     await this.backfillGlobalMarketModuleCopy();
   }
@@ -919,6 +956,26 @@ export class ModulesService implements OnModuleInit {
       if (result.modifiedCount) updated++;
     }
     if (updated) this.logger.log(`Backfilled pricing on ${updated} existing chatbot module(s)`);
+  }
+
+  // Same self-healing pattern again, for the Basic/Pro tiered-pricing model
+  // added on top of the single-plan `pricing` field above (see backend
+  // CLAUDE.md's "Tiered chatbot pricing" section). Every existing chatbot
+  // doc still has `pricingTiers: []` (the schema default) since this field
+  // didn't exist before — $setOnInsert only reaches brand-new docs. Gated
+  // on the array still being empty, so a future admin-form edit to a
+  // template's tiers is never overwritten by a later boot.
+  private async backfillChatbotPricingTiers() {
+    const chatbotSeeds = SEED_MODULES.filter((m) => m.moduleType === 'chatbot' && m.pricingTiers?.length);
+    let updated = 0;
+    for (const m of chatbotSeeds) {
+      const result = await this.moduleModel.updateOne(
+        { slug: m.slug, moduleType: 'chatbot', $or: [{ pricingTiers: { $exists: false } }, { pricingTiers: { $size: 0 } }] },
+        { $set: { pricingTiers: m.pricingTiers } },
+      );
+      if (result.modifiedCount) updated++;
+    }
+    if (updated) this.logger.log(`Backfilled pricing tiers on ${updated} existing chatbot module(s)`);
   }
 
   // Same self-healing pattern as backfillChatbotPricing() above, for the same

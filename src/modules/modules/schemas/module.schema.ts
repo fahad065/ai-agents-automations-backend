@@ -82,6 +82,25 @@ class ModulePricing {
   @Prop() customLabel_ar?: string;
 }
 
+// Chatbot-only, multi-tier pricing (Basic/Pro) — see backend CLAUDE.md's
+// "Tiered chatbot pricing" section. Agents/automations keep the single
+// ModulePricing plan above; a chatbot module carries BOTH: `pricing` stays
+// set to the Basic tier's numbers (so anything still reading the old
+// single-plan fields — the admin CMS form's Pricing tab, older code —
+// keeps working unchanged) and `pricingTiers` is the new source of truth
+// for tier-aware surfaces (chatbot-detail-page's 3-card pricing section,
+// the config page's feature gating). The Custom/Enterprise tier has no
+// fixed price — it reuses `pricing.hasCustomPlan`/`customLabel(_ar)`
+// exactly as agents/automations already do for their "Contact us" card.
+@Schema({ _id: false })
+class PricingTier {
+  @Prop({ required: true, enum: ['basic', 'pro'] }) key: string;
+  @Prop({ default: 0 }) monthly: number;
+  @Prop({ default: 0 }) annual: number;
+  @Prop({ type: [String], default: [] }) features: string[];
+  @Prop({ type: [String], default: [] }) features_ar?: string[];
+}
+
 @Schema({ _id: false })
 class HeroStat {
   @Prop() label: string;
@@ -218,6 +237,10 @@ export class ModuleTemplate {
   // ── Pricing ───────────────────────────────────────────────
   @Prop({ type: Object, default: { monthly: 0, annual: 0, features: [] } })
   pricing: ModulePricing;
+
+  // Chatbot-only — see PricingTier above. Empty for agents/automations.
+  @Prop({ type: [Object], default: [] })
+  pricingTiers: PricingTier[];
 
   // ── Marketplace content ───────────────────────────────────
   @Prop({ type: [Object], default: [] })

@@ -89,19 +89,19 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai', 'atlas', 'youtube'],
     estimatedCostPerRun: '$3-5 Per Video',
     platforms: ['youtube', 'instagram'],
-    capabilities: ['Native Arabic scriptwriting', 'Arabic TTS voiceover', 'GCC cultural adaptation', 'Multi-dialect support', 'Arabic SEO optimization', 'YouTube + Instagram publishing', 'RTL thumbnail design', 'Arabic hashtags'],
-    pricing: { monthly: 49, annual: 39, features: ['1-3 videos per day', 'Native Arabic scriptwriting', 'Gulf dialect TTS voiceover', 'YouTube + Instagram publishing', 'Arabic SEO optimization', 'RTL thumbnail generation', 'GCC cultural adaptation', 'Email notifications', 'Priority support'], hasCustomPlan: true, customLabel: 'Need Arabic content at scale across multiple platforms or brands?' },
-    heroStats: [{ label: 'Languages', value: 'AR/EN' }, { label: 'Dialects', value: 'Gulf+' }, { label: 'Platforms', value: 'YT + IG' }, { label: 'Market', value: 'GCC+' }],
+    capabilities: ['Native Arabic scriptwriting', 'Arabic TTS voiceover', 'Gulf dialect cultural adaptation', 'Multi-dialect support', 'Arabic SEO optimization', 'YouTube + Instagram publishing', 'RTL thumbnail design', 'Arabic hashtags'],
+    pricing: { monthly: 49, annual: 39, features: ['1-3 videos per day', 'Native Arabic scriptwriting', 'Gulf dialect TTS voiceover', 'YouTube + Instagram publishing', 'Arabic SEO optimization', 'RTL thumbnail generation', 'Gulf dialect cultural adaptation', 'Email notifications', 'Priority support'], hasCustomPlan: true, customLabel: 'Need Arabic content at scale across multiple platforms or brands?' },
+    heroStats: [{ label: 'Languages', value: 'AR/EN' }, { label: 'Dialects', value: 'Gulf+' }, { label: 'Platforms', value: 'YT + IG' }, { label: 'Market', value: 'Global' }],
     features: [
-      { icon: '🗣️', title: 'Native Arabic Scriptwriting', description: 'AI writes fully native Arabic scripts — not translations. Content feels natural, culturally appropriate and resonates with GCC audiences.' },
+      { icon: '🗣️', title: 'Native Arabic Scriptwriting', description: 'AI writes fully native Arabic scripts — not translations. Content feels natural, culturally appropriate and resonates with Arabic-speaking audiences worldwide.' },
       { icon: '🎙️', title: 'Arabic TTS Voiceover', description: 'Natural-sounding Arabic text-to-speech with Gulf dialect support. Sounds professional and authentic to Arab audiences.' },
-      { icon: '🌍', title: 'GCC Cultural Adaptation', description: 'Content is adapted for UAE, Saudi Arabia, Kuwait and wider GCC sensibilities. Avoids cultural missteps and maximizes local relevance.' },
+      { icon: '🌍', title: 'Gulf Dialect Adaptation', description: 'Content is adapted for Gulf dialect nuance and cultural sensibilities. Avoids missteps and maximizes relevance for Arabic-speaking audiences anywhere.' },
       { icon: '📱', title: 'Multi-Platform Publishing', description: 'Publishes to YouTube, Instagram Reels and TikTok simultaneously. One pipeline, multiple platforms, maximum reach.' },
       { icon: '🔍', title: 'Arabic SEO Optimization', description: 'Titles, descriptions and tags optimized for Arabic YouTube search. Targets high-CPM Arabic keywords for maximum revenue potential.' },
       { icon: '🎨', title: 'RTL Thumbnail Design', description: 'Generates Arabic thumbnails with right-to-left text layout. Designed to stand out in Arabic YouTube search results.' },
     ],
     howItWorks: [
-      { step: '1', title: 'Arabic Trend Discovery', description: 'Agent scans Arabic YouTube and social media daily for trending topics across UAE, Saudi Arabia and wider GCC. Picks the highest-potential topic automatically.' },
+      { step: '1', title: 'Arabic Trend Discovery', description: 'Agent scans Arabic YouTube and social media daily for trending topics across the Arabic-speaking world. Picks the highest-potential topic automatically.' },
       { step: '2', title: 'Native Arabic Script Written', description: 'AI writes a full Arabic script in Gulf dialect. Culturally adapted, SEO optimized and written for maximum watch time retention.' },
       { step: '3', title: 'Video and Voiceover Generated', description: 'Arabic TTS voiceover recorded. Video clips generated and assembled with Arabic subtitles and RTL thumbnail design.' },
       { step: '4', title: 'Published Across Platforms', description: 'Video uploaded to YouTube with Arabic metadata. Reels version posted to Instagram. You receive a notification when everything is live.' },
@@ -110,7 +110,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
       { question: 'Which Arabic dialects are supported?', answer: 'Gulf dialect (UAE, Saudi, Kuwait, Qatar) is the primary focus. Modern Standard Arabic (MSA) is also supported for more formal content.' },
       { question: 'Do I need separate YouTube channels for Arabic and English?', answer: 'Yes, we recommend a dedicated Arabic channel for better SEO and audience targeting. The agent manages it completely automatically.' },
       { question: 'Can it post on both YouTube and Instagram?', answer: 'Yes. Each pipeline run produces a long-form YouTube video and a vertical Reels version for Instagram automatically.' },
-      { question: 'Is the Arabic content culturally appropriate?', answer: 'Yes. The AI is specifically trained to respect GCC cultural norms, avoiding sensitive topics and maintaining appropriate tone for the region.' },
+      { question: 'Is the Arabic content culturally appropriate?', answer: 'Yes. The AI is specifically trained to respect Gulf-dialect cultural norms, avoiding sensitive topics and maintaining appropriate tone for Arabic-speaking audiences everywhere.' },
     ],
     demoVideoUrl: '',
   },
@@ -146,7 +146,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     ],
     faq: [
       { question: 'Do I need a TikTok Business account?', answer: 'Yes, you need a TikTok Business account with API access. We provide a step-by-step guide to connect your account in under 5 minutes.' },
-      { question: 'Can it post in Arabic?', answer: 'Yes. Full Arabic caption and script support for GCC TikTok audiences. Gulf dialect content performs exceptionally well on TikTok.' },
+      { question: 'Can it post in Arabic?', answer: 'Yes. Full Arabic caption and script support for Arabic-speaking TikTok audiences worldwide. Gulf dialect content performs exceptionally well on TikTok.' },
       { question: 'Will it also post to Instagram and YouTube?', answer: 'Yes. Each TikTok video is automatically repurposed and posted to Instagram Reels and YouTube Shorts for maximum reach.' },
       { question: 'How many videos per day?', answer: 'Default is 1 video per day. You can increase to 3 per day for more aggressive growth strategies.' },
     ],
@@ -184,7 +184,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     ],
     faq: [
       { question: 'Do I need existing podcast accounts?', answer: 'Yes. You need accounts on Spotify for Podcasters and Apple Podcasts Connect. We provide setup guides for all platforms.' },
-      { question: 'Can it create Arabic podcasts?', answer: 'Yes. Full Arabic script writing and Arabic TTS voices are supported. Perfect for GCC podcast audiences.' },
+      { question: 'Can it create Arabic podcasts?', answer: 'Yes. Full Arabic script writing and Arabic TTS voices are supported. Perfect for Arabic-speaking podcast audiences worldwide.' },
       { question: 'How long are the episodes?', answer: 'Default episode length is 20-40 minutes. You can configure shorter (10-15 min) or longer (45-60 min) formats.' },
       { question: 'Can I use my own voice?', answer: 'Coming soon. Currently the agent uses AI voices. Voice cloning to use your own voice is on our roadmap.' },
     ],
@@ -208,7 +208,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     heroStats: [{ label: 'Response time', value: '<5 sec' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Availability', value: '24/7' }, { label: 'Lead conversion', value: '+40%' }],
     features: [
       { icon: '🎯', title: 'Lead Qualification', description: 'Automatically qualifies incoming leads with smart questions. Scores each prospect by budget, timeline and intent before routing to your sales team.' },
-      { icon: '🌍', title: 'Arabic + English Support', description: 'Responds fluently in both Arabic and English. Detects customer language automatically and switches seamlessly for GCC and international clients.' },
+      { icon: '🌍', title: 'Arabic + English Support', description: 'Responds fluently in both Arabic and English. Detects customer language automatically and switches seamlessly for clients anywhere in the world.' },
       { icon: '📅', title: 'Appointment Booking', description: 'Books meetings, viewings and calls directly in WhatsApp. Syncs with your calendar and sends confirmation messages automatically.' },
       { icon: '📦', title: 'Product Catalogue Sharing', description: 'Sends product images, pricing and specifications automatically based on customer interest. No manual searching required.' },
       { icon: '💳', title: 'Payment Link Sending', description: 'Generates and sends payment links directly in WhatsApp. Customers can pay without leaving the chat — zero friction checkout.' },
@@ -242,7 +242,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     platforms: ['whatsapp', 'email', 'web'],
     capabilities: ['Lead qualification & scoring', 'Property matching AI', 'Viewing scheduling', 'Arabic + English support', 'Automated follow-ups', 'ROI & yield calculations', 'CRM sync', 'Market insights'],
     pricing: { monthly: 149, annual: 119, features: ['Unlimited lead conversations', 'AI property matching', 'WhatsApp lead nurturing', 'Viewing scheduler', 'ROI & yield calculator', 'Lead scoring & routing', 'Automated follow-up sequences', 'CRM integration', 'Arabic + English support', 'Email notifications', 'Dedicated onboarding support'], hasCustomPlan: true, customLabel: 'Need a custom real estate AI solution for a large agency or developer?' },
-    heroStats: [{ label: 'Lead response', value: 'Instant' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Market', value: 'UAE + GCC' }, { label: 'ROI Increase', value: '+60%' }],
+    heroStats: [{ label: 'Lead response', value: 'Instant' }, { label: 'Languages', value: 'AR + EN' }, { label: 'Market', value: 'Global' }, { label: 'ROI Increase', value: '+60%' }],
     features: [
       { icon: '🏠', title: 'Property Matching AI', description: 'Matches buyers and renters to the most suitable properties based on their budget, location preference, lifestyle and requirements automatically.' },
       { icon: '📱', title: 'WhatsApp Lead Nurturing', description: 'Engages leads on WhatsApp in Arabic and English. Qualifies buyers, answers property questions and books viewings without human involvement.' },
@@ -372,7 +372,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     ],
     faq: [
       { question: 'Which email providers does it integrate with?', answer: 'Mailchimp, Klaviyo, HubSpot, ActiveCampaign, Brevo and any provider with an API. Custom integrations available on request.' },
-      { question: 'Can it write emails in Arabic?', answer: 'Yes. Full Arabic email copywriting for GCC audiences. Right-to-left formatting handled automatically in supported email clients.' },
+      { question: 'Can it write emails in Arabic?', answer: 'Yes. Full Arabic email copywriting for Arabic-speaking audiences worldwide. Right-to-left formatting handled automatically in supported email clients.' },
     ],
     demoVideoUrl: '',
   },
@@ -389,16 +389,16 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
     requiredApiKeys: ['openai'],
     estimatedCostPerRun: '$0.05 Per Lead',
     platforms: ['linkedin', 'email', 'web'],
-    capabilities: ['LinkedIn prospecting', 'Lead enrichment', 'Email finding', 'Qualification scoring', 'Outreach sequences', 'CRM auto-sync', 'UAE/GCC targeting', 'Arabic outreach'],
-    pricing: { monthly: 49, annual: 39, features: ['50-200 qualified leads per day', 'LinkedIn prospecting', 'Email finder & verification', 'AI lead scoring', 'Personalized outreach sequences', 'CRM auto-sync', 'UAE & GCC targeting', 'Arabic + English outreach', 'Multi-touch follow-up', 'Performance analytics', 'Email notifications'], hasCustomPlan: true, customLabel: 'Need lead generation at enterprise scale across multiple markets?' },
-    heroStats: [{ label: 'Leads per day', value: '50-200' }, { label: 'Cost per lead', value: '$0.05' }, { label: 'Qualification', value: 'AI-scored' }, { label: 'Market', value: 'GCC + Global' }],
+    capabilities: ['LinkedIn prospecting', 'Lead enrichment', 'Email finding', 'Qualification scoring', 'Outreach sequences', 'CRM auto-sync', 'Global market targeting', 'Arabic outreach'],
+    pricing: { monthly: 49, annual: 39, features: ['50-200 qualified leads per day', 'LinkedIn prospecting', 'Email finder & verification', 'AI lead scoring', 'Personalized outreach sequences', 'CRM auto-sync', 'Global market targeting', 'Arabic + English outreach', 'Multi-touch follow-up', 'Performance analytics', 'Email notifications'], hasCustomPlan: true, customLabel: 'Need lead generation at enterprise scale across multiple markets?' },
+    heroStats: [{ label: 'Leads per day', value: '50-200' }, { label: 'Cost per lead', value: '$0.05' }, { label: 'Qualification', value: 'AI-scored' }, { label: 'Market', value: 'Global' }],
     features: [
       { icon: '🔍', title: 'LinkedIn Prospecting', description: 'Automatically finds and qualifies prospects on LinkedIn matching your ideal customer profile. Filters by industry, company size, location and job title.' },
       { icon: '📧', title: 'Email Finder', description: 'Finds verified business email addresses for prospects automatically. 95%+ email verification rate to protect your sender reputation.' },
       { icon: '⭐', title: 'Lead Scoring', description: 'AI scores every lead by fit, intent and engagement signals. Your sales team focuses only on the highest-value prospects.' },
       { icon: '📤', title: 'Outreach Sequences', description: 'Sends personalized outreach emails and LinkedIn messages automatically. Multi-touch sequences that feel human — not spammy.' },
       { icon: '🔗', title: 'CRM Auto-Sync', description: 'All leads, contact data and interaction history synced to your CRM automatically. No manual data entry ever required.' },
-      { icon: '🇦🇪', title: 'UAE & GCC Targeting', description: 'Specialized targeting for UAE, Saudi Arabia, Kuwait and GCC markets. Finds decision makers at local and regional companies efficiently.' },
+      { icon: '🌍', title: 'Global Market Targeting', description: 'Specialized targeting across international markets, with dedicated Gulf-region targeting for UAE, Saudi Arabia and Kuwait where needed. Finds decision makers at local and global companies efficiently.' },
     ],
     howItWorks: [
       { step: '1', title: 'Define your ideal customer', description: 'Set your target — industry, company size, job title, location and budget. The automation builds your ideal customer profile and starts prospecting immediately.' },
@@ -884,6 +884,7 @@ export class ModulesService implements OnModuleInit {
     await this.seedModules();
     await this.backfillChatbotPricing();
     await this.backfillChatbotArabicContent();
+    await this.backfillGlobalMarketModuleCopy();
   }
 
   private async seedModules() {
@@ -949,6 +950,48 @@ export class ModulesService implements OnModuleInit {
       if (result.modifiedCount) updated++;
     }
     if (updated) this.logger.log(`Backfilled Arabic content on ${updated} existing chatbot module(s)`);
+  }
+
+  // Same self-healing pattern again: the Arabic Content Agent and Lead
+  // Generation Automation modules originally carried GCC/UAE-restrictive
+  // marketing copy (capabilities, hero stats like "Market: GCC+", FAQ/feature
+  // text about "GCC audiences") from before the platform repositioned as
+  // international. SEED_MODULES above now carries the broadened copy, but
+  // $setOnInsert only reaches brand-new documents. There's no lastEditedBy-
+  // style marker on ModuleTemplate (unlike Page), so this is gated on an
+  // exact match of each module's old "Market" hero-stat value — a precise,
+  // very-unlikely-to-be-manually-retyped sentinel — so an admin's edit from
+  // /dashboard/cms-modules is left alone.
+  private readonly GLOBAL_MARKET_COPY_OLD_MARKET_VALUE: Record<string, string> = {
+    'arabic-content-agent': 'GCC+',
+    'lead-generation-automation': 'GCC + Global',
+    'real-estate-agent': 'UAE + GCC',
+  };
+
+  private async backfillGlobalMarketModuleCopy() {
+    const targets = SEED_MODULES.filter(
+      (m): m is typeof m & { slug: string } =>
+        !!m.slug && m.slug in this.GLOBAL_MARKET_COPY_OLD_MARKET_VALUE,
+    );
+    let updated = 0;
+    for (const m of targets) {
+      const oldValue = this.GLOBAL_MARKET_COPY_OLD_MARKET_VALUE[m.slug];
+      const result = await this.moduleModel.updateOne(
+        { slug: m.slug, heroStats: { $elemMatch: { label: 'Market', value: oldValue } } },
+        {
+          $set: {
+            capabilities: m.capabilities,
+            pricing: m.pricing,
+            heroStats: m.heroStats,
+            features: m.features,
+            howItWorks: m.howItWorks,
+            faq: m.faq,
+          },
+        },
+      );
+      if (result.modifiedCount) updated++;
+    }
+    if (updated) this.logger.log(`Backfilled global-market copy on ${updated} existing module(s)`);
   }
 
   // ── Public — list all active modules ─────────────────────

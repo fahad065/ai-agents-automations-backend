@@ -130,13 +130,43 @@ export class ChatbotsService {
   }
 
   // Admin-only — every customer's chatbot, with owner name/email populated
-  // so admin can tell whose bot they're pricing.
+  // so admin can tell whose bot they're pricing. Also computes a
+  // "needs setup" flag per bot — see the onboarding model in CLAUDE.md
+  // (client is hands-off, admin does WhatsApp/Instagram/OpenAI-key setup):
+  // this is the queue view for that, so an admin managing many clients
+  // doesn't have to remember or dig through each bot's tabs to see who's
+  // still waiting. Flags are:
+  //   - noOpenAiKey: bot owner has no active OpenAI key on file at all
+  //   - whatsappPending: owner enabled WhatsApp but never got credentials
+  //   - instagramPending: same, for Instagram
+  // Batched into 2 queries total (bots + one api-key existence check),
+  // not one per bot, so this stays cheap as the list grows.
   async findAllAdmin(): Promise<any[]> {
-    return this.chatbotModel
+    const bots = await this.chatbotModel
       .find()
       .populate('userId', 'name email')
       .sort({ createdAt: -1 })
       .lean();
+
+    const ownerIds = [...new Set(
+      bots.map((b) => (b.userId as any)?._id?.toString()).filter(Boolean),
+    )];
+    const ownersWithOpenAiKey = await this.apiKeysService.getUserIdsWithActiveKey(
+      ownerIds,
+      ApiKeyProvider.OPENAI,
+    );
+
+    return bots.map((b) => {
+      const ownerId = (b.userId as any)?._id?.toString();
+      const noOpenAiKey = !ownerId || !ownersWithOpenAiKey.has(ownerId);
+      const whatsappPending = !!b.channels?.whatsapp?.enabled && !b.channels?.whatsapp?.phoneNumberId;
+      const instagramPending = !!b.channels?.instagram?.enabled && !b.channels?.instagram?.accountId;
+      return {
+        ...b,
+        setupFlags: { noOpenAiKey, whatsappPending, instagramPending },
+        needsSetup: noOpenAiKey || whatsappPending || instagramPending,
+      };
+    });
   }
 
   // One plan, everything included — same story as agents/automations. No

@@ -363,6 +363,18 @@ Implemented the communication half of that (the actual "admin does the Meta App 
 
 **Nothing built for the "admin does the Meta setup" side itself** — that's the existing `isAdmin`-gated `PUT /chatbots/:id` (channels sub-object) and `POST /api-keys` (`userId` override) routes, already fully wired from earlier sessions; the missing piece was purely "how does the client know this is coming and who to contact," which this closes. The user separately asked about a "needs setup" queue/filter on the admin chatbot list (to track which of many clients are still waiting on WhatsApp/OpenAI-key setup) — **not built in this pass**, flagged as a real next step if the 5-10/day volume materializes and admin needs to triage a queue rather than remembering per-client status.
 
+## Admin needs-setup queue on GET /chatbots/admin/all (implemented, 2026-09)
+Closes the gap flagged in the "Chatbot onboarding model" section above — at 5-10 client onboardings/day, an admin can't reliably remember or dig through every bot's tabs to see who's still blocked on setup. `ChatbotsService.findAllAdmin()` now computes and returns, per bot:
+```
+setupFlags: { noOpenAiKey, whatsappPending, instagramPending }
+needsSetup: boolean   // OR of the three flags above
+```
+- `noOpenAiKey` — the bot owner has no active `openai` `ApiKey` document at all.
+- `whatsappPending` / `instagramPending` — the channel's `enabled` flag is `true` but its credentials (`phoneNumberId` / `accountId`) are still empty — i.e. the client has signaled intent (toggled it on) but admin hasn't finished the Meta setup yet. A channel that was never enabled isn't flagged — not every chatbot needs WhatsApp, so "never turned on" isn't a pending task.
+- **Batched, not N+1**: `ApiKeysService` gained `getUserIdsWithActiveKey(userIds[], provider)` — one `$in` query returning a `Set<string>` of owner ids that have an active key for that provider, computed once across every bot in the list rather than one `getKeys()` call per bot. `findAllAdmin()` now does exactly 2 queries total (bots + the batched key check) regardless of list size.
+
+Frontend renders this as a filterable queue (`chatbots-page.tsx` admin view) — see frontend CLAUDE.md.
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
@@ -371,4 +383,5 @@ Implemented the communication half of that (the actual "admin does the Meta App 
 5. ~~Admin can build/manage a chatbot for a client~~ ✅ done — see above
 6. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live. Onboarding model decided (see above): admin does the Meta setup per client, not the client — no self-serve OAuth flow (Meta Embedded Signup) built yet, revisit once manual per-client setup becomes the real bottleneck.
 7. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing
-8. **Admin "needs setup" queue/filter on the chatbot admin list** — flagged during the onboarding-model discussion above but not built; worth adding once the operator is actually triaging several pending WhatsApp/OpenAI-key setups a day rather than a handful.
+8. ~~Admin "needs setup" queue/filter on the chatbot admin list~~ ✅ done — see above
+9. **Tiered chatbot pricing (Basic/Pro/Custom) + plan-based feature gating** — proposed, pending user confirmation on exact tiers/pricing. Not built yet.

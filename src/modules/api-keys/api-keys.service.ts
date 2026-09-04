@@ -75,6 +75,20 @@ import { NotificationsService } from '../notifications/notifications.service';
         { encryptedKey: 0 },
       );
     }
+
+    // Batch existence check — used by the admin chatbot "needs setup" queue
+    // to flag every bot whose owner is missing an OpenAI key in one query,
+    // instead of an N+1 getKeys() call per bot in the list.
+    async getUserIdsWithActiveKey(userIds: string[], provider: ApiKeyProvider): Promise<Set<string>> {
+      if (!userIds.length) return new Set();
+      const rows = await this.apiKeyModel
+        .find(
+          { userId: { $in: userIds.map((id) => new Types.ObjectId(id)) }, provider, isActive: true },
+          { userId: 1 },
+        )
+        .lean();
+      return new Set(rows.map((r) => r.userId.toString()));
+    }
   
     async getDecryptedKey(userId: string, provider: ApiKeyProvider): Promise<string> {
       const record = await this.apiKeyModel

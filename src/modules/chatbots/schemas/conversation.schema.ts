@@ -39,6 +39,15 @@ export class Conversation {
 
   @Prop()
   visitorEmail?: string;
+
+  @Prop()
+  visitorPhone?: string;
+
+  // Set once a lead notification email/dashboard alert has fired for this
+  // conversation, so capturing more fields later (e.g. name after phone)
+  // doesn't re-notify the owner every message.
+  @Prop()
+  leadNotifiedAt?: Date;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);

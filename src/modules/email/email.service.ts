@@ -488,12 +488,15 @@ export class EmailService {
   // ── 12. Chatbot Setup Guide ───────────────────────────────
   // Sent once, right after a new chatbot is created (ChatbotsService.create()),
   // to whichever account owns the bot — the client themselves, or the client
-  // an admin created it for on their behalf. Explains the client/admin split
-  // documented in CLAUDE.md: the client fills in Overview + Knowledge Base and
-  // adds their own OpenAI key, while WhatsApp/Instagram (real Meta Business
-  // App setup) is handled by the LogicMate team. The same content also lives
-  // permanently in the dashboard's "Guide to Setup" tab, so losing this email
-  // isn't a dead end — the PDF is a nice-to-have, not the only copy.
+  // an admin created it for on their behalf. Covers what the client owns
+  // (Overview + Knowledge Base + their own OpenAI key), a tour of every
+  // dashboard tab, and the two paths for connecting WhatsApp/Instagram
+  // (Pro plan and up): the client sets up their own Meta Business and grants
+  // us Partner/Admin access (recommended), or we do the whole thing for them
+  // on a call — see backend CLAUDE.md's "Chatbot onboarding model" and
+  // "Ownership model" sections. The same content also lives permanently in
+  // the dashboard's "Guide to Setup" tab, so losing this email isn't a dead
+  // end — the PDF is a nice-to-have, not the only copy.
   private setupGuidePdfCache: string | null | undefined;
 
   private loadSetupGuidePdfBase64(): string | null {
@@ -515,25 +518,37 @@ export class EmailService {
         <div style="font-size:48px;margin-bottom:12px;text-align:center;">🤖</div>
         <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;text-align:center;">"${data.chatbotName}" is created!</h1>
         <p style="color:#737373;font-size:14px;margin:0 0 24px;text-align:center;">Here's exactly what happens next</p>
-        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">Hi ${user.name || 'there'}, your chatbot is set up but still private — it starts answering real customers once its content is added and a channel is connected. We've attached a quick setup guide (PDF), and the short version is below.</p>
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">Hi ${user.name || 'there'}, your chatbot is set up but still private — it starts answering real customers once its content is added and a channel is connected. We've attached a full setup guide (PDF) with a tour of every tab; the short version is below.</p>
         <div style="background:#0d1f14;border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:18px 20px;margin:0 0 16px;">
           <p style="color:#4ade80;font-size:13px;font-weight:600;margin:0 0 10px;">✅ What you'll do — no technical skills needed</p>
           <p style="color:#a3a3a3;font-size:13px;line-height:1.9;margin:0;">
-            1. <strong style="color:#e5e5e5;">Overview tab</strong> — name, description, persona, language<br/>
-            2. <strong style="color:#e5e5e5;">Knowledge Base tab</strong> — your menu, hours, prices, FAQs<br/>
+            1. <strong style="color:#e5e5e5;">Overview tab</strong> — name, description, persona, language, fallback message, optional booking link<br/>
+            2. <strong style="color:#e5e5e5;">Knowledge Base tab</strong> — your menu, hours, prices, FAQs — the only source your bot answers from<br/>
             3. <strong style="color:#e5e5e5;">Your OpenAI key</strong> — free account at platform.openai.com, paste it in (or send it to us)
           </p>
         </div>
-        <div style="background:#1a1530;border:1px solid rgba(124,58,237,0.25);border-radius:10px;padding:18px 20px;margin:0 0 28px;">
-          <p style="color:#a78bfa;font-size:13px;font-weight:600;margin:0 0 10px;">🔧 What our team handles for you</p>
+        <div style="background:#151020;border:1px solid rgba(120,113,140,0.25);border-radius:10px;padding:18px 20px;margin:0 0 16px;">
+          <p style="color:#c4b5fd;font-size:13px;font-weight:600;margin:0 0 10px;">🗂️ What each tab does</p>
           <p style="color:#a3a3a3;font-size:13px;line-height:1.9;margin:0;">
-            WhatsApp and Instagram both need a Meta Business App connection — real technical setup we take care of. Just reply to this email with the number/account you'd like connected.
+            <strong style="color:#e5e5e5;">Channels</strong> — website widget (no Meta account needed), plus WhatsApp/Instagram on the Pro plan and up<br/>
+            <strong style="color:#e5e5e5;">Conversations</strong> — every chat, with any captured name/phone/email auto-pinned to the top<br/>
+            <strong style="color:#e5e5e5;">Analytics</strong> — conversation/message totals and channel breakdown (Pro plan and up)<br/>
+            <strong style="color:#e5e5e5;">Billing</strong> — your plan, trial countdown, and payment history
+          </p>
+        </div>
+        <div style="background:#1a1530;border:1px solid rgba(124,58,237,0.25);border-radius:10px;padding:18px 20px;margin:0 0 28px;">
+          <p style="color:#a78bfa;font-size:13px;font-weight:600;margin:0 0 10px;">🔧 Connecting WhatsApp &amp; Instagram (Pro plan and up)</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.9;margin:0;">
+            Both need a real Meta Business App behind them — two ways to get there:<br/>
+            <strong style="color:#e5e5e5;">Option A (recommended):</strong> you create your own free Meta Business Portfolio and app, then grant us Partner/Admin access — never your password, revocable any time. We configure everything inside your own app and hand the credentials back.<br/>
+            <strong style="color:#e5e5e5;">Option B:</strong> reply to this email with the WhatsApp number / Instagram account you'd like connected, and we'll do the entire setup for you on a call instead.<br/>
+            Instagram also needs a short review from Meta before it fully goes live — a few days, on their side.
           </p>
         </div>
         <div style="text-align:center;">
           <a href="${dashboardUrl}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">Open Your Chatbot →</a>
         </div>
-        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">This same guide is always available under the "Guide to Setup" tab in your chatbot's dashboard.<br/>Questions? Reply to this email or write to hello@logicmate.io</p>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">This same guide — always up to date with your bot's actual plan — is under the "Guide to Setup" tab in your chatbot's dashboard.<br/>Questions? Reply to this email or write to hello@logicmate.io</p>
       </div>
     `);
     const pdf = this.loadSetupGuidePdfBase64();

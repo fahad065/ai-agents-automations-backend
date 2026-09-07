@@ -126,6 +126,16 @@ export class Chatbot {
   @Prop()
   persona?: string;
 
+  // Any booking link the owner already uses — Calendly, OpenTable, Resy,
+  // a Google Form, whatever. Purely a link to share in chat when a customer
+  // wants to book, not a real booking integration (see backend CLAUDE.md's
+  // "Booking link" section for why: restaurant reservations aren't really
+  // calendar-slot-shaped the way Calendly assumes, so lead capture stays
+  // the fallback whenever this is empty or the customer just gives their
+  // details in-chat instead of clicking through).
+  @Prop()
+  bookingUrl?: string;
+
   @Prop({ enum: ['en', 'ar', 'both'], default: 'both' })
   language: 'en' | 'ar' | 'both';
 

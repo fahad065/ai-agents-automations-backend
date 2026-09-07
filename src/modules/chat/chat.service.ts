@@ -70,6 +70,10 @@ export class ChatService {
         ? `Knowledge base:\n${knowledgeSnippets.join('\n\n')}`
         : 'No knowledge base entries are available.';
 
+    const bookingInstruction = chatbot.bookingUrl
+      ? `If the customer wants to book/reserve/schedule something, share this link so they can pick a time themselves: ${chatbot.bookingUrl}. Still ask for their name and phone number too, in case the team needs to follow up directly.`
+      : `There is no separate booking link for this business — if the customer wants to book/reserve something, handle it entirely through the conversation: ask for their name, phone number, preferred date/time, and any other relevant detail (e.g. party size), and let them know the team will confirm with them directly.`;
+
     return `You are ${chatbot.name}, a helpful customer service assistant.
 Persona: ${chatbot.persona || 'friendly and professional'}.
 Language: ${languageInstruction}
@@ -77,6 +81,8 @@ IMPORTANT: Only answer questions based on the knowledge base below. If the quest
 Do not make up information.
 
 Whenever it's natural — especially if the customer wants to book, order, get a quote, or asks to be contacted — politely ask for their name, phone number and email if they haven't shared them yet. Weave this into the conversation over a message or two rather than demanding all three at once, and never block answering their actual question just to collect these details.
+
+${bookingInstruction}
 
 ${knowledgeSection}`;
   }

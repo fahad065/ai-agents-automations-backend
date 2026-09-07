@@ -152,6 +152,19 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     expect(emailService.sendChatbotLeadEmail).not.toHaveBeenCalled();
   });
 
+  it('buildSystemPrompt() shares the booking link when set, and falls back to full lead capture when not', async () => {
+    const withLink = makeChatbot({ bookingUrl: 'https://calendly.com/sunset-cafe/table' });
+    const { service: serviceWithLink } = makeService({ chatbot: withLink });
+    const promptWithLink = (serviceWithLink as any).buildSystemPrompt(withLink, []);
+    expect(promptWithLink).toContain('https://calendly.com/sunset-cafe/table');
+
+    const withoutLink = makeChatbot({ bookingUrl: undefined });
+    const { service: serviceWithoutLink } = makeService({ chatbot: withoutLink });
+    const promptWithoutLink = (serviceWithoutLink as any).buildSystemPrompt(withoutLink, []);
+    expect(promptWithoutLink).not.toContain('http');
+    expect(promptWithoutLink).toMatch(/no separate booking link/i);
+  });
+
   it('extractLeadInfo() short-circuits (no OpenAI call) once name/email/phone are all already known', async () => {
     const chatbot = makeChatbot();
     const { service } = makeService({ chatbot, hasOpenAiKey: true });

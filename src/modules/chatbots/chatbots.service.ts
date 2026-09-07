@@ -19,6 +19,7 @@ const CUSTOMER_EDITABLE_FIELDS = [
   'name',
   'description',
   'persona',
+  'bookingUrl',
   'language',
   'template',
   'status',

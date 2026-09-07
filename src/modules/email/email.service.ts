@@ -610,4 +610,91 @@ export class EmailService {
     `);
     await this.send(user.email, `🎯 New lead from "${data.chatbotName}"${data.visitorName ? ' — ' + data.visitorName : ''}`, html);
   }
+
+  // ── 15. Chatbot trial expiring / expired ───────────────────
+  // Chatbot-specific counterparts to sendTrialExpiringEmail()/
+  // sendTrialExpiredEmail() above (which stay as-is — agents/automations'
+  // usermodules/trial-expiry.cron.ts still uses those generic ones).
+  // A chatbot's trial billing is tracked per-bot on Chatbot.billing, not
+  // the account-level UserModule billing those generic emails assume, so
+  // reusing them would send a client to /dashboard/payment-instructions —
+  // the generic agents/automations bank-transfer page, which has no idea
+  // which chatbot they mean or what its fee is — instead of this bot's own
+  // Billing tab, where the real amount, bank details, and the
+  // notify-payment "I've paid" form tied to *this* chatbot's billing
+  // record actually live. Fired by chatbot-billing.cron.ts at 5 days left
+  // (day 25 of a 30-day trial) and again once the trial actually expires.
+  // Manual bank transfer only for now, matching the pricing page's own
+  // copy — Stripe is a planned follow-up once the trade license lands.
+  private formatMoney(amount: number, currency: string): string {
+    return `${currency === 'USD' ? '$' : currency + ' '}${amount.toLocaleString()}`;
+  }
+
+  async sendChatbotTrialExpiringEmail(
+    user: { name: string; email: string },
+    data: { chatbotId: string; chatbotName: string; daysLeft: number; trialEndDate: Date; monthlyFee: number; setupFee: number; currency: string },
+  ): Promise<void> {
+    const billingUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots/${data.chatbotId}?tab=billing`;
+    const endDate = data.trialEndDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+    const due = data.setupFee > 0
+      ? `${this.formatMoney(data.setupFee, data.currency)} setup fee + ${this.formatMoney(data.monthlyFee, data.currency)}/mo`
+      : `${this.formatMoney(data.monthlyFee, data.currency)}/mo`;
+    const html = this.base(`
+      <div style="background:linear-gradient(135deg,rgba(245,158,11,0.1),rgba(245,158,11,0.05));padding:32px 36px 24px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:48px;margin-bottom:12px;">⏰</div>
+        <h1 style="color:#f59e0b;font-size:22px;font-weight:700;margin:0 0 8px;">"${data.chatbotName}" trial ending in ${data.daysLeft} days</h1>
+        <p style="color:#737373;font-size:14px;margin:0;">Expires ${endDate}</p>
+      </div>
+      <div style="padding:28px 36px;">
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">Hi ${user.name || 'there'}, your chatbot's 30-day trial ends in ${data.daysLeft} days. Send the transfer below before then so it keeps answering customers live without any gap.</p>
+        <div style="background:#1a1a1a;border:1px solid rgba(245,158,11,0.2);border-radius:12px;padding:20px;margin-bottom:24px;">
+          <p style="color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 8px;">Amount due: ${due}</p>
+          <p style="color:#737373;font-size:13px;margin:4px 0 0;">• Right now this is a manual bank transfer — no card needed</p>
+          <p style="color:#737373;font-size:13px;margin:4px 0 0;">• Bank details and an "I've paid" form are on your chatbot's Billing tab</p>
+          <p style="color:#737373;font-size:13px;margin:4px 0 0;">• Your knowledge base, channels and settings are all preserved either way</p>
+        </div>
+        <div style="text-align:center;">
+          <a href="${billingUrl}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">Go to Billing →</a>
+        </div>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">Questions? Reply to this email or write to hello@logicmate.io</p>
+      </div>
+    `);
+    await this.send(user.email, `⏰ "${data.chatbotName}" trial expires in ${data.daysLeft} days`, html);
+  }
+
+  async sendChatbotTrialExpiredEmail(
+    user: { name: string; email: string },
+    data: { chatbotId: string; chatbotName: string; monthlyFee: number; setupFee: number; currency: string },
+  ): Promise<void> {
+    const billingUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots/${data.chatbotId}?tab=billing`;
+    const due = data.setupFee > 0
+      ? `${this.formatMoney(data.setupFee, data.currency)} setup fee + ${this.formatMoney(data.monthlyFee, data.currency)}/mo`
+      : `${this.formatMoney(data.monthlyFee, data.currency)}/mo`;
+    const html = this.base(`
+      <div style="padding:40px 36px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">⏸️</div>
+        <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;">"${data.chatbotName}" has stopped answering customers</h1>
+        <p style="color:#737373;font-size:14px;margin:0 0 28px;">Its 30-day trial just ended</p>
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          Your website widget, WhatsApp and Instagram (if connected) will keep showing up but stop replying until this is settled — everything else (knowledge base, channels, settings) is saved exactly as you left it.
+        </p>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:20px;margin:0 0 28px;text-align:left;">
+          <p style="color:#f59e0b;font-size:13px;font-weight:600;margin:0 0 12px;">⚡ Amount due: ${due}</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.8;margin:0;">
+            1. Transfer to our UAE bank account — details on the Billing tab<br/>
+            2. Submit your transaction reference right there<br/>
+            3. We'll confirm and your chatbot goes live again, usually within 24 hours
+          </p>
+        </div>
+        <a href="${billingUrl}"
+           style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">
+          Go to Billing →
+        </a>
+        <p style="color:#525252;font-size:12px;margin:20px 0 0;">
+          Questions? Reply to this email or contact hello@logicmate.io
+        </p>
+      </div>
+    `);
+    await this.send(user.email, `"${data.chatbotName}" is paused — payment needed to resume`, html);
+  }
 }

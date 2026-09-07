@@ -7,11 +7,17 @@ import { EmailService } from '../email/email.service';
 
 // Runs the same job the agents/automations side already has (see
 // usermodules/trial-expiry.cron.ts) but for chatbots: warn 5 days before a
-// trial ends, then flip billing.status once it actually does. The chat
-// engine (chat.service.ts) also re-checks trialEndsAt in real time via
-// isChatbotBillingActive(), so a lapsed trial can never answer for free
-// just because this cron hasn't run yet today — this job's job is emails
-// + moving the status forward, not the actual gate.
+// trial ends (day 25 of a 30-day trial), then flip billing.status once it
+// actually does. The chat engine (chat.service.ts) also re-checks
+// trialEndsAt in real time via isChatbotBillingActive(), so a lapsed trial
+// can never answer for free just because this cron hasn't run yet today —
+// this job's job is emails + moving the status forward, not the actual
+// gate. Uses sendChatbotTrialExpiringEmail()/sendChatbotTrialExpiredEmail()
+// (email.service.ts) — chatbot-specific versions of the generic
+// agents/automations emails, since those link to the generic
+// /dashboard/payment-instructions page (which has no idea which chatbot or
+// fee is owed) instead of this bot's own Billing tab, where the real
+// amount, bank details, and the notify-payment "I've paid" form live.
 @Injectable()
 export class ChatbotBillingCron {
   private readonly logger = new Logger(ChatbotBillingCron.name);
@@ -42,9 +48,17 @@ export class ChatbotBillingCron {
         const daysLeft = Math.ceil(
           (new Date(chatbot.billing.trialEndsAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         );
-        await this.emailService.sendTrialExpiringEmail(
+        await this.emailService.sendChatbotTrialExpiringEmail(
           { name: user.name, email: user.email },
-          { moduleName: chatbot.name, daysLeft, trialEndDate: chatbot.billing.trialEndsAt! },
+          {
+            chatbotId: String(chatbot._id),
+            chatbotName: chatbot.name,
+            daysLeft,
+            trialEndDate: chatbot.billing.trialEndsAt!,
+            monthlyFee: chatbot.billing.monthlyFee,
+            setupFee: chatbot.billing.setupFee,
+            currency: chatbot.billing.currency,
+          },
         );
         chatbot.billing.trialReminderSent = true;
         await chatbot.save();
@@ -70,9 +84,15 @@ export class ChatbotBillingCron {
 
         const user: any = await this.userModel.findById(chatbot.userId).lean();
         if (user?.email) {
-          await this.emailService.sendTrialExpiredEmail(
+          await this.emailService.sendChatbotTrialExpiredEmail(
             { name: user.name, email: user.email },
-            { moduleName: chatbot.name },
+            {
+              chatbotId: String(chatbot._id),
+              chatbotName: chatbot.name,
+              monthlyFee: chatbot.billing.monthlyFee,
+              setupFee: chatbot.billing.setupFee,
+              currency: chatbot.billing.currency,
+            },
           );
         }
         this.logger.log(`[ChatbotBillingCron] Trial expired for chatbot=${chatbot._id} -> ${chatbot.billing.status}`);

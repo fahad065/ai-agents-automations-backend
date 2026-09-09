@@ -462,6 +462,19 @@ The 5-day-warning mechanism itself **already existed** — `chatbot-billing.cron
 - **Verified without a live send**: instantiated the compiled `EmailService`, monkey-patched `send()` to capture the rendered HTML instead of hitting Resend, and asserted both emails contain the correct `?tab=billing` URL and the correct formatted amount, and do *not* contain the old generic `/dashboard/payment-instructions` link. `nest build` clean, and the existing Jest suite still 15/15 passing (untouched by this change). The frontend half (the `?tab=` fix) was verified live against a real production build via Playwright — see frontend CLAUDE.md.
 - **Deliberately not built**: Stripe/automatic billing — explicitly deferred by the user until the trade license/LLC is in place; manual bank transfer + admin `confirm-payment` stays the only path for now, exactly as the pricing page's CMS copy already states.
 
+## Self-serve Basic->Pro upgrade payment flow (implemented, 2026-09)
+Closes the gap flagged in "Tiered chatbot pricing" above. Mirrors the existing `notifyPayment`/`confirmPayment` pattern exactly rather than building a parallel mechanism — a client on Basic can now request an upgrade themselves instead of it always being an admin hand-set change.
+
+- Both methods' `kind` union widened from `'setup' | 'monthly'` to `'setup' | 'monthly' | 'upgrade'`.
+- `notifyPayment(kind:'upgrade')` — throws `BadRequestException` if the chatbot isn't currently on Basic (nothing to upgrade to). Creates the same PENDING `Billing` record + admin alert email as setup/monthly, described as `Tier upgrade (Basic → Pro)`.
+- `confirmPayment(kind:'upgrade')` (admin only, same guard as every `confirm-payment` call) — sets `billing.tier = 'pro'` and, best-effort, updates `billing.monthlyFee` to the template's real Pro price.
+- **New `resolveProMonthlyPrice(chatbot)` private helper** + a `TEMPLATE_TO_MODULE_SLUG` map (`Chatbot.template` enum value → the matching `ModuleTemplate` slug, e.g. `restaurant` → `restaurant-chatbot`) — looks up `module.pricingTiers.find(t => t.key === 'pro').monthly` via `ModulesService.findOne()`. If the template has no mapping (`'custom'`) or the module/pricingTiers lookup fails, returns `null` and the caller leaves `monthlyFee` untouched rather than guessing — same defensive fallback pattern `create()`'s `moduleSlug` lookup already uses. The tier still flips to `'pro'` in that case (the business intent — approve the upgrade — is unambiguous even if the exact new price needs an admin's manual correction via the pricing editor).
+- The amount stated back to the client in `notifyPayment`'s admin-alert email is this same resolved Pro price (falling back to the current `monthlyFee` if unresolved) — so the admin sees a real number to expect, not a guess.
+
+See frontend CLAUDE.md for the client-facing "Request upgrade" mini-form and the admin's "Confirm Pro Upgrade" button, both on the Billing tab.
+
+Verified via `nest build` (clean) and the existing Jest suite (still 15/15 passing, untouched by this change — no new spec was added since this reuses `notifyPayment`/`confirmPayment`'s already-tested shape with one more `kind` branch).
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
@@ -473,7 +486,7 @@ The 5-day-warning mechanism itself **already existed** — `chatbot-billing.cron
 8. ~~Admin "needs setup" queue/filter on the chatbot admin list~~ ✅ done — see above
 9. ~~Tiered chatbot pricing (Basic/Pro/Custom) + plan-based feature gating~~ ✅ done — see above
 10. ~~Admin form UI for editing `pricingTiers`~~ ✅ done — `admin-modules.tsx`'s Pricing tab now has Basic/Pro sections (monthly/annual/features, EN+AR) for chatbot-type modules, saved via the existing unauthenticated `PATCH /modules/:idOrSlug` (`@Body() body: any`, no DTO stripping — `pricingTiers` passes through as-is). See frontend CLAUDE.md for the form details.
-11. **Self-serve Basic→Pro upgrade payment flow** — deliberately not built; upgrades go through admin manually setting `tier` via `PUT /:id/pricing`, same hand-set-price model chatbot billing already uses everywhere else. A real "request upgrade → pay → admin confirms" flow (mirroring `notifyPayment`/`confirmPayment`) would be the natural next step if manual tier-flipping becomes the bottleneck.
+11. ~~Self-serve Basic→Pro upgrade payment flow~~ ✅ done — see above. Admin can still hand-flip `tier` via `PUT /:id/pricing` too; both paths coexist.
 12. ~~Chatbot lead capture (name/phone/email + owner notification, every tier)~~ ✅ done — see above
 13. ~~Booking link (share-a-link, falls back to lead capture)~~ ✅ done — see above
 14. **Real booking-platform integration** (live availability + direct booking via Calendly/OpenTable/Resy API) — deliberately not built yet, flagged as a genuine Pro/Custom feature once there's actual client demand for it, not just a link

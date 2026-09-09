@@ -37,6 +37,22 @@ function pickCustomerEditable(dto: any): any {
   return out;
 }
 
+// Chatbot.template -> the ModuleTemplate slug that carries this template's
+// pricingTiers, so a Basic->Pro upgrade request can look up the real Pro
+// price instead of the admin having to type it in by hand every time. Same
+// 9 slugs as SEED_MODULES's chatbot section (see backend CLAUDE.md).
+const TEMPLATE_TO_MODULE_SLUG: Record<string, string> = {
+  restaurant: 'restaurant-chatbot',
+  real_estate: 'real-estate-chatbot',
+  clinic: 'clinic-chatbot',
+  ecommerce: 'ecommerce-chatbot',
+  gym: 'gym-chatbot',
+  education: 'education-chatbot',
+  salon: 'salon-chatbot',
+  hotel: 'hotel-chatbot',
+  auto_dealership: 'auto-dealership-chatbot',
+};
+
 @Injectable()
 export class ChatbotsService implements OnModuleInit {
   private readonly logger = new Logger(ChatbotsService.name);
@@ -432,16 +448,48 @@ export class ChatbotsService implements OnModuleInit {
     return chatbot.save();
   }
 
-  // Customer calls this after making the bank transfer. Creates a PENDING
-  // billing record and alerts the admin — mirrors the existing
-  // /users/notify-payment pattern used for agents/automations.
+  // Best-effort lookup of this chatbot's template's Pro-tier monthly price,
+  // via its ModuleTemplate.pricingTiers (see backend CLAUDE.md's "Tiered
+  // chatbot pricing" section). Returns null if the template has no known
+  // module mapping (e.g. 'custom') or the module/pricingTiers can't be
+  // found — callers fall back to leaving monthlyFee untouched rather than
+  // guessing, same defensive pattern create() already uses for moduleSlug.
+  private async resolveProMonthlyPrice(chatbot: ChatbotDocument): Promise<number | null> {
+    const slug = chatbot.template ? TEMPLATE_TO_MODULE_SLUG[chatbot.template] : undefined;
+    if (!slug) return null;
+    try {
+      const module = await this.modulesService.findOne(slug);
+      const proTier = module.pricingTiers?.find((t: any) => t.key === 'pro');
+      return proTier?.monthly ?? null;
+    } catch (err) {
+      this.logger.warn(`resolveProMonthlyPrice() couldn't load module "${slug}": ${err?.message}`);
+      return null;
+    }
+  }
+
+  // Customer calls this after making the bank transfer — or, for
+  // kind:'upgrade', after deciding they want Pro (see backend CLAUDE.md's
+  // "Self-serve Basic->Pro upgrade" section). Creates a PENDING billing
+  // record and alerts the admin — mirrors the existing /users/notify-payment
+  // pattern used for agents/automations. Admin still does the actual
+  // tier-flip via confirmPayment below; this only files the request.
   async notifyPayment(
     chatbotId: string,
     userId: string,
-    dto: { kind: 'setup' | 'monthly'; transactionRef: string; notes?: string },
+    dto: { kind: 'setup' | 'monthly' | 'upgrade'; transactionRef: string; notes?: string },
   ): Promise<{ ok: true }> {
     const chatbot = await this.findOne(chatbotId, userId);
-    const amount = dto.kind === 'setup' ? chatbot.billing.setupFee : chatbot.billing.monthlyFee;
+
+    if (dto.kind === 'upgrade' && chatbot.billing.tier !== 'basic') {
+      throw new BadRequestException('This chatbot is already on Pro or Custom — nothing to upgrade to.');
+    }
+
+    const proPrice = dto.kind === 'upgrade' ? await this.resolveProMonthlyPrice(chatbot) : null;
+    const amount =
+      dto.kind === 'setup' ? chatbot.billing.setupFee
+      : dto.kind === 'upgrade' ? (proPrice ?? chatbot.billing.monthlyFee)
+      : chatbot.billing.monthlyFee;
+    const kindLabel = dto.kind === 'setup' ? 'Setup fee' : dto.kind === 'upgrade' ? 'Tier upgrade (Basic → Pro)' : 'Monthly fee';
 
     await this.billingService.create({
       userId,
@@ -449,7 +497,7 @@ export class ChatbotsService implements OnModuleInit {
       moduleType: 'chatbot',
       moduleName: chatbot.name,
       amount,
-      description: `${dto.kind === 'setup' ? 'Setup fee' : 'Monthly fee'} — ${chatbot.name} — ref ${dto.transactionRef}${dto.notes ? ` — ${dto.notes}` : ''}`,
+      description: `${kindLabel} — ${chatbot.name} — ref ${dto.transactionRef}${dto.notes ? ` — ${dto.notes}` : ''}`,
       type: dto.kind === 'setup' ? BillingType.SETUP : BillingType.SUBSCRIPTION,
       status: BillingStatus.PENDING,
     });
@@ -468,9 +516,15 @@ export class ChatbotsService implements OnModuleInit {
   }
 
   // Admin only — confirms a payment was received and activates billing.
+  // kind:'upgrade' flips billing.tier to 'pro' and (best-effort) updates
+  // monthlyFee to the template's real Pro price — see resolveProMonthlyPrice
+  // above. If the price can't be resolved, the tier still flips (the
+  // business intent — approve the upgrade — is unambiguous) but monthlyFee
+  // is left as-is, same as every other admin-set-by-hand field here; the
+  // admin can still correct it manually via the pricing editor above.
   async confirmPayment(
     id: string,
-    dto: { kind: 'setup' | 'monthly'; billingRecordId?: string },
+    dto: { kind: 'setup' | 'monthly' | 'upgrade'; billingRecordId?: string },
   ): Promise<ChatbotDocument> {
     const chatbot = await this.findOneAdmin(id);
     const now = new Date();
@@ -479,6 +533,13 @@ export class ChatbotsService implements OnModuleInit {
       chatbot.billing.setupPaidAt = now;
       chatbot.billing.status = 'active';
     }
+
+    if (dto.kind === 'upgrade') {
+      chatbot.billing.tier = 'pro';
+      const proPrice = await this.resolveProMonthlyPrice(chatbot);
+      if (proPrice !== null) chatbot.billing.monthlyFee = proPrice;
+    }
+
     if (chatbot.billing.monthlyFee > 0) {
       chatbot.billing.lastBillingDate = now;
       const next = new Date(now);

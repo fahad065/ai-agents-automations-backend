@@ -34,15 +34,28 @@ export class ChatbotBillingCron {
     this.logger.log('[ChatbotBillingCron] Checking chatbot trials...');
 
     // 5-day warning
+    // Claims each chatbot atomically (findOneAndUpdate flips
+    // trialReminderSent BEFORE sending) rather than send-then-save — two
+    // replicas racing this cron in the same minute would otherwise both
+    // .find() the same un-reminded chatbots and both send the email
+    // before either write landed. Only the replica whose update actually
+    // matches (trialReminderSent still not true at that instant) sends.
     try {
       const fiveDaysOut = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
-      const expiring = await this.chatbotModel.find({
+      const candidates = await this.chatbotModel.find({
         'billing.status': 'trial',
         'billing.trialEndsAt': { $lte: fiveDaysOut, $gt: new Date() },
         'billing.trialReminderSent': { $ne: true },
-      });
+      }).select('_id').lean();
 
-      for (const chatbot of expiring) {
+      for (const { _id } of candidates) {
+        const chatbot = await this.chatbotModel.findOneAndUpdate(
+          { _id, 'billing.trialReminderSent': { $ne: true } },
+          { $set: { 'billing.trialReminderSent': true } },
+          { new: true },
+        );
+        if (!chatbot) continue; // another replica already claimed it
+
         const user: any = await this.userModel.findById(chatbot.userId).lean();
         if (!user?.email) continue;
         const daysLeft = Math.ceil(
@@ -60,27 +73,33 @@ export class ChatbotBillingCron {
             currency: chatbot.billing.currency,
           },
         );
-        chatbot.billing.trialReminderSent = true;
-        await chatbot.save();
         this.logger.log(`[ChatbotBillingCron] Expiry warning sent for chatbot=${chatbot._id}`);
       }
     } catch (err) {
       this.logger.error(`[ChatbotBillingCron] warning pass failed: ${err?.message}`);
     }
 
-    // Expired trials
+    // Expired trials — same claim-before-act pattern: flip billing.status
+    // away from 'trial' atomically before sending, so a second replica's
+    // claim on the same chatbot fails fast instead of double-sending.
     try {
-      const expired = await this.chatbotModel.find({
+      const candidates = await this.chatbotModel.find({
         'billing.status': 'trial',
         'billing.trialEndsAt': { $lte: new Date() },
-      });
+      }).select('_id billing.setupFee billing.monthlyFee').lean();
 
-      for (const chatbot of expired) {
-        chatbot.billing.status =
-          chatbot.billing.setupFee > 0 || chatbot.billing.monthlyFee > 0
+      for (const c of candidates) {
+        const newStatus =
+          (c.billing?.setupFee ?? 0) > 0 || (c.billing?.monthlyFee ?? 0) > 0
             ? 'awaiting_setup_payment'
             : 'suspended';
-        await chatbot.save();
+
+        const chatbot = await this.chatbotModel.findOneAndUpdate(
+          { _id: c._id, 'billing.status': 'trial' },
+          { $set: { 'billing.status': newStatus } },
+          { new: true },
+        );
+        if (!chatbot) continue; // another replica already claimed it
 
         const user: any = await this.userModel.findById(chatbot.userId).lean();
         if (user?.email) {

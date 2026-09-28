@@ -111,6 +111,20 @@ export class User {
   @Prop()
   passwordResetExpires?: Date;
 
+  // Welcome-sequence send guards — without these, the day1/3/7 emails
+  // in trial-expiry.cron.ts's @Cron('0 10 * * *') welcome job would fire
+  // once per user PER SERVER REPLICA (each instance independently scans
+  // the same "created N days ago" window with no shared state), sending
+  // duplicate onboarding emails once a second backend instance is added.
+  @Prop({ default: false })
+  welcomeDay1Sent: boolean;
+
+  @Prop({ default: false })
+  welcomeDay3Sent: boolean;
+
+  @Prop({ default: false })
+  welcomeDay7Sent: boolean;
+
   @Prop()
   refreshToken?: string;
 

@@ -319,6 +319,18 @@ export class UserModulesService {
     await this.userModuleModel.findByIdAndUpdate(id, { trialReminderSent: true });
   }
 
+  // Atomic claim for the cron's "send the 3-day reminder" step — returns
+  // true only if THIS call is the one that flipped trialReminderSent
+  // false→true, so two replicas racing the same minute can't both send
+  // the email (the loser's filter won't match once the winner commits).
+  async claimReminderSent(id: string): Promise<boolean> {
+    const res = await this.userModuleModel.findOneAndUpdate(
+      { _id: id, trialReminderSent: false },
+      { $set: { trialReminderSent: true } },
+    );
+    return !!res;
+  }
+
   async runPipeline(userModuleId: string, userId: string): Promise<any> {
     const userModule = await this.userModuleModel
       .findOne({
@@ -485,16 +497,30 @@ export class UserModulesService {
           }
         }
  
-        // Check if already ran today (UTC date) to prevent double runs
-        if (m.lastRunAt) {
-          const lastRun = new Date(m.lastRunAt);
-          const sameDay =
-            lastRun.getUTCFullYear() === now.getUTCFullYear() &&
-            lastRun.getUTCMonth()    === now.getUTCMonth() &&
-            lastRun.getUTCDate()     === now.getUTCDate();
-          if (sameDay) { skipped++; continue; }
-        }
- 
+        // Atomically claim this module for today's run — a plain
+        // read-then-decide check on `m.lastRunAt` (the in-memory value
+        // from the .find() above) is a race across replicas: two
+        // instances polling in the same minute could both read
+        // "not run today" before either writes, and both trigger the
+        // pipeline. findOneAndUpdate is atomic per document, so only
+        // one replica's claim can match+set `lastRunAt` for a given
+        // module in a given UTC day; the loser's filter simply won't
+        // match anymore by the time its own update executes.
+        const startOfTodayUTC = new Date(Date.UTC(
+          now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+        ));
+        const claimed = await this.userModuleModel.findOneAndUpdate(
+          {
+            _id: m._id,
+            $or: [
+              { lastRunAt: { $exists: false } },
+              { lastRunAt: { $lt: startOfTodayUTC } },
+            ],
+          },
+          { $set: { lastRunAt: now } },
+        );
+        if (!claimed) { skipped++; continue; }
+
         // console.log(`[Cron] Running pipeline for module ${m._id} (${m.moduleName})`);
         await this.runPipeline(
           m._id.toString(),
@@ -602,5 +628,17 @@ export class UserModulesService {
     await this.userModuleModel.findByIdAndUpdate(userModuleId, {
       status: UserModuleStatus.EXPIRED,
     });
+  }
+
+  // Atomic claim for the cron's "expire + notify" step — returns true
+  // only if THIS call is the one that transitioned status TRIAL→EXPIRED,
+  // so two replicas racing the same minute can't both send the
+  // "your trial expired" email for the same module.
+  async claimExpireModule(userModuleId: string): Promise<boolean> {
+    const res = await this.userModuleModel.findOneAndUpdate(
+      { _id: userModuleId, status: UserModuleStatus.TRIAL },
+      { $set: { status: UserModuleStatus.EXPIRED } },
+    );
+    return !!res;
   }
 }

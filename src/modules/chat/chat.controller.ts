@@ -7,18 +7,25 @@ import {
   Query,
   Res,
   HttpCode,
+  UseGuards,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/decorators/public.decorator';
 import { ChatService } from './chat.service';
+import { ChatThrottlerGuard } from './chat-throttler.guard';
 
 @Controller()
 export class ChatController {
   constructor(private chatService: ChatService) {}
 
+  // Rate-limited per chatbot (embedKey), not per caller IP — see
+  // ChatThrottlerGuard. Generous enough for many real concurrent visitors
+  // on one bot, but caps how much any single bot's traffic can consume of
+  // the shared Mongo pool / event loop other tenants' bots also run on.
   @Post('chat/:embedKey')
   @Public()
-  @SkipThrottle()
+  @UseGuards(ChatThrottlerGuard)
+  @Throttle({ chat: { limit: 40, ttl: 10000 } })
   @HttpCode(200)
   async chat(
     @Param('embedKey') embedKey: string,

@@ -9,6 +9,11 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
   });
 
+  // Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT
+  // (Railway sends SIGTERM during a rolling deploy; without this the
+  // process exits immediately and drops whatever was in flight)
+  app.enableShutdownHooks();
+
   // CORS — strict in production, flexible in development
   const isDev = process.env.NODE_ENV !== 'production';
   const allowedOrigins = isDev

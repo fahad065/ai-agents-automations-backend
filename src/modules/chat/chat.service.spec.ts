@@ -155,6 +155,39 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     expect(emailService.sendChatbotLeadEmail).not.toHaveBeenCalled();
   });
 
+  it('buildSystemPrompt() includes every outlet, unfiltered, so multi-branch questions can be answered', async () => {
+    const chatbot = makeChatbot({
+      outlets: [
+        {
+          name: 'Al Quoz (Delivery Only)',
+          city: 'Dubai',
+          country: 'UAE',
+          areaTags: ['Al Barsha', 'Business Bay'],
+          isOnlineOnly: true,
+          deliveryPlatforms: ['Talabat', 'Noon Food', 'Smiles'],
+        },
+        { name: 'Adajan', city: 'Surat', country: 'India', address: 'Adajan, Surat' },
+      ],
+    });
+    const { service } = makeService({ chatbot });
+    const prompt = (service as any).buildSystemPrompt(chatbot, []);
+
+    expect(prompt).toContain('Al Quoz (Delivery Only)');
+    expect(prompt).toContain('Business Bay');
+    expect(prompt).toContain('Delivery/online-only');
+    expect(prompt).toContain('Talabat, Noon Food, Smiles');
+    expect(prompt).toContain('Adajan');
+    expect(prompt).toContain('Surat, India');
+  });
+
+  it('buildSystemPrompt() has no outlets section at all for a single-location chatbot (unchanged behavior)', async () => {
+    const chatbot = makeChatbot({ outlets: [] });
+    const { service } = makeService({ chatbot });
+    const prompt = (service as any).buildSystemPrompt(chatbot, []);
+
+    expect(prompt).not.toMatch(/multiple locations/i);
+  });
+
   it('buildSystemPrompt() shares the booking link when set, and falls back to full lead capture when not', async () => {
     const withLink = makeChatbot({ bookingUrl: 'https://calendly.com/sunset-cafe/table' });
     const { service: serviceWithLink } = makeService({ chatbot: withLink });

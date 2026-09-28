@@ -27,6 +27,7 @@ const CUSTOMER_EDITABLE_FIELDS = [
   'fallbackMessage_ar',
   'humanHandoff',
   'channels',
+  'outlets',
 ];
 
 function pickCustomerEditable(dto: any): any {

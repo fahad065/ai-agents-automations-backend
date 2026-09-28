@@ -74,15 +74,42 @@ export class ChatService {
       ? `If the customer wants to book/reserve/schedule something, share this link so they can pick a time themselves: ${chatbot.bookingUrl}. Still ask for their name and phone number too, in case the team needs to follow up directly.`
       : `There is no separate booking link for this business — if the customer wants to book/reserve something, handle it entirely through the conversation: ask for their name, phone number, preferred date/time, and any other relevant detail (e.g. party size), and let them know the team will confirm with them directly.`;
 
+    // Locations section — deliberately NOT run through the knowledge-base's
+    // top-4 similarity ranking above, since a business with several
+    // branches needs the model reasoning over ALL of them at once to
+    // answer "which one is near X" or "do you have a branch in Y"
+    // correctly — a similarity search could easily retrieve the wrong
+    // subset. Empty for the vast majority of chatbots (single location),
+    // in which case this is a complete no-op.
+    const outletsSection =
+      chatbot.outlets && chatbot.outlets.length > 0
+        ? `This business has multiple locations. Use these to answer questions about which branch to visit, whether a location/area is covered, hours at a specific branch, or delivery platforms available there:\n${chatbot.outlets
+            .map((o) => {
+              const parts = [`- ${o.name} — ${o.city}, ${o.country}`];
+              if (o.address) parts.push(`Address: ${o.address}`);
+              if (o.areaTags?.length) parts.push(`Also serves/known as: ${o.areaTags.join(', ')}`);
+              if (o.isOnlineOnly) parts.push('Delivery/online-only — no dine-in at this location');
+              if (o.hours) parts.push(`Hours: ${o.hours}`);
+              if (o.deliveryPlatforms?.length) parts.push(`Order via: ${o.deliveryPlatforms.join(', ')}`);
+              if (o.phone) parts.push(`Phone: ${o.phone}`);
+              if (o.mapUrl) parts.push(`Directions: ${o.mapUrl}`);
+              if (o.notes) parts.push(o.notes);
+              return parts.join(' | ');
+            })
+            .join('\n')}\n\nIf a customer names an area/neighborhood, match it against each location's address and "also serves" list to recommend the right one — if none clearly matches, say so rather than guessing, and offer the full location list instead.`
+        : '';
+
     return `You are ${chatbot.name}, a helpful customer service assistant.
 Persona: ${chatbot.persona || 'friendly and professional'}.
 Language: ${languageInstruction}
-IMPORTANT: Only answer questions based on the knowledge base below. If the question is not covered, say: "${chatbot.fallbackMessage}".
+IMPORTANT: Only answer questions based on the knowledge base and locations below. If the question is not covered, say: "${chatbot.fallbackMessage}".
 Do not make up information.
 
 Whenever it's natural — especially if the customer wants to book, order, get a quote, or asks to be contacted — politely ask for their name, phone number and email if they haven't shared them yet. Weave this into the conversation over a message or two rather than demanding all three at once, and never block answering their actual question just to collect these details.
 
 ${bookingInstruction}
+
+${outletsSection}
 
 ${knowledgeSection}`;
   }

@@ -63,6 +63,62 @@ export class ChatbotChannels {
   instagram: InstagramChannel;
 }
 
+// A single physical/delivery-coverage location for a multi-branch business
+// (e.g. a restaurant chain with outlets across several cities, or even
+// countries). Generic on purpose — not tied to any one template or
+// customer — so any chatbot with more than one location can use it, not
+// just restaurants. `areaTags` exists specifically for delivery-only or
+// wide-coverage locations (e.g. a single kitchen that delivers to several
+// neighborhoods via Talabat/Noon/etc): a customer asking "do you deliver
+// to X" or "which branch is near X" can be answered correctly even when
+// X isn't the outlet's own address. See ChatService.buildSystemPrompt(),
+// which includes the full outlet list in every reply (not subject to the
+// knowledge-base's top-4 similarity ranking) so the model can reason over
+// all locations at once rather than possibly missing the relevant one.
+@Schema({ _id: true })
+export class Outlet {
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ required: true })
+  city: string;
+
+  @Prop({ required: true })
+  country: string;
+
+  @Prop()
+  address?: string;
+
+  // Extra area/neighborhood names this outlet serves or is known by —
+  // beyond its own city/address — so "near Business Bay" can match a
+  // delivery-only kitchen based in Al Quoz, for example.
+  @Prop({ type: [String], default: [] })
+  areaTags: string[];
+
+  @Prop()
+  phone?: string;
+
+  // Free text on purpose — real-world hours ("11am-1am daily", "Fri-Sat
+  // until 2am, rest of week until midnight") don't fit a simple schema
+  // cleanly, and every other free-text field in this schema (persona,
+  // fallbackMessage) already takes the same approach.
+  @Prop()
+  hours?: string;
+
+  @Prop({ type: [String], default: [] })
+  deliveryPlatforms: string[];
+
+  @Prop()
+  mapUrl?: string;
+
+  @Prop({ default: false })
+  isOnlineOnly: boolean;
+
+  @Prop()
+  notes?: string;
+}
+const OutletSchema = SchemaFactory.createForClass(Outlet);
+
 @Schema({ _id: false })
 export class ChatbotBilling {
   // Set by admin only — never writable by the chatbot's owner.
@@ -161,6 +217,12 @@ export class Chatbot {
 
   @Prop({ type: ChatbotChannels, default: () => ({}) })
   channels: ChatbotChannels;
+
+  // Optional — most chatbots are single-location and this stays empty,
+  // which is a complete no-op for buildSystemPrompt() (see Outlet above).
+  // Only worth filling in for a business with more than one branch.
+  @Prop({ type: [OutletSchema], default: [] })
+  outlets: Outlet[];
 
   @Prop({ type: ChatbotBilling, default: () => ({}) })
   billing: ChatbotBilling;

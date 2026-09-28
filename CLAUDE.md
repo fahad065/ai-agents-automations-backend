@@ -493,6 +493,18 @@ A prospective client ("Wok On Fire," a restaurant) approached the user directly 
 
 Verified via `nest build` (clean) and the expanded Jest suite (22/22 passing, up from 15 — 7 new cases covering both features, zero regressions).
 
+## Generic multi-location ("outlets") support (implemented, 2026-09)
+Follow-up to the Wok On Fire demo prep: the client turned out to have 13+ real locations (one online-only delivery kitchen in Dubai, plus a dine-in/delivery chain across 7 cities in Gujarat, India). The earlier "just write good FAQ content" content-workaround was reconsidered — the user explicitly asked for a real, reusable platform feature ("global branch option," not specific to this one client), since any future multi-branch restaurant (or salon, clinic, auto-dealership chain, etc.) will hit the same need. Built generically, not WokOnFire-specific.
+
+- **New `Outlet` sub-schema** (`chatbot.schema.ts`) + `Chatbot.outlets: Outlet[]` (default `[]`). Fields: `name`, `city`, `country` (required), `address`, `areaTags[]`, `phone`, `hours` (free text, same reasoning as `persona`/`fallbackMessage` — real-world hours don't fit a structured schema cleanly), `deliveryPlatforms[]`, `mapUrl`, `isOnlineOnly`, `notes`. `areaTags` exists specifically for delivery-only/wide-coverage locations — a kitchen based in one area that delivers to several named districts via aggregators, so "do you deliver to Business Bay" can be answered correctly even though no outlet is physically *in* Business Bay.
+- **`outlets` added to `CUSTOMER_EDITABLE_FIELDS`** — same as `bookingUrl`, it's just another field saved through the existing `PUT /chatbots/:id`, no new dedicated route. (Deliberately not a separate mini-CRUD API like knowledge-base entries — outlets are edited as a whole array client-side, then saved in one PUT, since a business's location list is a much smaller, more cohesive unit than a knowledge base that can run to dozens of entries.)
+- **`ChatService.buildSystemPrompt()`** gained an `outletsSection` — every outlet is included in full, **not** run through the knowledge-base's top-4 similarity ranking, since a "which branch is near X" or "do you have a branch in Y" question needs the model reasoning over the *entire* location list at once; a similarity search could easily retrieve the wrong subset for a 13-outlet business. Explicit instruction tells the model to match a named area against each outlet's address/`areaTags` and say so plainly if nothing matches, rather than guessing. Empty `outlets` (the vast majority of chatbots — single location) means this section is a complete no-op, byte-for-byte the same prompt as before this feature existed.
+- Test coverage added to `chat.service.spec.ts`: a multi-outlet prompt includes every outlet's key details (name/city/country/area-coverage/delivery-only flag/platforms), and a single-location chatbot's prompt has no outlets section at all (regression safety — confirms zero behavior change for every existing chatbot).
+
+See frontend CLAUDE.md for the new "Locations" tab (full add/edit/delete UI) on `chatbot-config-page.tsx`.
+
+Verified via `nest build` (clean) and the expanded Jest suite (24/24 passing, up from 22).
+
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done
 2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer

@@ -611,6 +611,61 @@ export class EmailService {
     await this.send(user.email, `🎯 New lead from "${data.chatbotName}"${data.visitorName ? ' — ' + data.visitorName : ''}`, html);
   }
 
+  // ── 14b. Chatbot human handoff — fired when the bot can't answer or a
+  // customer explicitly asks for a person, and the owner has humanHandoff
+  // enabled (see ChatService.notifyHandoff). Same real-time-notification
+  // pattern as sendChatbotLeadEmail above, since this is meant to be the
+  // "wow" moment of a live demo just like the lead-capture email is.
+  async sendChatbotHandoffEmail(
+    user: { name: string; email: string },
+    data: {
+      chatbotId: string;
+      chatbotName: string;
+      visitorName?: string;
+      visitorEmail?: string;
+      visitorPhone?: string;
+      snippet: string;
+    },
+  ): Promise<void> {
+    const dashboardUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots/${data.chatbotId}?tab=conversations`;
+    const waLink = data.visitorPhone
+      ? `https://wa.me/${data.visitorPhone.replace(/[^\d]/g, '')}`
+      : null;
+
+    const actions = [
+      waLink
+        ? `<a href="${waLink}" style="display:inline-block;background:#1a9e52;color:white;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;font-size:14px;margin:0 6px 10px;">💬 Message on WhatsApp</a>`
+        : '',
+      data.visitorEmail
+        ? `<a href="mailto:${data.visitorEmail}" style="display:inline-block;background:#27272a;color:#e5e5e5;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;font-size:14px;margin:0 6px 10px;">✉️ Email them</a>`
+        : '',
+    ].join('');
+
+    const html = this.base(`
+      <div style="padding:40px 36px;">
+        <div style="font-size:44px;margin-bottom:12px;text-align:center;">🙋</div>
+        <h1 style="color:#e5e5e5;font-size:20px;font-weight:700;margin:0 0 6px;text-align:center;">A customer needs you — "${data.chatbotName}"</h1>
+        <p style="color:#737373;font-size:13px;margin:0 0 24px;text-align:center;">The bot couldn't help with this one (or they asked for a person) — take it from here.</p>
+        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;margin:0 0 20px;">
+          ${this.adminInfoRows([
+            { label: 'Name', value: data.visitorName || '—' },
+            { label: 'Phone', value: data.visitorPhone || '—' },
+            { label: 'Email', value: data.visitorEmail || '—' },
+          ])}
+        </div>
+        <div style="background:#0d0d0d;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px 16px;margin:0 0 24px;">
+          <p style="color:#525252;font-size:11px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.04em;">Last message</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.6;margin:0;font-style:italic;">"${data.snippet}"</p>
+        </div>
+        <div style="text-align:center;margin-bottom:20px;">${actions}</div>
+        <div style="text-align:center;">
+          <a href="${dashboardUrl}" style="color:#7c3aed;text-decoration:none;font-size:13px;font-weight:600;">View full conversation →</a>
+        </div>
+      </div>
+    `);
+    await this.send(user.email, `🙋 A customer needs you — "${data.chatbotName}"`, html);
+  }
+
   // ── 15. Chatbot trial expiring / expired ───────────────────
   // Chatbot-specific counterparts to sendTrialExpiringEmail()/
   // sendTrialExpiredEmail() above (which stay as-is — agents/automations'

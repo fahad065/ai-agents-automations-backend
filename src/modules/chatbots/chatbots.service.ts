@@ -337,6 +337,50 @@ export class ChatbotsService implements OnModuleInit {
     });
   }
 
+  // Edits an existing entry in place and re-embeds it, since the text
+  // changed — same BYOK key resolution as addKnowledge (the bot owner's
+  // key, never the caller's, so an admin editing a client's entry still
+  // bills the client, not themselves). Added specifically so a knowledge
+  // update can be demoed live (edit -> ask the widget the same question ->
+  // see the new answer) instead of the previous delete-then-recreate
+  // workaround, which had no edit route at all.
+  async updateKnowledge(
+    chatbotId: string,
+    knowledgeId: string,
+    userId: string,
+    dto: any,
+    isAdmin = false,
+  ): Promise<KnowledgeBaseDocument> {
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
+
+    const entry = await this.knowledgeBaseModel.findOne({
+      _id: new Types.ObjectId(knowledgeId),
+      chatbotId: new Types.ObjectId(chatbotId),
+    });
+    if (!entry) throw new NotFoundException('Knowledge entry not found');
+
+    if (dto.question !== undefined) entry.question = dto.question;
+    if (dto.answer !== undefined) entry.answer = dto.answer;
+    if (dto.content !== undefined) entry.content = dto.content;
+    if (dto.sourceUrl !== undefined) entry.sourceUrl = dto.sourceUrl;
+
+    try {
+      const apiKey = await this.resolveOpenAiKey(chatbot.userId.toString());
+      if (!apiKey) throw new Error('No OpenAI key available');
+      const textToEmbed =
+        entry.type === 'faq'
+          ? `${entry.question || ''} ${entry.answer || ''}`.trim()
+          : entry.content || '';
+      if (textToEmbed) {
+        entry.embedding = await this.getEmbedding(textToEmbed, apiKey);
+      }
+    } catch (err) {
+      this.logger.warn(`updateKnowledge() re-embedding skipped for chatbot=${chatbotId}: ${err?.message}`);
+    }
+
+    return entry.save();
+  }
+
   async listKnowledge(chatbotId: string, userId: string, isAdmin = false): Promise<KnowledgeBaseDocument[]> {
     await this.findOne(chatbotId, userId, isAdmin);
     return this.knowledgeBaseModel

@@ -17,6 +17,7 @@ export enum NotificationType {
   API_KEY_DELETED = 'api_key_deleted',
   // Chatbots
   CHATBOT_LEAD = 'chatbot_lead',
+  CHATBOT_HANDOFF = 'chatbot_handoff',
   // Users
   USER_REGISTERED = 'user_registered',
   USER_PLAN_UPGRADED = 'user_plan_upgraded',

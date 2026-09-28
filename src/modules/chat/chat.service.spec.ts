@@ -71,7 +71,10 @@ function makeService(opts: {
       : jest.fn().mockRejectedValue(new Error('no key on file')),
   };
   const notificationsService: any = { create: jest.fn().mockResolvedValue(undefined) };
-  const emailService: any = { sendChatbotLeadEmail: jest.fn().mockResolvedValue(undefined) };
+  const emailService: any = {
+    sendChatbotLeadEmail: jest.fn().mockResolvedValue(undefined),
+    sendChatbotHandoffEmail: jest.fn().mockResolvedValue(undefined),
+  };
 
   const service = new ChatService(
     chatbotModel,
@@ -179,5 +182,74 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     expect(result).toEqual({});
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+// Human-escalation feature added for the Wok On Fire demo — before this,
+// `handoff` was hardcoded false on every path and the humanHandoff toggle
+// did nothing at all. Verifies it's now real: opt-in via humanHandoff,
+// triggers on the fallback OR an explicit "talk to a human" request,
+// notifies the owner once per conversation, and leaves every chatbot that
+// hasn't enabled it completely unaffected (today's behavior, unchanged).
+describe('ChatService — human escalation (humanHandoff)', () => {
+  it('does NOT escalate when humanHandoff is off, even though the bot fell back (today\'s unchanged default)', async () => {
+    const chatbot = makeChatbot({ billing: { tier: 'basic', status: 'active' } }); // humanHandoff defaults falsy
+    const { service, notificationsService, emailService } = makeService({ chatbot, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'Do you deliver to the moon?', 'website');
+
+    expect(result.handoff).toBe(false);
+    expect(notificationsService.create).not.toHaveBeenCalled();
+    expect(emailService.sendChatbotHandoffEmail).not.toHaveBeenCalled();
+  });
+
+  it('escalates on the fallback message when humanHandoff is on, and notifies the owner once', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
+    const { service, conversationModel, notificationsService, emailService, createdConversations } =
+      makeService({ chatbot, hasOpenAiKey: false }); // no key -> reply is always the fallback
+
+    const result = await service.chat('embed1', 'session-1', 'Do you deliver to the moon?', 'website');
+
+    expect(result.handoff).toBe(true);
+    expect(createdConversations[0].status).toBe('handoff');
+    expect(createdConversations[0].handoffNotifiedAt).toBeInstanceOf(Date);
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner1', type: NotificationType.CHATBOT_HANDOFF }),
+    );
+    expect(emailService.sendChatbotHandoffEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('escalates on an explicit "talk to a human" request even when the bot could otherwise answer', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'pro', status: 'active' } });
+    const { service, notificationsService } = makeService({ chatbot, hasOpenAiKey: true });
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: 'Sure, I can help with that.' } }] }) } as any)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ choices: [{ message: { content: '{}' } }] }) } as any);
+
+    const result = await service.chat('embed1', 'session-1', 'Can I talk to a real person about my order?', 'website');
+
+    expect(result.reply).toBe('Sure, I can help with that.'); // not the fallback — escalation is independent of it
+    expect(result.handoff).toBe(true);
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: NotificationType.CHATBOT_HANDOFF }),
+    );
+    fetchSpy.mockRestore();
+  });
+
+  it('does not re-notify on a second message in an already-escalated conversation', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
+    const existing = makeConversation({
+      status: 'handoff',
+      handoffNotifiedAt: new Date(Date.now() - 60000),
+      messages: [{ role: 'user', content: 'first message', timestamp: new Date() }],
+    });
+    const { service, notificationsService, emailService } = makeService({ chatbot, existingConversation: existing, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'still nothing about the moon delivery?', 'website');
+
+    expect(result.handoff).toBe(true); // still reported as a handoff conversation
+    expect(notificationsService.create).not.toHaveBeenCalled();
+    expect(emailService.sendChatbotHandoffEmail).not.toHaveBeenCalled();
   });
 });

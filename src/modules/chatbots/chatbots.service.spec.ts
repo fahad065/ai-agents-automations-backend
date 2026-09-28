@@ -28,16 +28,20 @@ function makeChatbot(overrides: any = {}) {
   return bot;
 }
 
-function makeService(chatbot: any, userIsVerified = true) {
+function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseModel?: any; hasOpenAiKey?: boolean } = {}) {
   const chatbotModel: any = { findById: jest.fn().mockResolvedValue(chatbot) };
-  const knowledgeBaseModel: any = {};
+  const knowledgeBaseModel: any = opts.knowledgeBaseModel || {};
   const conversationModel: any = {};
   const userModel: any = {
     findById: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ isEmailVerified: userIsVerified }) }),
     }),
   };
-  const apiKeysService: any = {};
+  const apiKeysService: any = {
+    getDecryptedKey: opts.hasOpenAiKey
+      ? jest.fn().mockResolvedValue('sk-dummy-not-a-real-key')
+      : jest.fn().mockRejectedValue(new Error('no key on file')),
+  };
   const billingService: any = {};
   const emailService: any = {};
   const modulesService: any = {};
@@ -52,6 +56,21 @@ function makeService(chatbot: any, userIsVerified = true) {
     emailService,
     modulesService,
   );
+}
+
+const KB_ID = '507f1f77bcf86cd799439022';
+
+function makeKnowledgeEntry(overrides: any = {}) {
+  const entry: any = {
+    _id: KB_ID,
+    chatbotId: BOT_ID,
+    type: 'faq',
+    question: 'What time do you open?',
+    answer: 'We open at 9am.',
+    ...overrides,
+  };
+  entry.save = jest.fn().mockResolvedValue(entry);
+  return entry;
 }
 
 const DUMMY_WHATSAPP = { phoneNumberId: '109876543210987', accessToken: 'DUMMY_WA_ACCESS_TOKEN_123' };
@@ -173,5 +192,57 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       });
       expect(result.channels.whatsapp.enabled).toBe(true);
     });
+  });
+});
+
+// Real KB edit-in-place capability added for the Wok On Fire demo — the
+// admin panel used to only support add/delete, so "edit an FAQ answer,
+// then immediately ask the widget the same question" (a live demo moment)
+// had no clean way to happen. Verifies the actual service method, not just
+// that the route exists.
+describe('ChatbotsService.updateKnowledge()', () => {
+  it('updates an FAQ entry\'s fields and re-embeds it when an OpenAI key is on file', async () => {
+    const chatbot = makeChatbot();
+    const entry = makeKnowledgeEntry();
+    const knowledgeBaseModel: any = { findOne: jest.fn().mockResolvedValue(entry) };
+    const service = makeService(chatbot, true, { knowledgeBaseModel, hasOpenAiKey: true });
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+    } as any);
+
+    const result = await service.updateKnowledge(BOT_ID, KB_ID, 'owner1', {
+      answer: 'We open at 8am now — hours changed this month.',
+    });
+
+    expect(result.answer).toBe('We open at 8am now — hours changed this month.');
+    expect(result.question).toBe('What time do you open?'); // untouched field preserved
+    expect(result.embedding).toEqual([0.1, 0.2, 0.3]);
+    expect(entry.save).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('still saves the text change even when no OpenAI key is on file (embedding left as-is)', async () => {
+    const chatbot = makeChatbot();
+    const entry = makeKnowledgeEntry();
+    const knowledgeBaseModel: any = { findOne: jest.fn().mockResolvedValue(entry) };
+    const service = makeService(chatbot, true, { knowledgeBaseModel, hasOpenAiKey: false });
+
+    const result = await service.updateKnowledge(BOT_ID, KB_ID, 'owner1', {
+      answer: 'Updated answer text',
+    });
+
+    expect(result.answer).toBe('Updated answer text');
+    expect(entry.save).toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException for a knowledge entry that does not belong to this chatbot', async () => {
+    const chatbot = makeChatbot();
+    const knowledgeBaseModel: any = { findOne: jest.fn().mockResolvedValue(null) };
+    const service = makeService(chatbot, true, { knowledgeBaseModel });
+
+    await expect(
+      service.updateKnowledge(BOT_ID, '507f1f77bcf86cd799439099', 'owner1', { answer: 'x' }),
+    ).rejects.toThrow(/not found/i);
   });
 });

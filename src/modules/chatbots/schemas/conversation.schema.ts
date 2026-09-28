@@ -48,6 +48,13 @@ export class Conversation {
   // doesn't re-notify the owner every message.
   @Prop()
   leadNotifiedAt?: Date;
+
+  // Set once a human-escalation notification has fired for this
+  // conversation (see ChatService.notifyHandoff) — only relevant when the
+  // bot owner has humanHandoff enabled. Guards against re-notifying on
+  // every subsequent message once a conversation has already escalated.
+  @Prop()
+  handoffNotifiedAt?: Date;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);

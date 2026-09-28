@@ -181,6 +181,62 @@ ${knowledgeSection}`;
     );
   }
 
+  // Cheap keyword check for an explicit human-request — no extra LLM call,
+  // so it's instant and doesn't add latency to the reply. This is one of
+  // two ways a conversation escalates (see chat() below); the other is
+  // simply the bot falling back because nothing in the knowledge base
+  // covers the question.
+  private looksLikeHumanRequest(message: string): boolean {
+    return /\b(human|real person|speak (to|with) (a |someone)|talk (to|with) (a |someone)|representative|agent|(?:a )?(?:real )?(?:staff|team) member)\b/i.test(
+      message,
+    );
+  }
+
+  // Notifies the chatbot owner (dashboard notification + email) the first
+  // time a conversation needs a human — either the bot couldn't answer
+  // from its knowledge base, or the customer explicitly asked for a
+  // person. Only runs when the owner has humanHandoff enabled (see
+  // Chatbot.humanHandoff) — leaving it off keeps today's existing
+  // behavior unchanged (just the fallback message, no notification).
+  // Fire-and-forget, same pattern as notifyLead() above.
+  private async notifyHandoff(
+    chatbot: ChatbotDocument,
+    conversation: ConversationDocument,
+    snippet: string,
+  ): Promise<void> {
+    const owner = await this.userModel.findById(chatbot.userId).select('name email').lean();
+    if (!owner) return;
+
+    const chatbotId = chatbot._id.toString();
+    await this.notificationsService.create({
+      userId: chatbot.userId.toString(),
+      type: NotificationType.CHATBOT_HANDOFF,
+      title: `A customer needs you — "${chatbot.name}"`,
+      message: `${conversation.visitorName || 'A customer'} couldn't be helped by the bot`,
+      priority: NotificationPriority.HIGH,
+      icon: '🙋',
+      actionUrl: `/dashboard/chatbots/${chatbotId}?tab=conversations`,
+      metadata: {
+        chatbotId,
+        visitorName: conversation.visitorName,
+        visitorEmail: conversation.visitorEmail,
+        visitorPhone: conversation.visitorPhone,
+      },
+    });
+
+    await this.emailService.sendChatbotHandoffEmail(
+      { name: (owner as any).name, email: (owner as any).email },
+      {
+        chatbotId,
+        chatbotName: chatbot.name,
+        visitorName: conversation.visitorName,
+        visitorEmail: conversation.visitorEmail,
+        visitorPhone: conversation.visitorPhone,
+        snippet: snippet.slice(0, 200),
+      },
+    );
+  }
+
   async chat(
     embedKey: string,
     sessionId: string,
@@ -343,9 +399,21 @@ ${knowledgeSection}`;
         if (extracted.phone) conversation.visitorPhone = extracted.phone;
       }
 
+      // 10. Escalate to a human when the owner has opted in (humanHandoff)
+      // and either the bot fell back to its default "I don't know" message
+      // (nothing in the knowledge base covered the question) or the
+      // customer explicitly asked for a person. Off by default — an owner
+      // who hasn't enabled this keeps today's behavior exactly as-is (just
+      // the fallback message, no status change, no notification).
+      const isHandoff =
+        !!chatbot.humanHandoff && (reply === chatbot.fallbackMessage || this.looksLikeHumanRequest(message));
+      if (isHandoff && conversation.status !== 'handoff') {
+        conversation.status = 'handoff';
+      }
+
       await conversation.save();
 
-      // 10. First time this conversation has a real contact method, notify
+      // 11. First time this conversation has a real contact method, notify
       // the owner — fire-and-forget, never blocks or fails the reply.
       if ((conversation.visitorPhone || conversation.visitorEmail) && !conversation.leadNotifiedAt) {
         conversation.leadNotifiedAt = new Date();
@@ -355,7 +423,18 @@ ${knowledgeSection}`;
         await conversation.save();
       }
 
-      return { reply, sessionId, handoff: false };
+      // 12. First time this conversation escalates, notify the owner too —
+      // independent of the lead notification above (a handoff can happen
+      // with or without contact details already captured).
+      if (isHandoff && !conversation.handoffNotifiedAt) {
+        conversation.handoffNotifiedAt = new Date();
+        this.notifyHandoff(chatbot, conversation, message).catch((err) =>
+          this.logger.error(`Handoff notification failed for embedKey=${embedKey}: ${err?.message}`),
+        );
+        await conversation.save();
+      }
+
+      return { reply, sessionId, handoff: isHandoff };
     } catch (err) {
       this.logger.error(`chat() failed for embedKey=${embedKey}: ${err?.message}`, err?.stack);
       // Fallback on any error

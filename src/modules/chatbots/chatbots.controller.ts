@@ -67,6 +67,11 @@ export class ChatbotsController {
     return this.chatbotsService.listKnowledge(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
+  @Put(':id/knowledge/:kId')
+  updateKnowledge(@Req() req: any, @Param('id') id: string, @Param('kId') kId: string, @Body() body: any) {
+    return this.chatbotsService.updateKnowledge(id, kId, req.user._id.toString(), body, req.user.role === 'admin');
+  }
+
   @Delete(':id/knowledge/:kId')
   deleteKnowledge(@Req() req: any, @Param('id') id: string, @Param('kId') kId: string) {
     return this.chatbotsService.deleteKnowledge(id, kId, req.user._id.toString(), req.user.role === 'admin');

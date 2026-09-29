@@ -11,6 +11,7 @@ import { isChatbotBillingActive } from '../chatbots/billing-status.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType, NotificationPriority } from '../notifications/schemas/notification.schema';
 import { EmailService } from '../email/email.service';
+import * as Sentry from '@sentry/nestjs';
 
 function cosineSim(a: number[], b: number[]): number {
   if (!a.length || !b.length) return 0;
@@ -464,6 +465,19 @@ ${knowledgeSection}`;
       return { reply, sessionId, handoff: isHandoff };
     } catch (err) {
       this.logger.error(`chat() failed for embedKey=${embedKey}: ${err?.message}`, err?.stack);
+      // This is caught here and never rethrown — the customer always gets
+      // the fallback message — so it would otherwise never reach
+      // SentryGlobalFilter at all. Tag explicitly with the bot (not the
+      // anonymous customer, who has no identity here) so this is
+      // attributable to a specific tenant instead of a silent console line.
+      Sentry.captureException(err, {
+        tags: {
+          chatbotId: String(chatbot._id),
+          tenantUserId: String(chatbot.userId),
+          embedKey,
+          channel,
+        },
+      });
       // Fallback on any error
       const fallback = chatbot.fallbackMessage;
       conversation.messages.push({ role: 'assistant', content: fallback, timestamp: new Date() });

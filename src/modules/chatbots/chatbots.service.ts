@@ -207,15 +207,55 @@ export class ChatbotsService implements OnModuleInit {
       ApiKeyProvider.OPENAI,
     );
 
+    // Per-tenant usage — message volume, not just global aggregate stats.
+    // Two aggregate queries across the whole Conversation collection
+    // (grouped by chatbotId), not one query per bot — same "batched, not
+    // N+1" rule getUserIdsWithActiveKey already follows above, so this
+    // list stays a fixed number of queries regardless of how many
+    // chatbots exist.
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [allTimeStats, recentStats] = await Promise.all([
+      this.conversationModel.aggregate([
+        {
+          $group: {
+            _id: '$chatbotId',
+            totalConversations: { $sum: 1 },
+            totalMessages: { $sum: { $size: { $ifNull: ['$messages', []] } } },
+          },
+        },
+      ]),
+      this.conversationModel.aggregate([
+        { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+        {
+          $group: {
+            _id: '$chatbotId',
+            conversations30d: { $sum: 1 },
+            messages30d: { $sum: { $size: { $ifNull: ['$messages', []] } } },
+          },
+        },
+      ]),
+    ]);
+    const allTimeByBot = new Map(allTimeStats.map((s) => [String(s._id), s]));
+    const recentByBot = new Map(recentStats.map((s) => [String(s._id), s]));
+
     return bots.map((b) => {
       const ownerId = (b.userId as any)?._id?.toString();
+      const botId = String(b._id);
       const noOpenAiKey = !ownerId || !ownersWithOpenAiKey.has(ownerId);
       const whatsappPending = !!b.channels?.whatsapp?.enabled && !b.channels?.whatsapp?.phoneNumberId;
       const instagramPending = !!b.channels?.instagram?.enabled && !b.channels?.instagram?.accountId;
+      const allTime = allTimeByBot.get(botId);
+      const recent = recentByBot.get(botId);
       return {
         ...b,
         setupFlags: { noOpenAiKey, whatsappPending, instagramPending },
         needsSetup: noOpenAiKey || whatsappPending || instagramPending,
+        usage: {
+          totalConversations: allTime?.totalConversations || 0,
+          totalMessages: allTime?.totalMessages || 0,
+          conversations30d: recent?.conversations30d || 0,
+          messages30d: recent?.messages30d || 0,
+        },
       };
     });
   }

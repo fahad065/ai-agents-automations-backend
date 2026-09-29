@@ -67,6 +67,82 @@ export class AdminService {
     };
   }
 
+  // Per-tenant usage for agents/automations — the analog of the chatbot
+  // admin list's per-bot `usage` field (see ChatbotsService.findAllAdmin),
+  // for the other half of the platform. getOverview() above only ever
+  // sums across every user; this answers "how is user X actually using
+  // their pipelines specifically" instead. 4 aggregate/find queries total,
+  // batched by userId — not one query per user, same rule every other
+  // admin list in this codebase follows.
+  async getUsagePerTenant() {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [pipelineStats, pipelineStats30d, moduleStatusCounts, users] = await Promise.all([
+      this.pipelineModel.aggregate([
+        { $match: { isDeleted: { $ne: true } } },
+        {
+          $group: {
+            _id: '$userId',
+            totalRuns: { $sum: 1 },
+            failedRuns: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
+            lastRunAt: { $max: '$createdAt' },
+          },
+        },
+      ]),
+      this.pipelineModel.aggregate([
+        { $match: { isDeleted: { $ne: true }, createdAt: { $gte: thirtyDaysAgo } } },
+        {
+          $group: {
+            _id: '$userId',
+            runs30d: { $sum: 1 },
+            failedRuns30d: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
+          },
+        },
+      ]),
+      this.userModuleModel.aggregate([
+        { $match: { isDeleted: { $ne: true } } },
+        { $group: { _id: { userId: '$userId', status: '$status' }, count: { $sum: 1 } } },
+      ]),
+      this.userModel
+        .find({ isDeleted: { $ne: true } })
+        .select('_id name email planType trialEndDate isActive')
+        .sort({ createdAt: -1 })
+        .lean(),
+    ]);
+
+    const pipelineByUser = new Map(pipelineStats.map((s) => [String(s._id), s]));
+    const pipeline30dByUser = new Map(pipelineStats30d.map((s) => [String(s._id), s]));
+
+    const moduleStatusByUser = new Map<string, Record<string, number>>();
+    for (const row of moduleStatusCounts as any[]) {
+      const uid = String(row._id.userId);
+      if (!moduleStatusByUser.has(uid)) moduleStatusByUser.set(uid, {});
+      moduleStatusByUser.get(uid)![row._id.status] = row.count;
+    }
+
+    return users.map((u) => {
+      const uid = String((u as any)._id);
+      const p = pipelineByUser.get(uid);
+      const p30 = pipeline30dByUser.get(uid);
+      return {
+        userId: uid,
+        name: (u as any).name,
+        email: (u as any).email,
+        planType: (u as any).planType,
+        trialEndDate: (u as any).trialEndDate,
+        isActive: (u as any).isActive,
+        modulesByStatus: moduleStatusByUser.get(uid) || {},
+        pipelines: {
+          totalRuns: p?.totalRuns || 0,
+          failedRuns: p?.failedRuns || 0,
+          lastRunAt: p?.lastRunAt || null,
+          runs30d: p30?.runs30d || 0,
+          failedRuns30d: p30?.failedRuns30d || 0,
+        },
+      };
+    });
+  }
+
   async listUsers() {
     const users = await this.userModel
       .find({ isDeleted: { $ne: true } })

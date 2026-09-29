@@ -9,6 +9,7 @@ import axios from 'axios';
 import { PipelineRunsService } from '../pipeline-runs/pipeline-runs.service';
 import { EmailService } from '../email/email.service';
 import { User, UserDocument } from '../users/schemas/user.schema';
+import * as Sentry from '@sentry/nestjs';
 
 @Injectable()
 export class UserModulesService {
@@ -426,6 +427,13 @@ export class UserModulesService {
       .catch((err) => {
         if (err.code !== 'ECONNABORTED') {
           console.error(`[Pipeline] Error: ${err.message}`);
+          // Fire-and-forget call — this catch is the only place this
+          // failure is ever observed, so it needs its own tenant tag
+          // rather than relying on a request-scoped interceptor (there's
+          // no active request by the time this rejects).
+          Sentry.captureException(err, {
+            tags: { tenantUserId: userId, userModuleId, runId, pipelineType: m.pipelineType },
+          });
         }
       });
  
@@ -530,6 +538,12 @@ export class UserModulesService {
  
       } catch (e) {
         console.error(`[Cron] Failed module ${(module as any)._id}: ${e}`);
+        Sentry.captureException(e, {
+          tags: {
+            tenantUserId: String((module as any).userId),
+            userModuleId: String((module as any)._id),
+          },
+        });
         skipped++;
       }
     }

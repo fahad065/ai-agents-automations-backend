@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { ChatService } from './chat.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 
@@ -284,5 +285,65 @@ describe('ChatService — human escalation (humanHandoff)', () => {
     expect(result.handoff).toBe(true); // still reported as a handoff conversation
     expect(notificationsService.create).not.toHaveBeenCalled();
     expect(emailService.sendChatbotHandoffEmail).not.toHaveBeenCalled();
+  });
+});
+
+// getPublicConfig() backs chatbot-widget.js fetching live name/color/welcome
+// message on every page load, instead of a pasted <script> tag freezing a
+// one-time snapshot — see chat.service.ts for the full reasoning.
+describe('ChatService — getPublicConfig() (live widget config, not a frozen snapshot)', () => {
+  it('returns the chatbot\'s current name/color/welcome message from the DB', async () => {
+    const chatbot = makeChatbot({
+      name: 'Canton Kitchen Bot',
+      channels: {
+        website: {
+          customColor: '#0e7a5c',
+          welcomeMessage: 'Hi! Welcome to Canton Kitchen.',
+          welcomeMessage_ar: 'هلا! هذا مساعد Canton Kitchen.',
+        },
+      },
+    });
+    const { service } = makeService({ chatbot });
+
+    const config = await service.getPublicConfig('embed1');
+
+    expect(config).toEqual({
+      name: 'Canton Kitchen Bot',
+      color: '#0e7a5c',
+      welcomeMessage: 'Hi! Welcome to Canton Kitchen.',
+      welcomeMessageAr: 'هلا! هذا مساعد Canton Kitchen.',
+    });
+  });
+
+  it('reflects a color change immediately — same embedKey, different DB value, different result', async () => {
+    const original = makeChatbot({ channels: { website: { customColor: '#e07a3f' } } });
+    const { service: serviceBefore } = makeService({ chatbot: original });
+    expect((await serviceBefore.getPublicConfig('embed1')).color).toBe('#e07a3f');
+
+    const updated = makeChatbot({ channels: { website: { customColor: '#0e7a5c' } } });
+    const { service: serviceAfter } = makeService({ chatbot: updated });
+    expect((await serviceAfter.getPublicConfig('embed1')).color).toBe('#0e7a5c');
+  });
+
+  it('falls back to defaults when the website channel has no custom values set', async () => {
+    const chatbot = makeChatbot({ channels: { website: {} } });
+    const { service } = makeService({ chatbot });
+
+    const config = await service.getPublicConfig('embed1');
+
+    expect(config.color).toBe('#7c3aed');
+    expect(config.welcomeMessage).toBe('');
+    expect(config.welcomeMessageAr).toBe('');
+  });
+
+  it('throws NotFoundException for an unknown embedKey', async () => {
+    const { service } = makeService({ chatbot: null as any });
+    await expect(service.getPublicConfig('does-not-exist')).rejects.toThrow(NotFoundException);
+  });
+
+  it('throws NotFoundException for a non-active chatbot (draft/inactive)', async () => {
+    const chatbot = makeChatbot({ status: 'draft' });
+    const { service } = makeService({ chatbot });
+    await expect(service.getPublicConfig('embed1')).rejects.toThrow(NotFoundException);
   });
 });

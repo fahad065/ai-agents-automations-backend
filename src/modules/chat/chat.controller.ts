@@ -35,6 +35,18 @@ export class ChatController {
     return this.chatService.chat(embedKey, body.sessionId, body.message, channel);
   }
 
+  // Public widget config — chatbot-widget.js fetches this on load so a
+  // dashboard color/welcome-message/name change is live on every
+  // already-embedded site immediately, with no re-paste needed. Same
+  // per-embedKey throttle as the chat endpoint.
+  @Get('chat/:embedKey/config')
+  @Public()
+  @UseGuards(ChatThrottlerGuard)
+  @Throttle({ chat: { limit: 40, ttl: 10000 } })
+  async getConfig(@Param('embedKey') embedKey: string) {
+    return this.chatService.getPublicConfig(embedKey);
+  }
+
   // WhatsApp webhook verification
   @Get('webhooks/whatsapp/:embedKey')
   @Public()

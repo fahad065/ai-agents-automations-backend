@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
@@ -263,6 +263,31 @@ ${knowledgeSection}`;
         snippet: snippet.slice(0, 200),
       },
     );
+  }
+
+  // Public, read-only widget config — lets chatbot-widget.js fetch the
+  // owner's *current* name/color/welcome message on every page load
+  // instead of the customer's pasted <script> tag baking in a one-time
+  // snapshot. Without this, an admin changing the color picker in the
+  // dashboard would never be visible on an already-embedded site until
+  // the customer went back and re-copied/re-pasted the whole embed
+  // snippet — a real, confusing gap for something as routine as a color
+  // change. The embedKey/apiUrl in the pasted snippet still need to stay
+  // static (they identify which bot and which backend to talk to), but
+  // everything cosmetic now lives here instead of frozen in the script.
+  async getPublicConfig(
+    embedKey: string,
+  ): Promise<{ name: string; color: string; welcomeMessage: string; welcomeMessageAr: string }> {
+    const chatbot = await this.chatbotModel.findOne({ embedKey });
+    if (!chatbot || chatbot.status !== 'active') {
+      throw new NotFoundException('Chatbot not found');
+    }
+    return {
+      name: chatbot.name,
+      color: chatbot.channels?.website?.customColor || '#7c3aed',
+      welcomeMessage: chatbot.channels?.website?.welcomeMessage || '',
+      welcomeMessageAr: chatbot.channels?.website?.welcomeMessage_ar || '',
+    };
   }
 
   async chat(

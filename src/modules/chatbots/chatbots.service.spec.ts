@@ -246,3 +246,43 @@ describe('ChatbotsService.updateKnowledge()', () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+// Backs the admin chatbot list's type filter dropdown — ?template=X on
+// GET /chatbots/admin/all should be one server-side-filtered query, not a
+// fetch-all-then-filter-in-JS.
+describe('ChatbotsService.findAllAdmin() — template filter', () => {
+  function makeAdminListService(bots: any[]) {
+    const chainable: any = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(bots),
+    };
+    const chatbotModel: any = { find: jest.fn().mockReturnValue(chainable) };
+    const conversationModel: any = { aggregate: jest.fn().mockResolvedValue([]) };
+    const apiKeysService: any = { getUserIdsWithActiveKey: jest.fn().mockResolvedValue(new Set()) };
+
+    const service = new ChatbotsService(
+      chatbotModel,
+      {} as any,
+      conversationModel,
+      {} as any,
+      apiKeysService,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, chatbotModel };
+  }
+
+  it('passes {template} as the Mongo filter when a template is given', async () => {
+    const { service, chatbotModel } = makeAdminListService([]);
+    await service.findAllAdmin('restaurant');
+    expect(chatbotModel.find).toHaveBeenCalledWith({ template: 'restaurant' });
+  });
+
+  it('passes an empty filter (all templates) when none is given', async () => {
+    const { service, chatbotModel } = makeAdminListService([]);
+    await service.findAllAdmin();
+    expect(chatbotModel.find).toHaveBeenCalledWith({});
+  });
+});

@@ -157,8 +157,10 @@ export class ChatbotsService implements OnModuleInit {
     return chatbot;
   }
 
-  async findAllByUser(userId: string): Promise<ChatbotDocument[]> {
-    return this.chatbotModel.find({ userId: new Types.ObjectId(userId) }).sort({ createdAt: -1 });
+  async findAllByUser(userId: string, template?: string): Promise<ChatbotDocument[]> {
+    const filter: any = { userId: new Types.ObjectId(userId) };
+    if (template) filter.template = template;
+    return this.chatbotModel.find(filter).sort({ createdAt: -1 });
   }
 
   // isAdmin bypasses the ownership check — lets an admin view/manage a
@@ -192,9 +194,10 @@ export class ChatbotsService implements OnModuleInit {
   //   - instagramPending: same, for Instagram
   // Batched into 2 queries total (bots + one api-key existence check),
   // not one per bot, so this stays cheap as the list grows.
-  async findAllAdmin(): Promise<any[]> {
+  async findAllAdmin(template?: string): Promise<any[]> {
+    const filter = template ? { template } : {};
     const bots = await this.chatbotModel
-      .find()
+      .find(filter)
       .populate('userId', 'name email')
       .sort({ createdAt: -1 })
       .lean();

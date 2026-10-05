@@ -20,10 +20,12 @@ export class ChatbotsController {
   constructor(private chatbotsService: ChatbotsService) {}
 
   // Must come before ':id' routes so Nest doesn't match "admin" as an :id.
+  // ?template=restaurant filters server-side so the admin chatbot list's
+  // type dropdown is one API call, not a fetch-all-then-filter-in-JS.
   @Get('admin/all')
-  findAllAdmin(@Req() req: any) {
+  findAllAdmin(@Req() req: any, @Query('template') template?: string) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
-    return this.chatbotsService.findAllAdmin();
+    return this.chatbotsService.findAllAdmin(template);
   }
 
   // Admin can pass body.userId to create the bot under a specific client's
@@ -38,8 +40,8 @@ export class ChatbotsController {
   }
 
   @Get()
-  findAll(@Req() req: any) {
-    return this.chatbotsService.findAllByUser(req.user._id.toString());
+  findAll(@Req() req: any, @Query('template') template?: string) {
+    return this.chatbotsService.findAllByUser(req.user._id.toString(), template);
   }
 
   @Get(':id')

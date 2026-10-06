@@ -485,24 +485,32 @@ export class ChatbotsService implements OnModuleInit {
     };
   }
 
+  // A single self-closing <script> tag with only data-* attributes — no
+  // inline JS body, no object literal, no curly braces at all. That's
+  // deliberate: a customer pastes this exactly as copied into their site's
+  // <head>, and because there's no text content for the tag to carry, it's
+  // valid as-is in plain HTML *and* as a literal JSX/Vue-template element —
+  // the previous `<script>window.LMChatbot = {...}</script>` form needed
+  // dangerouslySetInnerHTML (or an equivalent) to paste into a Next.js/
+  // React/Vue codebase, since those frameworks don't execute inline
+  // <script> text the way a browser parsing raw HTML does. color/botName
+  // are included only as an instant-paint fallback before the widget's own
+  // live-config fetch (GET /chat/:embedKey/config) resolves — embedKey and
+  // the script's own src are the only two values this snippet must carry.
   async getEmbedCode(chatbotId: string, userId: string, isAdmin = false): Promise<{ embedCode: string }> {
     const chatbot = await this.findOne(chatbotId, userId, isAdmin);
     const color = chatbot.channels?.website?.customColor || '#7c3aed';
-    const welcome = chatbot.channels?.website?.welcomeMessage || '';
-    const welcomeAr = chatbot.channels?.website?.welcomeMessage_ar || '';
     const frontendUrl = process.env.FRONTEND_URL || 'https://www.logicmate.io';
     const backendUrl = process.env.PUBLIC_API_URL || process.env.BACKEND_URL || 'https://www.logicmate.io';
     const apiUrl = `${backendUrl.replace(/\/$/, '')}/api/v1`;
-    const embedCode = `<!-- LogicMate Chatbot Widget -->
-<script>
-  window.LMChatbot = {
-    embedKey: "${chatbot.embedKey}",
-    color: "${color}",
-    apiUrl: "${apiUrl}",
-    botName: "${chatbot.name.replace(/"/g, '\\"')}"${welcome ? `,\n    welcomeMessage: "${welcome.replace(/"/g, '\\"')}"` : ''}${welcomeAr ? `,\n    welcomeMessageAr: "${welcomeAr.replace(/"/g, '\\"')}"` : ''}
-  };
-</script>
-<script src="${frontendUrl}/chatbot-widget.js" async></script>`;
+    const embedCode = `<!-- LogicMate Chatbot Widget — paste exactly as copied into your site's <head>. Works as-is on any platform, including Next.js/React/Vue. -->
+<script
+  src="${frontendUrl}/chatbot-widget.js"
+  data-embed-key="${chatbot.embedKey}"
+  data-api-url="${apiUrl}"
+  data-color="${color}"
+  async
+></script>`;
     return { embedCode };
   }
 

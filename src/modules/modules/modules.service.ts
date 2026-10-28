@@ -546,7 +546,7 @@ const SEED_MODULES: Partial<ModuleTemplate>[] = [
       { question: 'Can it take real orders, not just answer questions?', question_ar: 'يقدر ياخذ طلبات حقيقية، مو بس يجاوب على الأسئلة؟', answer: 'The knowledge-base + Q&A flow is live today. Order-taking with kitchen webhook integration is on our roadmap — ask us about early access.', answer_ar: 'قاعدة المعرفة والأسئلة الشائعة شغالة حالياً. أخذ الطلبات مع ربط المطبخ موجود في خطتنا القادمة — تواصل معنا للوصول المبكر.' },
       { question: 'Does it know today’s specials automatically?', question_ar: 'يعرف عروض اليوم تلقائيًا؟', answer: 'You update specials in your dashboard knowledge base and the bot reflects it immediately across every channel.', answer_ar: 'تحدّث العروض في قاعدة المعرفة من لوحة التحكم والبوت ينعكس فورًا في كل القنوات.' },
     ],
-    demoVideoUrl: 'https://1ajwuueru6fqolyr.public.blob.vercel-storage.com/chatbot-demos/restaurant-bot-demo-final.mp4',
+    demoVideoUrl: 'https://1ajwuueru6fqolyr.public.blob.vercel-storage.com/chatbot-demos/Logicmate-Restaurent-Chatbot-Demo.mp4',
   },
   {
     name: 'Real Estate Lead Bot',
@@ -922,6 +922,7 @@ export class ModulesService implements OnModuleInit {
     await this.backfillChatbotPricingTiers();
     await this.backfillChatbotArabicContent();
     await this.backfillGlobalMarketModuleCopy();
+    await this.backfillRestaurantDemoVideoUrl();
   }
 
   private async seedModules() {
@@ -1049,6 +1050,26 @@ export class ModulesService implements OnModuleInit {
       if (result.modifiedCount) updated++;
     }
     if (updated) this.logger.log(`Backfilled global-market copy on ${updated} existing module(s)`);
+  }
+
+  // One-off self-healing fix: restaurant-chatbot's demoVideoUrl originally
+  // pointed at chatbot-demos/restaurant-bot-demo-final.mp4, a blob path that
+  // was never actually uploaded (the live video section showed nothing as a
+  // result). SEED_MODULES above now carries the real, uploaded URL, but
+  // $setOnInsert only reaches brand-new documents, not this already-existing
+  // one. Gated on an exact match of the old never-uploaded URL, so an admin's
+  // own edit from /dashboard/cms-modules is never overwritten.
+  private readonly OLD_RESTAURANT_DEMO_VIDEO_URL =
+    'https://1ajwuueru6fqolyr.public.blob.vercel-storage.com/chatbot-demos/restaurant-bot-demo-final.mp4';
+
+  private async backfillRestaurantDemoVideoUrl() {
+    const seed = SEED_MODULES.find((m) => m.slug === 'restaurant-chatbot');
+    if (!seed?.demoVideoUrl) return;
+    const result = await this.moduleModel.updateOne(
+      { slug: 'restaurant-chatbot', demoVideoUrl: this.OLD_RESTAURANT_DEMO_VIDEO_URL },
+      { $set: { demoVideoUrl: seed.demoVideoUrl } },
+    );
+    if (result.modifiedCount) this.logger.log('Backfilled restaurant-chatbot demoVideoUrl to the real uploaded video');
   }
 
   // ── Public — list all active modules ─────────────────────

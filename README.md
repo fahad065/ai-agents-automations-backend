@@ -1,3 +1,12 @@
+## LogicMate backend
+
+> **AI agents working in this repo:** read [`ai/README.md`](ai/README.md)
+> first, then [`CLAUDE.md`](CLAUDE.md). The `ai/` folder documents the
+> database architecture redesign currently in progress on the
+> `fahad-development` branch and is the entry point for picking that work
+> back up from any environment. `CLAUDE.md` documents every feature already
+> shipped.
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>

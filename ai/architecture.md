@@ -267,9 +267,10 @@ service's real `pipelineType` at run time, not a separately-maintained enum.
 
 Has no chatbot use today — chatbots answer live over HTTP, there's nothing
 asynchronous to track. Needed again the moment agents/automations work
-resumes. Do not delete this collection; see the clarification note in
-`traces.md` about `trends`/`content_ideas` for the same reasoning applied to
-two other collections.
+resumes, in whatever shape that redesign takes — unlike `trends`/
+`content_ideas` below, this one isn't tied to the specific old
+script-ideation approach, just generic run-tracking (status/steps/cost/
+output), so it stays paused rather than deleted.
 
 ## What this replaces / what gets deleted
 
@@ -284,7 +285,8 @@ two other collections.
 | `chatbots` (ownership fields only) | Replaced once migrated | `userservices` (type: chatbot) |
 | `chatbots.billing` subdocument | Replaced once migrated | `userservices` (current state) + `billing` (transaction history) |
 | `Billing` (old ledger) | Replaced once migrated | `billing` (new shape) |
-| `trends`, `content_ideas` | **PAUSED, not deleted** (as of this writing — see `traces.md` for an open question raised about whether `trends` specifically should actually be dropped) | Will get a `userservice_id` FK fix when agents/automations work resumes, same treatment as `pipeline_runs` |
+| `trends` | **DELETE** — confirmed. The old YouTube-specific trend-discovery mechanism isn't being carried forward; agent implementation gets redesigned from scratch when that phase is reached. | n/a — no replacement, a future redesign decides what (if anything) replaces this |
+| `content_ideas` | **DELETE, recommended** — references `trends` by id (`trendId`), so deleting one without the other leaves a dangling reference. Flagged, not yet explicitly confirmed by the user — see `traces.md`. | Same as `trends` |
 
 Manual deletion of each old collection from the database happens by hand,
 after its replacement is built, migrated, and verified — this is an

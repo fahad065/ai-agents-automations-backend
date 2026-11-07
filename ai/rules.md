@@ -110,12 +110,20 @@ of these.
 - **Dead (delete, no replacement needed conceptually):** `niches`,
   `subscriptions`, `industries`, `industry-subscriptions`. Confirmed zero
   real use, or (for industry-subscriptions) fundamentally broken — it never
-  reached the pipeline cron.
-- **Paused (keep, needed later, don't delete):** `pipeline_runs`,
-  `content_ideas`, and (pending a confirmation — see `traces.md`) `trends`.
-  These have no chatbot use today but are real, working infrastructure for
-  the agents/automations phase that is explicitly still coming. Deleting
-  them now just means rebuilding the same thing later for no reason.
+  reached the pipeline cron. **Also now `trends`** — confirmed by the user:
+  the old YouTube-specific trend-discovery mechanism isn't being carried
+  forward, agent implementation gets redesigned from scratch when that
+  phase is reached. `content_ideas` should almost certainly join this list
+  too (it references `trends` by id — deleting one without the other
+  leaves a dangling reference) but that part is a recommendation flagged
+  to the user, not yet an explicit confirmation — check `traces.md`.
+- **Paused (keep, needed later, don't delete):** `pipeline_runs` only, as
+  of this writing. It has no chatbot use today but is generic run-tracking
+  (status/steps/cost/output), not tied to the specific old script-ideation
+  approach the way `trends`/`content_ideas` were — whatever "more feasible
+  solution" the user builds for agents later will likely still need
+  something shaped like this. Deleting it now would just mean rebuilding
+  the same thing later for no reason.
 - **Replaced (delete only after migration + verification):** `modules` →
   `services`, `usermodules` → `userservices`, `chatbots` (ownership fields)
   → `userservices`, old `Billing` → new `billing`.

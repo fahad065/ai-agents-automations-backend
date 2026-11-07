@@ -11,6 +11,34 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-07 (later same day) — `trends` confirmed for deletion, `content_ideas` flagged to join it
+
+**Answered:** the open question in the previous entry below. The user
+confirmed `trends` should be deleted now, not paused — framed as "when we
+start working on agent, we will come with more feasible solution to
+implement any kind of agent," meaning the old YouTube-specific
+trend-discovery mechanism isn't being carried forward at all; agent
+implementation gets redesigned from scratch when that phase is reached, not
+patched from what exists today.
+
+**Follow-on, not yet explicitly confirmed by the user:** `content_ideas`
+references `trends` by id (`trendId`) — flagged back to the user that it
+should almost certainly be deleted alongside `trends` rather than left
+pointing at a dropped collection. `architecture.md`/`rules.md`/
+`implementation-guide.md` have been updated to reflect `trends` as
+confirmed-delete and `content_ideas` as recommended-delete (pending
+explicit confirmation — check for a later trace entry before assuming
+either way). `pipeline_runs` is unaffected — it stays paused, not deleted,
+since it's generic run-tracking infrastructure, not tied to the old
+ideation approach specifically.
+
+Both `trends` and `content_ideas` (once/if confirmed) move to **Phase 0**
+in `implementation-guide.md`, not Phase 7 — unlike `modules`/`usermodules`,
+neither has a replacement to build first, so there's no reason to defer
+deleting them.
+
+---
+
 ## 2026-11-07 — Architecture finalized, branches created, `ai/` folders written
 
 **What happened:** A long design conversation (originating in a different

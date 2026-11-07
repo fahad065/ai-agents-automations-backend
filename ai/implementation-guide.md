@@ -12,10 +12,20 @@ drop collections itself.
 
 ## Phase 0 — Delete the confirmed-dead collections
 No dependencies, zero risk. `niches`, `subscriptions` (zero real callers,
-confirmed). `industries`, `industry-subscriptions` once it's confirmed where
-(if anywhere) the `/industries/:slug` marketing content goes — `nicheSlug`
-on `services` already covers the filtering/grouping need, so this is mostly
-a frontend content question, not a data-loss risk.
+confirmed). `trends` (confirmed by the user — the old YouTube trend-
+discovery mechanism isn't being carried forward; agent implementation gets
+redesigned from scratch when that phase is reached). `content_ideas`
+almost certainly joins this — it references `trends` by id, so keeping one
+without the other leaves a dangling reference — flagged as a
+recommendation, confirm before actually dropping it. `industries`,
+`industry-subscriptions` once it's confirmed where (if anywhere) the
+`/industries/:slug` marketing content goes — `nicheSlug` on `services`
+already covers the filtering/grouping need, so this is mostly a frontend
+content question, not a data-loss risk.
+
+Unlike `modules`/`usermodules` further down, none of these five have a
+replacement to wait for — there's nothing to migrate data *into*, so there's
+no reason to defer this phase at all.
 
 ## Phase 1 — `services` (the catalog)
 Everything downstream references it. Build the schema (see
@@ -93,14 +103,15 @@ business-meaningful actions first (not every CRUD everywhere) —
 double-log `billing`/payment confirmation into `activity_logs` — `billing` +
 `invoices` already are the audit trail for money.
 
-## Phase 7 — Agents/automations: `pipeline_runs`, `content_ideas`,
-(`trends` — pending the open question in `traces.md`) + the Python rewrite
-Explicitly later, per the chatbot-first priority. Migrate `UserModule`'s
-execution-tracking fields, fix the dangling `agentId` → `userservice_id`
-reference on `pipeline_runs`/`content_ideas`/`trends`. Build the Python
-pipeline rewrite (already planned independently, see the python-services
-repo's `CLAUDE.md`) **against the new schema** — reading `userservices`
-instead of `usermodules`, reporting back into the new `pipeline_runs` shape
+## Phase 7 — Agents/automations: `pipeline_runs` + the Python rewrite
+Explicitly later, per the chatbot-first priority. `trends`/`content_ideas`
+are gone by this point (Phase 0) — agent implementation gets designed fresh
+here, not ported from the old script-ideation approach. Migrate
+`UserModule`'s execution-tracking fields into `pipeline_runs`, fix its
+dangling `agentId` → `userservice_id` reference. Build the Python pipeline
+rewrite (already planned independently, see the python-services repo's
+`CLAUDE.md`) **against the new schema** — reading `userservices` instead
+of `usermodules`, reporting back into the new `pipeline_runs` shape
 — rather than rewriting it once now against the old schema and again later.
 
 ## Phase 8 — Stripe (no urgency)

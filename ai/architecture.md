@@ -143,6 +143,7 @@ pricing: { monthly, annual, features(_ar): [], hasCustomPlan, customLabel(_ar) }
 pricingTiers: []                             -- generic now, any type may use it, not just chatbots: [{key, monthly, annual, features(_ar): []}]
 heroStats: [], featureCards: [], howItWorks: [], faq: []   -- "featureCards" deliberately NOT named "features" — pricing.features[] (plan bullets) and this (marketing cards with icon/title/description) are different shapes that collided under one name in the real schema
 demoVideoUrl?
+brochureUrl?                                 -- a downloadable PDF one-pager for this service (hosted the same way demo videos are, e.g. Vercel Blob). Generic across types, not chatbot-specific, same reasoning as demoVideoUrl. First real use: the restaurant chatbot's PDF overview, generated in a separate "LogicMate — General Q&A" session.
 defaultConfig: {}                            -- seeds a new userservices.config with sensible starting values
 include: [service_id]                        -- BUNDLE ONLY. Read once at subscribe time to fan out into N userservices rows. Never duplicated anywhere else, never read again after that.
 status: active | inactive | coming_soon

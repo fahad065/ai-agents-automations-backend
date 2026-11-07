@@ -11,6 +11,20 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-07 (later still) — `services.brochureUrl` added
+
+A new optional field, `brochureUrl`, added to `services` right after
+`demoVideoUrl` — a downloadable PDF one-pager per service, generic across
+types (not chatbot-specific, same reasoning as `demoVideoUrl`). First real
+use: a PDF brochure for the restaurant chatbot, generated in a separate
+"LogicMate — General Q&A" session, meant to be sent to leads. Frontend
+consequence (not yet built): the service detail page gets a second button
+alongside "See it works" (opens the demo video) — "Download Brochure /
+Overview" (downloads the PDF via `brochureUrl`). See the frontend repo's
+`ai/overview.md`.
+
+---
+
 ## 2026-11-07 (later same day) — `trends` confirmed for deletion, `content_ideas` flagged to join it
 
 **Answered:** the open question in the previous entry below. The user

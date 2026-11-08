@@ -92,9 +92,31 @@ breakdown.
 ## Phase 6 — `feedback`, `activity_logs`, `cms` merge
 None of these block anything above, and nothing above blocks them —
 genuinely parallelizable with Phases 2–5, or done as cleanup once the core
-is stable. `cms` (merging `pages` + `blogposts`) has zero dependency on any
-of this and could move earlier (even into Phase 0) if a quick isolated win
-is wanted.
+is stable.
+
+**`cms` (merging `pages` + `blogposts`) is ✅ done — code complete, merged
+to `main` in both backend and frontend, 2026-11-08.** It moved earlier
+than the rest of this phase, per the "could move earlier" note that used
+to be here — it had zero dependency on anything else. One unified `cms`
+collection/API now, type-discriminated `'page' | 'blog'`, no more code
+anywhere referencing the old split `pages`/`blogposts` collections or
+schemas (both schema files were deleted outright, not just
+superseded). The admin UI (`/dashboard/cms`) can create, edit and delete
+both pages and blog posts — pages aren't limited to the original 7 fixed
+slugs anymore; a new page slug renders through a generic catch-all route
+on the frontend with zero code change per page. See both repos'
+`traces.md` for the full detail.
+
+**Still an open, manual follow-up, not blocking anything**:
+`scripts/migrate-cms.js` has not actually been run against the real
+production/Atlas database from any session yet (no sandbox has had
+network access to Atlas) — someone with real DB access needs to run it
+once, spot-check the output, and only then manually drop the old `pages`/
+`blogposts` collections from Atlas. The app has read/written exclusively
+through `cms` since the code shipped, so this is just finishing the data
+move, not a design gap.
+
+`feedback` and `activity_logs` have not been started.
 
 For `activity_logs`: start instrumenting the known, bounded set of
 business-meaningful actions first (not every CRUD everywhere) —

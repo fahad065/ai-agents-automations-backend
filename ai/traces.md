@@ -11,6 +11,46 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-08 (latest) — CMS migration merged to `main` — Phase 6's cms piece is done
+
+User tested the whole flow locally against `fahad-development` (creating
+pages, blog posts, the new "+ New Page" flow, FAQ sections on arbitrary
+pages, hiding the navbar language selector) and confirmed it all worked,
+then said to push everything to `main` in all three repos and mark the
+CMS migration done.
+
+- **Backend**: `fahad-development` fast-forwarded cleanly onto `main`
+  (no divergence — `main` had zero commits `fahad-development` didn't
+  already have). Re-ran `tsc --noEmit`, `nest build`, and the Jest suite
+  (31/31) on `main` after the merge, all clean, then pushed. 6 commits
+  landed: the `ai/` folder, `trends`/`content_ideas` deletion decision,
+  `services.brochureUrl`, and the full CMS merge + API redesign.
+- **Frontend**: same clean fast-forward, no divergence. Re-ran
+  `tsc --noEmit` and `next build` on `main` after the merge, clean, then
+  pushed. This included everything from the initial CMS rewrite through
+  "+ New Page", the generic-page FAQ support, and the navbar language
+  selector hide.
+- **python-services**: also fast-forwarded — this repo's
+  `fahad-development` only ever carried the `ai/` documentation folder
+  (confirmed via `git diff --stat` before merging — docs-only, zero code
+  touched), unrelated to the CMS work specifically but merged for
+  consistency since the user asked for all three repos.
+- `ai/implementation-guide.md`'s Phase 6 section updated to mark the
+  `cms` merge ✅ done, with the one real caveat spelled out: **the actual
+  data migration (`scripts/migrate-cms.js` against the real Atlas DB) and
+  the manual drop of the old `pages`/`blogposts` collections still
+  haven't happened** — no session has had network access to Atlas. The
+  code has read/written exclusively through `cms` since it shipped, so
+  this is a remaining data-move step, not a design gap. Flagging this
+  clearly rather than overstating "done" as "fully migrated."
+
+**Next up, per `implementation-guide.md`**: Phase 0 (delete the other
+confirmed-dead collections — `niches`, `subscriptions`, `trends`,
+`industries`, `industry-subscriptions`), then Phase 1 (`services`
+catalog) — not started yet.
+
+---
+
 ## 2026-11-08 (later same day) — CMS API redesigned too, not just the schema — "Pages"/"BlogPosts" fully gone now
 
 **Why:** the entry below shipped the schema merge with a deliberate

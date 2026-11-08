@@ -4,12 +4,11 @@ import { CmsController } from './cms.controller';
 import { CmsService } from './cms.service';
 import { Cms, CmsSchema } from './schemas/cms.schema';
 
-// Page/BlogPost schemas are no longer registered here — superseded by the
-// merged Cms schema. The old `pages`/`blogposts` collections are migrated
-// by scripts/migrate-cms.js (a standalone script, not run through this
-// module) and are only dropped manually from Atlas once that's verified.
-// The old schema files are left in schemas/ for now, unused, in case
-// anything needs inspecting before that manual drop.
+// The old Page/BlogPost schema files are deleted — this module now only
+// ever knows about the one merged Cms model. The old `pages`/`blogposts`
+// collections in Atlas are migrated by scripts/migrate-cms.js (a
+// standalone script, not run through this module) and are dropped
+// manually from Atlas once that migration is verified in production.
 @Module({
   imports: [
     MongooseModule.forFeature([

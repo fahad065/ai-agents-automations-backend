@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   OnModuleInit,
   Logger,
 } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Cms, CmsDocument, CmsType, CmsStatus, CmsPageSlug } from './schemas/cms.schema';
 
-// Shared between seedPages() (the full POST /cms/seed reseed) and the
+// Shared between seed() (the full POST /cms/admin/seed reseed) and the
 // onModuleInit() backfill below, so the two never drift out of sync.
 const SEED_ABOUT_PAGE = {
   content: `
@@ -51,13 +52,20 @@ const SEED_ABOUT_PAGE = {
   `,
 };
 
-// Field splits for mapping a flat incoming admin-form dto (the shape the
-// frontend has always sent — nothing there changed for this migration)
-// onto the new {top-level, pageMeta/blogMeta} document shape.
+// Field splits for a flat incoming admin-form dto onto the {top-level,
+// pageMeta/blogMeta} document shape. `type` picks which split applies —
+// there's no more separate "page dto shape" vs "blog dto shape" at the API
+// layer, just one Cms document whose extra fields differ by `type`.
 const PAGE_META_FIELDS = ['subtitle', 'subtitle_ar', 'faqItems', 'faqItems_ar', 'teamMembers', 'contactInfo'];
 const PAGE_TOP_FIELDS = ['title', 'title_ar', 'content', 'content_ar', 'metaTitle', 'metaTitle_ar', 'metaDescription', 'metaDescription_ar'];
 const BLOG_META_FIELDS = ['excerpt', 'excerpt_ar', 'authorId', 'authorName', 'category', 'tags', 'coverImage', 'publishedAt', 'readTimeMinutes', 'viewCount'];
 const BLOG_TOP_FIELDS = ['title', 'title_ar', 'content', 'content_ar', 'metaTitle', 'metaDescription', 'slug'];
+
+function metaFieldsFor(type: CmsType) {
+  return type === CmsType.PAGE
+    ? { top: PAGE_TOP_FIELDS, meta: PAGE_META_FIELDS, metaKey: 'pageMeta' as const }
+    : { top: BLOG_TOP_FIELDS, meta: BLOG_META_FIELDS, metaKey: 'blogMeta' as const };
+}
 
 function splitDto(dto: any, topFields: string[], metaFields: string[]) {
   const top: any = {};
@@ -69,19 +77,16 @@ function splitDto(dto: any, topFields: string[], metaFields: string[]) {
     }
     if (topFields.includes(k)) top[k] = v;
     else if (metaFields.includes(k)) meta[k] = v;
-    // anything else (e.g. _id, slug on an update, isDeleted, timestamps) is
-    // deliberately ignored rather than written wherever it happens to land
+    // anything else (e.g. _id, type, isDeleted, timestamps) is deliberately
+    // ignored rather than written wherever it happens to land
   }
   return { top, meta };
 }
 
-// Flattens a lean `cms` document back into the exact shape the frontend
-// has always received from GET /cms/pages/:slug and GET /cms/blog(/:slug)
-// — pageMeta/blogMeta's fields spread onto the top level, isPublished
-// derived from status. This is the one piece of this migration doing real
-// work: the database is cleanly merged and type-discriminated, but the
-// public API contract doesn't change at all, so the frontend needs zero
-// changes for this phase.
+// Flattens a lean `cms` document into one flat object for the frontend —
+// pageMeta/blogMeta's fields spread onto the top level, isPublished derived
+// from status. `type` is NOT stripped out, so every response also carries
+// `type: 'page' | 'blog'` at the top level.
 function flattenCms(doc: any) {
   if (!doc) return doc;
   const meta = doc.type === CmsType.PAGE ? doc.pageMeta : doc.blogMeta;
@@ -92,6 +97,12 @@ function flattenCms(doc: any) {
     ...(meta || {}),
   };
 }
+
+const autoSlug = (title: string) =>
+  (title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 
 @Injectable()
 export class CmsService implements OnModuleInit {
@@ -108,9 +119,9 @@ export class CmsService implements OnModuleInit {
   // One-time-per-doc backfill: the About page's content used to frame
   // LogicMate as GCC/UAE-and-Kenya-only. The platform now targets
   // international markets too. Gated on `lastEditedBy` not being set —
-  // that field is only ever written by updatePage() (a real admin edit),
-  // never by seedPages() or the CMS migration, so its absence reliably
-  // means "no admin customization to protect".
+  // that field is only ever written by a real admin edit (adminUpdate()),
+  // never by seed() or the CMS migration, so its absence reliably means
+  // "no admin customization to protect".
   private async backfillAboutGlobalMarketContent() {
     const seed = SEED_ABOUT_PAGE;
     const result = await this.cmsModel.updateOne(
@@ -130,38 +141,151 @@ export class CmsService implements OnModuleInit {
     }
   }
 
-  // ─── Pages ───────────────────────────────────────────────────
+  // ─── Public ──────────────────────────────────────────────────
+  // One unified read surface over the `cms` collection — a single document
+  // by {type, slug}, or a filtered/paginated list (used for the blog
+  // index; a page is always fetched individually by its fixed slug).
 
-  async getPage(slug: string) {
-    const page = await this.cmsModel
-      .findOne({ type: CmsType.PAGE, slug, status: CmsStatus.ACTIVE, isDeleted: false })
+  async getPublic(type: CmsType, slug: string) {
+    const doc = await this.cmsModel
+      .findOne({ type, slug, status: CmsStatus.ACTIVE, isDeleted: false })
       .lean();
-    if (!page) throw new NotFoundException(`Page not found: ${slug}`);
-    return flattenCms(page);
+    if (!doc) throw new NotFoundException(`${type === CmsType.PAGE ? 'Page' : 'Post'} not found: ${slug}`);
+
+    if (type === CmsType.BLOG) {
+      await this.cmsModel.findByIdAndUpdate((doc as any)._id, { $inc: { 'blogMeta.viewCount': 1 } });
+    }
+    return flattenCms(doc);
   }
 
-  async getPageAdmin(slug: string) {
-    const page = await this.cmsModel
-      .findOne({ type: CmsType.PAGE, slug, isDeleted: false })
-      .lean();
-    if (!page) throw new NotFoundException(`Page not found: ${slug}`);
-    return flattenCms(page);
+  async listPublic(query: { type: CmsType; category?: string; tag?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(20, query.limit || 9);
+    const skip = (page - 1) * limit;
+
+    const filter: any = { type: query.type, status: CmsStatus.ACTIVE, isDeleted: false };
+    if (query.category) filter['blogMeta.category'] = query.category;
+    if (query.tag) filter['blogMeta.tags'] = query.tag;
+
+    const sortField = query.type === CmsType.BLOG ? 'blogMeta.publishedAt' : 'createdAt';
+    const [items, total] = await Promise.all([
+      this.cmsModel.find(filter).sort({ [sortField]: -1 }).skip(skip).limit(limit).lean(),
+      this.cmsModel.countDocuments(filter),
+    ]);
+
+    return {
+      posts: items.map(flattenCms), // kept as `posts` — the only real consumer today (blog list) already expects this key
+      total, page, limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  async updatePage(slug: string, dto: any, adminName: string) {
-    const { top, meta } = splitDto(dto, PAGE_TOP_FIELDS, PAGE_META_FIELDS);
-    const set: any = { ...top, lastEditedBy: adminName, type: CmsType.PAGE, slug };
-    for (const [k, v] of Object.entries(meta)) set[`pageMeta.${k}`] = v;
+  // ─── Admin ───────────────────────────────────────────────────
+  // One CRUD surface over the whole collection, type-aware rather than
+  // split into separate "pages" and "blog" method groups.
 
-    const page = await this.cmsModel.findOneAndUpdate(
-      { type: CmsType.PAGE, slug },
-      { $set: set },
-      { new: true, upsert: true, lean: true },
+  async adminList(query: { type?: CmsType; search?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(50, query.limit || 20);
+    const skip = (page - 1) * limit;
+
+    const filter: any = { isDeleted: false };
+    if (query.type) filter.type = query.type;
+    if (query.search) filter.title = { $regex: query.search, $options: 'i' };
+
+    const [items, total] = await Promise.all([
+      this.cmsModel.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
+      this.cmsModel.countDocuments(filter),
+    ]);
+
+    return { items: items.map(flattenCms), total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async adminGet(id: string) {
+    const doc = Types.ObjectId.isValid(id)
+      ? await this.cmsModel.findOne({ _id: id, isDeleted: false }).lean()
+      : await this.cmsModel.findOne({ slug: id, isDeleted: false }).lean(); // also accept a slug, so the fixed-page editor can address e.g. "about" directly
+    if (!doc) throw new NotFoundException('Content not found');
+    return flattenCms(doc);
+  }
+
+  async adminCreate(dto: any, author: { _id: any; name: string }) {
+    if (dto.type !== CmsType.PAGE && dto.type !== CmsType.BLOG) {
+      throw new BadRequestException('type must be "page" or "blog"');
+    }
+    if (!dto.title) throw new BadRequestException('title is required');
+
+    const { top, meta } = metaFieldsFor(dto.type);
+    const { top: topVals, meta: metaVals } = splitDto(dto, top, meta);
+
+    const slug = dto.slug || autoSlug(dto.title);
+    const doc: any = {
+      ...topVals,
+      type: dto.type,
+      slug,
+      status: dto.isPublished === false ? CmsStatus.INACTIVE : CmsStatus.ACTIVE,
+      isDeleted: false,
+    };
+
+    if (dto.type === CmsType.BLOG) {
+      doc.blogMeta = {
+        ...metaVals,
+        authorId: author?._id ? new Types.ObjectId(author._id) : undefined,
+        authorName: author?.name,
+        readTimeMinutes: Math.ceil((dto.content?.split(' ')?.length || 0) / 200),
+        viewCount: 0,
+        publishedAt: dto.isPublished !== false ? new Date() : undefined,
+      };
+    } else {
+      doc.pageMeta = metaVals;
+      doc.lastEditedBy = author?.name;
+    }
+
+    const created = await this.cmsModel.create(doc);
+    return flattenCms(created.toObject());
+  }
+
+  async adminUpdate(id: string, dto: any, author: { name: string }) {
+    const existing = Types.ObjectId.isValid(id)
+      ? await this.cmsModel.findOne({ _id: id, isDeleted: false })
+      : await this.cmsModel.findOne({ slug: id, isDeleted: false }); // same slug-or-id addressing as adminGet
+    if (!existing) throw new NotFoundException('Content not found');
+
+    const { top, meta } = metaFieldsFor(existing.type);
+    const { top: topVals, meta: metaVals } = splitDto(dto, top, meta);
+
+    const set: any = { ...topVals, lastEditedBy: author?.name };
+
+    if (existing.type === CmsType.BLOG) {
+      if (dto.content) metaVals.readTimeMinutes = Math.ceil(dto.content.split(' ').length / 200);
+      if (dto.isPublished !== false && dto.isPublished !== undefined && !existing.blogMeta?.publishedAt) {
+        metaVals.publishedAt = new Date();
+      }
+      for (const [k, v] of Object.entries(metaVals)) set[`blogMeta.${k}`] = v;
+    } else {
+      for (const [k, v] of Object.entries(metaVals)) set[`pageMeta.${k}`] = v;
+    }
+
+    const updated = await this.cmsModel.findByIdAndUpdate(existing._id, { $set: set }, { new: true, lean: true });
+    return flattenCms(updated);
+  }
+
+  async adminDelete(id: string) {
+    const doc = await this.cmsModel.findOneAndUpdate(
+      { _id: id, isDeleted: false },
+      { $set: { isDeleted: true } },
     );
-    return flattenCms(page);
+    if (!doc) throw new NotFoundException('Content not found');
+    return { message: 'Deleted' };
   }
 
-  async seedPages() {
+  // ─── Seed ────────────────────────────────────────────────────
+  // Ensures the 7 fixed pages exist (about/contact/privacy/terms/cookies/
+  // faq/refund correspond to real routes in the Next.js app — unlike blog
+  // posts, pages aren't freely created from the admin UI). Safe to re-run:
+  // upserts by {type, slug}.
+
+  async seed() {
     const pages = [
       {
         slug: CmsPageSlug.ABOUT,
@@ -275,7 +399,7 @@ export class CmsService implements OnModuleInit {
           </ul>
 
           <h2>5. AI-generated content</h2>
-          <p>You are responsible for reviewing and complying with platform policies (YouTube, Instagram, etc.) regarding AI-generated content. LogicMate automatically sets required AI disclosure flags where applicable, but compliance with all platform rules remains your responsibility.</p>
+          <p>You are responsible for reviewing and complying with platform policies (YouTube, Instagram, etc.) regarding AI-generated content. LogicMate automatically sets required AI disclosure flags where applicable, but compliance with all other platform rules remains your responsibility.</p>
 
           <h2>6. Third-party API costs</h2>
           <p>Some automations use third-party APIs (Atlas Seedance, OpenAI, etc.) that have their own pricing. These costs are separate from your LogicMate subscription and billed directly by those providers. LogicMate is not responsible for third-party API costs or outages.</p>
@@ -441,134 +565,5 @@ export class CmsService implements OnModuleInit {
       message: `Pages seeded — ${created} created, ${updated} updated`,
       total: pages.length,
     };
-  }
-
-  // ─── Blog ─────────────────────────────────────────────────────
-
-  async getBlogPosts(query: {
-    page?: number;
-    limit?: number;
-    category?: string;
-    tag?: string;
-  }) {
-    const page = Math.max(1, query.page || 1);
-    const limit = Math.min(20, query.limit || 9);
-    const skip = (page - 1) * limit;
-
-    const filter: any = { type: CmsType.BLOG, status: CmsStatus.ACTIVE, isDeleted: false };
-    if (query.category) filter['blogMeta.category'] = query.category;
-    if (query.tag) filter['blogMeta.tags'] = query.tag;
-
-    const [posts, total] = await Promise.all([
-      this.cmsModel
-        .find(filter)
-        .sort({ 'blogMeta.publishedAt': -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      this.cmsModel.countDocuments(filter),
-    ]);
-
-    return {
-      posts: posts.map(flattenCms),
-      total, page, limit,
-      totalPages: Math.ceil(total / limit),
-    };
-  }
-
-  async getBlogPost(slug: string) {
-    const post = await this.cmsModel
-      .findOne({ type: CmsType.BLOG, slug, status: CmsStatus.ACTIVE, isDeleted: false })
-      .lean();
-    if (!post) throw new NotFoundException('Blog post not found');
-
-    // Increment view count
-    await this.cmsModel.findByIdAndUpdate((post as any)._id, { $inc: { 'blogMeta.viewCount': 1 } });
-    return flattenCms(post);
-  }
-
-  // Admin blog methods
-  async getAllBlogPostsAdmin(query: { page?: number; limit?: number }) {
-    const page = Math.max(1, query.page || 1);
-    const limit = Math.min(50, query.limit || 20);
-    const skip = (page - 1) * limit;
-
-    const filter = { type: CmsType.BLOG, isDeleted: false };
-    const [posts, total] = await Promise.all([
-      this.cmsModel
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      this.cmsModel.countDocuments(filter),
-    ]);
-
-    return { posts: posts.map(flattenCms), total, page, totalPages: Math.ceil(total / limit) };
-  }
-
-  async createBlogPost(dto: any, authorId: string, authorName: string) {
-    let slug = dto.slug;
-    if (!slug) {
-      slug = dto.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '');
-    }
-
-    const readTimeMinutes = Math.ceil(
-      (dto.content?.split(' ')?.length || 0) / 200,
-    );
-
-    const { top, meta } = splitDto(dto, BLOG_TOP_FIELDS, BLOG_META_FIELDS);
-    const doc = await this.cmsModel.create({
-      ...top,
-      type: CmsType.BLOG,
-      slug,
-      status: dto.isPublished === false ? CmsStatus.INACTIVE : CmsStatus.ACTIVE,
-      isDeleted: false,
-      blogMeta: {
-        ...meta,
-        authorId: new Types.ObjectId(authorId),
-        authorName,
-        readTimeMinutes,
-        viewCount: 0,
-        publishedAt: dto.isPublished !== false ? new Date() : undefined,
-      },
-    });
-    return flattenCms(doc.toObject());
-  }
-
-  async updateBlogPost(id: string, dto: any) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Post not found');
-
-    const { top, meta } = splitDto(dto, BLOG_TOP_FIELDS, BLOG_META_FIELDS);
-    const set: any = { ...top };
-
-    if (dto.content) {
-      meta.readTimeMinutes = Math.ceil(dto.content.split(' ').length / 200);
-    }
-    if (dto.isPublished !== false && dto.isPublished !== undefined) {
-      meta.publishedAt = meta.publishedAt || new Date();
-    }
-    for (const [k, v] of Object.entries(meta)) set[`blogMeta.${k}`] = v;
-
-    const post = await this.cmsModel.findOneAndUpdate(
-      { _id: id, type: CmsType.BLOG },
-      { $set: set },
-      { new: true, lean: true },
-    );
-    if (!post) throw new NotFoundException('Post not found');
-    return flattenCms(post);
-  }
-
-  async deleteBlogPost(id: string) {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Post not found');
-    const post = await this.cmsModel.findOneAndUpdate(
-      { _id: id, type: CmsType.BLOG },
-      { $set: { isDeleted: true } },
-    );
-    if (!post) throw new NotFoundException('Post not found');
-    return { message: 'Post deleted' };
   }
 }

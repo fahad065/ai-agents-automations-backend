@@ -11,6 +11,89 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-08 (later same day) — CMS API redesigned too, not just the schema — "Pages"/"BlogPosts" fully gone now
+
+**Why:** the entry below shipped the schema merge with a deliberate
+backward-compat strategy — keep the old `/cms/pages/:slug`,
+`/cms/blog(/:slug)`, `/cms/admin/pages/:slug`, `/cms/admin/blog...` routes
+and method names exactly as they were, so the frontend needed zero
+changes. The user explicitly rejected that approach: "I don't want any
+page/component in frontend and any api related to these collections:
+'BlogPosts' and 'Pages'. You can delete them. Now I need complete new
+code for CMS module in both frontend and backend." So this isn't a
+bugfix on top of the earlier entry — it's a second, deliberate pass that
+throws out the backward-compat shim and rebuilds the API itself around
+the unified model.
+
+**Done:**
+- `cms.controller.ts` rewritten — one resource, not two route groups.
+  Public: `GET /cms/content?type=&category=&tag=&page=&limit=` (list),
+  `GET /cms/content/:type/:slug` (single). Admin: `GET /cms/admin`
+  (list, `?type=&search=&page=&limit=`), `GET /cms/admin/:id` (also
+  accepts a slug — see below), `POST /cms/admin` (create — blog only in
+  practice, see below), `PUT /cms/admin/:id`, `DELETE /cms/admin/:id`
+  (soft delete), `POST /cms/admin/seed`.
+- `cms.service.ts` rewritten to match: `getPublic`/`listPublic` (public),
+  `adminList`/`adminGet`/`adminCreate`/`adminUpdate`/`adminDelete`/`seed`
+  (admin) — replacing `getPage`/`getPageAdmin`/`updatePage`/`seedPages`/
+  `getBlogPosts`/`getBlogPost`/`getAllBlogPostsAdmin`/`createBlogPost`/
+  `updateBlogPost`/`deleteBlogPost`. `splitDto`/`flattenCms` kept (generic
+  dto-shape helpers, not tied to the old collection names) but now
+  type-aware via one `metaFieldsFor(type)` lookup instead of two separate
+  field-list constants threaded through by hand at each call site.
+- `adminGet`/`adminUpdate` accept **either** a real ObjectId or a slug —
+  this is what lets the admin pages-editor keep addressing a page by its
+  fixed slug ("about", "faq", ...) without a separate lookup-by-slug
+  endpoint.
+- Pages are **not** freely creatable from `POST /cms/admin` the way blog
+  posts are — `adminCreate` still requires `dto.type` to be `'page'` or
+  `'blog'` and will create either, but the admin UI only ever calls it
+  for blog; the 7 fixed page slugs (`PAGE_SLUGS` in the frontend) are
+  real Next.js routes, so creating an arbitrary 8th page document
+  wouldn't do anything — same reasoning as before, just now stated
+  explicitly in the controller/service rather than implied by what the
+  frontend happened to call.
+- **`src/modules/cms/schemas/page.schema.ts` and `blog-post.schema.ts`
+  deleted outright** (the previous entry below left them in place, unused,
+  as a safety net — the user explicitly authorized deleting them this
+  time: "You can delete them"). Confirmed via grep first that nothing
+  else in `src/` still imports either file.
+- **Frontend**: every public marketing page's fetch call updated to the
+  new `/cms/content/...` shape (`about-page.tsx`, `contact-page.tsx`,
+  `faq-page.tsx`, `legal-page.tsx`, `blog-post-page.tsx`,
+  `blog-list-page.tsx`, `app/(marketing)/blog/[slug]/page.tsx`'s
+  `generateMetadata`). `dashboard/cms-page.tsx` (the live admin editor)
+  fully rewritten against `/cms/admin...` — renamed the colliding
+  `interface CmsPage` (shadowed the exported `CmsPage` component) to
+  `CmsItem`, kept the two-tab/two-modal structure (pages vs. blog posts
+  still get separate, focused forms — their field sets genuinely differ,
+  this was a deliberate choice stated to the user, not an oversight) but
+  both modals now hit the one shared admin resource.
+  `admin/admin-cms.tsx` (confirmed dead, never imported — same recurring
+  dead-shadow-file pattern this codebase has hit before) was deleted in
+  the same pass.
+- `scripts/migrate-cms.js` **unchanged** — it's a one-time ops script that
+  reads the raw `pages`/`blogposts` Mongo collections directly (not
+  through any API), so it isn't "frontend/component or API tied to those
+  collections" in the sense the user meant; it still needs to exist,
+  unmodified, until the migration has actually been run once against
+  real data.
+
+**Verified:** backend — `tsc --noEmit` clean, `nest build` clean, Jest
+31/31 passing (untouched specs, unaffected by this). Frontend — had to
+`npm install` first (no `node_modules` existed in this sandbox yet, 790
+packages installed), then `tsc --noEmit` clean and `next build` clean,
+all 42 routes generating.
+
+**Still true from the previous entry, unchanged:** the migration script
+still hasn't been run against real data from this sandbox (no
+`MONGODB_URI`/network path to Atlas) — **the app will not work correctly
+until it has been**, since both the old and new backend code read from
+`cms`, never `pages`/`blogposts`. Nothing about this pass changes that
+next step.
+
+---
+
 ## 2026-11-08 — CMS merge implemented (Phase 6's cms piece, done early — zero dependencies)
 
 **Done:** `src/modules/cms/schemas/cms.schema.ts` (new, the merged `pages`+

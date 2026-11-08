@@ -11,6 +11,65 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-08 — CMS merge implemented (Phase 6's cms piece, done early — zero dependencies)
+
+**Done:** `src/modules/cms/schemas/cms.schema.ts` (new, the merged `pages`+
+`blogposts` shape from `architecture.md`), `scripts/migrate-cms.js` (one-time,
+run by hand, not wired into app boot), `cms.service.ts` rewritten against
+the new schema, `cms.module.ts` repointed at it. **`cms.controller.ts`
+needed zero changes** — every method name it calls
+(`getPage`/`getPageAdmin`/`updatePage`/`seedPages`/`getBlogPosts`/
+`getBlogPost`/`getAllBlogPostsAdmin`/`createBlogPost`/`updateBlogPost`/
+`deleteBlogPost`) is preserved exactly, and a `flattenCms()` helper in the
+service spreads `pageMeta`/`blogMeta` back onto the top level before any
+response leaves the API — so **the frontend needs zero code changes for
+this phase**, verified by reading the actual admin editor
+(`cms-page.tsx`) and public pages (`faq-page.tsx`, `blog-list-page.tsx`,
+`blog-post-page.tsx`, `contact-page.tsx`) field-by-field, not assumed.
+
+**Two real data-loss risks caught while writing the migration script, not
+by inspection alone** — `architecture.md`'s `pageMeta`/`blogMeta` shape, as
+written before this, was missing `teamMembers` (real `Page` field, holds
+the founder's bio — confirmed via `grep` that no frontend page actually
+reads it today; about-page.tsx's team section is hardcoded, not CMS-driven
+— kept anyway since preserving real seed data costs nothing) and
+`publishedAt`/`authorId` (real `BlogPost` fields, used for sort order and
+admin attribution respectively). Both added to `cms.schema.ts`.
+`architecture.md` has NOT been updated with these two fixes yet — do that
+before trusting it as the schema reference for `cms` specifically.
+
+**One real design correction, caught by reading the frontend instead of
+assuming:** `architecture.md` described `faqItems(_ar)` as one array with
+each item carrying its own `question_ar`/`answer_ar` — that's wrong. The
+real frontend (`cms-page.tsx`'s admin editor, `faq-page.tsx`'s public
+render) uses **two entirely separate parallel arrays**, `faqItems`
+(English) and `faqItems_ar` (Arabic), each item plain `{question, answer,
+order}`. `cms.schema.ts` implements the two-array version, matching real
+usage. `architecture.md` still describes the wrong version — fix it to
+avoid this being rediscovered the hard way later.
+
+**Deliberate behavior change, not a bug:** `deleteBlogPost` is now a soft
+delete (`isDeleted: true`) instead of a real Mongo delete — matches the
+`isDeleted` pattern already on every other collection in the new schema,
+per the original design.
+
+**Not done yet — next steps, in order:**
+1. Run `scripts/migrate-cms.js` against the real database (needs
+   `MONGODB_URI` — no network path to Atlas from this sandbox, so this
+   hasn't been run against real data at all yet. **The app will not work
+   correctly — every page/post lookup will 404 — until this has been run**,
+   since the code now reads from `cms`, not `pages`/`blogposts`.)
+2. Spot-check a handful of migrated documents by hand (the script prints
+   exactly what to check).
+3. Manual CRUD testing against localhost — the actual ask behind this
+   phase (per the user's workflow: push to `fahad-development`, pull
+   locally, test CRUD, then say when to push to `main`).
+4. Only after that's confirmed working: fix the two `architecture.md`
+   inaccuracies noted above, and (much later, a separate step) manually
+   drop `pages`/`blogposts` from Atlas.
+
+---
+
 ## 2026-11-07 (later still) — `services.brochureUrl` added
 
 A new optional field, `brochureUrl`, added to `services` right after

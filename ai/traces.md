@@ -34,19 +34,17 @@ the founder's bio — confirmed via `grep` that no frontend page actually
 reads it today; about-page.tsx's team section is hardcoded, not CMS-driven
 — kept anyway since preserving real seed data costs nothing) and
 `publishedAt`/`authorId` (real `BlogPost` fields, used for sort order and
-admin attribution respectively). Both added to `cms.schema.ts`.
-`architecture.md` has NOT been updated with these two fixes yet — do that
-before trusting it as the schema reference for `cms` specifically.
+admin attribution respectively). Both added to `cms.schema.ts` **and**
+`architecture.md`'s `cms` section — already fixed, not left dangling.
 
 **One real design correction, caught by reading the frontend instead of
-assuming:** `architecture.md` described `faqItems(_ar)` as one array with
-each item carrying its own `question_ar`/`answer_ar` — that's wrong. The
-real frontend (`cms-page.tsx`'s admin editor, `faq-page.tsx`'s public
-render) uses **two entirely separate parallel arrays**, `faqItems`
+assuming:** `architecture.md` originally described `faqItems(_ar)` as one
+array with each item carrying its own `question_ar`/`answer_ar` — that was
+wrong. The real frontend (`cms-page.tsx`'s admin editor, `faq-page.tsx`'s
+public render) uses **two entirely separate parallel arrays**, `faqItems`
 (English) and `faqItems_ar` (Arabic), each item plain `{question, answer,
 order}`. `cms.schema.ts` implements the two-array version, matching real
-usage. `architecture.md` still describes the wrong version — fix it to
-avoid this being rediscovered the hard way later.
+usage, and `architecture.md` has been corrected to match.
 
 **Deliberate behavior change, not a bug:** `deleteBlogPost` is now a soft
 delete (`isDeleted: true`) instead of a real Mongo delete — matches the
@@ -64,9 +62,8 @@ per the original design.
 3. Manual CRUD testing against localhost — the actual ask behind this
    phase (per the user's workflow: push to `fahad-development`, pull
    locally, test CRUD, then say when to push to `main`).
-4. Only after that's confirmed working: fix the two `architecture.md`
-   inaccuracies noted above, and (much later, a separate step) manually
-   drop `pages`/`blogposts` from Atlas.
+4. Only after that's confirmed working (much later, a separate step):
+   manually drop `pages`/`blogposts` from Atlas.
 
 ---
 

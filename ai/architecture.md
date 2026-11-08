@@ -99,8 +99,9 @@ title(_ar), content(_ar)              -- content is an HTML string
 metaTitle(_ar), metaDescription(_ar)
 status: active | inactive
 isDeleted
-pageMeta?: { subtitle(_ar), faqItems(_ar): [{question(_ar), answer(_ar), order}], contactInfo: {email, supportEmail, twitter, linkedin, address(_ar)} }
-blogMeta?: { excerpt(_ar), author, category, tags: [], coverImage, readTimeMinutes, viewCount }
+pageMeta?: { subtitle(_ar), faqItems: [{question,answer,order}], faqItems_ar: [{question,answer,order}], teamMembers: [{name,role(_ar),bio(_ar),avatar}], contactInfo: {email, supportEmail, twitter, linkedin, address(_ar)} }
+  -- NOTE: faqItems/faqItems_ar are two SEPARATE parallel arrays, not one array with per-item _ar fields — verified against the real frontend admin editor and public FAQ page, implemented this way. teamMembers confirmed unread by any frontend page today (about-page.tsx's team section is hardcoded) but kept — real seed data (the founder's bio), costs nothing to preserve.
+blogMeta?: { excerpt(_ar), authorId, authorName, category, tags: [], coverImage, publishedAt, readTimeMinutes, viewCount }
 updatedAt
 ```
 No `user_id` — this is public content, isolated from the ownership model.

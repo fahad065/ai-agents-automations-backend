@@ -13,14 +13,20 @@ export enum CmsStatus {
   INACTIVE = 'inactive',
 }
 
+// Values match what's actually saved in the `cms` collection today
+// (set by hand from /dashboard/cms before this enum existed) — not the
+// short form you'd guess from the enum keys. Changing these only affects
+// what seed() creates and which doc the About-page backfill targets; the
+// Next.js route for each page (e.g. /cookies) is a separate, unrelated
+// literal folder name and is unaffected by this value.
 export enum CmsPageSlug {
-  ABOUT = 'about',
-  CONTACT = 'contact',
-  PRIVACY = 'privacy',
-  TERMS = 'terms',
-  COOKIES = 'cookies',
-  FAQ = 'faq',
-  REFUND = 'refund',
+  ABOUT = 'about-logicmate',
+  CONTACT = 'contact-us',
+  PRIVACY = 'privacy-policy',
+  TERMS = 'terms-of-service',
+  COOKIES = 'cookie-policy',
+  FAQ = 'frequently-asked-questions',
+  REFUND = 'refund-policy',
 }
 
 export enum CmsBlogCategory {

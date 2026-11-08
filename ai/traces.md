@@ -11,6 +11,38 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-08 (even later) — `CmsPageSlug` enum values corrected to match real saved data
+
+The user hit a real 404 testing `/cookies` locally and traced it to this:
+they'd been saving the 7 structural pages from `/dashboard/cms` using
+their own slugs — `about-logicmate`, `contact-us`, `privacy-policy`,
+`terms-of-service`, `cookie-policy`, `frequently-asked-questions`,
+`refund-policy` — not the short `about`/`contact`/`privacy`/etc the
+`CmsPageSlug` enum assumed. Every public page's fetch (hardcoded to the
+short form) was looking up a slug that didn't exist in their data.
+
+Fixed by changing the code to match their saved values, not the other
+way around (no data was touched): `CmsPageSlug`'s enum values in
+`cms.schema.ts` updated to the real slugs above — this is the single
+source of truth, so `seed()` and `backfillAboutGlobalMarketContent()`
+(both reference it via `CmsPageSlug.ABOUT` etc., never a raw string
+literal) picked up the fix automatically, no other backend file needed
+touching (confirmed via `grep -n "CmsPageSlug\."` across `src/modules/
+cms/` — every usage goes through the enum). See the frontend repo's
+`traces.md` for the matching frontend-side fix (every hardcoded fetch
+URL and the admin editor's `CORE_PAGE_SLUGS`).
+
+**Worth remembering**: the Next.js *route* a page lives at (`/cookies`)
+and the *slug stored in Mongo* for that page's `cms` document
+(`cookie-policy`) are two completely independent things — one's a URL
+path segment picked by a folder name, the other's a database lookup key.
+Nothing requires them to match; they just happened to not match here
+because the admin typed a different value when first saving.
+
+Verified: `tsc --noEmit`, `nest build`, Jest (31/31) all clean.
+
+---
+
 ## 2026-11-08 (latest) — CMS migration merged to `main` — Phase 6's cms piece is done
 
 User tested the whole flow locally against `fahad-development` (creating

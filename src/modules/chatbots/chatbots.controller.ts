@@ -36,7 +36,7 @@ export class ChatbotsController {
     const isAdmin = req.user.role === 'admin';
     const { userId: targetUserId, ...rest } = body;
     const ownerId = isAdmin && targetUserId ? targetUserId : req.user._id.toString();
-    return this.chatbotsService.create(ownerId, rest);
+    return this.chatbotsService.create(ownerId, rest, { id: req.user._id.toString(), role: req.user.role });
   }
 
   @Get()

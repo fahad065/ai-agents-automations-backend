@@ -11,6 +11,95 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-09 — `activity_logs` built (full), Notifications module audited and two real gaps fixed
+
+With CMS confirmed done and merged, the user moved to the next item on
+their own stated order: Activity Logs, then Notifications, then (gated,
+see below) account deletion/export — "once you done with these, then
+we will jump to api keys and users module and then services and
+userservices."
+
+**`activity_logs` — new module, full implementation** (see
+`architecture.md`'s `activity_logs` section for the final schema/API —
+updated in place, since the user's own requirement during this session
+corrected the original "admin-only" framing to "owner sees own, admin
+sees all"). Built: `src/modules/activity-logs/` (schema, service,
+controller, module, `@Global()` same as Notifications/Email).
+`ActivityLogsService.record()` is the one shared entry point — every
+call site is explicit, never a generic diffing interceptor (per
+`rules.md` #10) — and it swallows its own errors so a logging failure
+can never break the real operation it's describing.
+
+Instrumented a bounded, representative set of real call sites (not
+every CRUD everywhere, per `implementation-guide.md`'s own guidance,
+adapted to the collections that actually exist today rather than the
+future `userservices`/`services` which haven't been built yet):
+`ApiKeysService` (create/update/delete), `ChatbotsService` (create/
+update/delete + knowledge-base create/update/delete), `UserModulesService`
+(subscribe/toggle/cancel), `UsersService` (profile update/password
+change/deactivate, admin update/delete of another user).
+
+**Real sensitive-data catch while instrumenting, not shipped as-is**:
+`ChatbotsService.update()`'s `changes` can include `channels` — the
+WhatsApp/Instagram config sub-object, which carries a **plaintext**
+access token (never encrypted the way `ApiKey.encryptedKey` is). The
+first draft logged `changes.after` verbatim. Fixed before this ever ran
+against real data: log only the *field names* that changed
+(`Object.keys(changes)`), never their values, for any update whose
+editable-field set might include something sensitive. Applied the same
+"keys only" pattern to `updateKnowledge()` and `UsersService.updateProfile()`
+as a matter of consistency, not because either is currently sensitive —
+cheaper to default to safe than to re-audit every future field addition.
+
+**Actor vs. subject, resolved per call site, not forced into one shape**:
+`userId` on a log entry is always the *account the entry belongs to*
+(so a client sees "an admin configured your chatbot" in their own
+feed); `actorId`/`actorRole` is whoever actually did it. For
+`ChatbotsService`, the already-loaded `chatbot.userId` gave the real
+subject directly (the service already supports admin-acting-on-a-
+client's-behalf via its existing `isAdmin` param, so no new plumbing
+was needed). For `ApiKeysService`/`UsersService.adminUpdate/adminDelete`,
+added an optional `actor`/`adminId` parameter since the controller
+already resolves owner-vs-caller separately from `req.user` and the
+service had no way to see both before this.
+
+API: `GET /activity-logs/my` (own feed), `GET /activity-logs/admin`
+(admin-only, `userId`/`entityType`/`action` filters) — both paginated
+(`page`/`limit`), backed by `{userId:1,createdAt:-1}` /
+`{createdAt:-1}` / `{entityType:1,createdAt:-1}` indexes so this stays
+fast as the collection grows, per the user's explicit "make sure all
+the APIs are paginated... reliable and fast... if there are tons of
+records" requirement.
+
+**Notifications module audit** — schema/service/controller were already
+largely complete (pagination, soft delete, unread count, user+admin
+fan-out via `notifyUserAndAdmin`) — `architecture.md` already said
+"unchanged," confirmed correct, no schema migration needed. Two real
+gaps found and fixed, both on the frontend side (see that repo's
+`traces.md`): (1) the dashboard auth-gate middleware set `?from=` on
+the redirect to login, but the login/signup forms only ever read
+`?redirect=` — meaning the user's described "click an email link while
+logged out → sign in → land on the actual intended page" flow was
+silently broken for every protected URL, always dropping back to the
+plain `/dashboard`; (2) `actionUrl` navigation only worked (partially)
+on the full `/dashboard/notifications` page via `router.push()`, which
+can't open an external link (e.g. a YouTube URL from
+`onPipelineComplete`) — and the header's notification-bell dropdown
+didn't navigate on click at all, only marked as read.
+
+**Verified**: `tsc --noEmit`, `nest build`, Jest all clean (31/31 — had
+to add a `activityLogsService` mock to `chatbots.service.spec.ts`'s two
+manual `new ChatbotsService(...)` call sites, since that constructor
+gained a new required dependency).
+
+**Not started yet, explicitly gated**: account deletion + data export
+(Excel backup, then real deletion beyond today's `isActive:false`
+soft-deactivate) — this needs the user's decision on data-retention
+policy (hard delete vs. anonymize-and-retain-billing vs. a grace
+period) before any code gets written; asked via the chat, not guessed.
+
+---
+
 ## 2026-11-08 (even later) — `CmsPageSlug` enum values corrected to match real saved data
 
 The user hit a real 404 testing `/cookies` locally and traced it to this:

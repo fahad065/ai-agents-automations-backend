@@ -9,13 +9,21 @@ import {
   import * as CryptoJS from 'crypto-js';
   import { ApiKey, ApiKeyDocument, ApiKeyProvider } from './schemas/api-key.schema';
 import { NotificationsService } from '../notifications/notifications.service';
-  
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
+
+export interface Actor {
+  id: string;
+  role: 'user' | 'admin';
+}
+
   @Injectable()
   export class ApiKeysService {
     constructor(
       @InjectModel(ApiKey.name) private apiKeyModel: Model<ApiKeyDocument>,
       private config: ConfigService,
       private notificationsService: NotificationsService,
+      private activityLogsService: ActivityLogsService,
     ) {}
   
     private get encryptionKey() {
@@ -37,24 +45,33 @@ import { NotificationsService } from '../notifications/notifications.service';
       key: string;
       agentId?: string;
       expiresAt?: Date;
-    }) {
+    }, actor?: Actor) {
       const encrypted = this.encrypt(body.key);
-  
+
       const existing = await this.apiKeyModel.findOne({
         userId: new Types.ObjectId(userId),
         provider: body.provider,
         agentId: body.agentId ? new Types.ObjectId(body.agentId) : undefined,
       });
-  
+
       if (existing) {
         existing.encryptedKey = encrypted;
         existing.label = body.label;
         existing.isActive = true;
         await existing.save();
+
+        await this.activityLogsService.record({
+          userId, actorId: actor?.id || userId,
+          actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
+          action: ActivityAction.UPDATE, entityType: 'apikey', entityId: (existing._id as Types.ObjectId).toString(),
+          changes: { after: { provider: body.provider, label: body.label } },
+          description: `${body.label} (${body.provider}) key updated`,
+        });
+
         return { message: 'Key updated', provider: body.provider };
       }
-  
-      await this.apiKeyModel.create({
+
+      const created = await this.apiKeyModel.create({
         userId: new Types.ObjectId(userId),
         agentId: body.agentId ? new Types.ObjectId(body.agentId) : undefined,
         provider: body.provider,
@@ -64,6 +81,14 @@ import { NotificationsService } from '../notifications/notifications.service';
       });
 
       await this.notificationsService.onApiKeyAdded(userId, body.provider, body.label);
+
+      await this.activityLogsService.record({
+        userId, actorId: actor?.id || userId,
+        actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
+        action: ActivityAction.CREATE, entityType: 'apikey', entityId: (created._id as Types.ObjectId).toString(),
+        changes: { after: { provider: body.provider, label: body.label } },
+        description: `${body.label} (${body.provider}) key added`,
+      });
 
       return { message: 'Key saved', provider: body.provider };
     }
@@ -108,13 +133,22 @@ import { NotificationsService } from '../notifications/notifications.service';
       return this.decrypt(record.encryptedKey);
     }
   
-    async deleteKey(userId: string, keyId: string) {
+    async deleteKey(userId: string, keyId: string, actor?: Actor) {
       const result = await this.apiKeyModel.findOneAndUpdate(
         { _id: new Types.ObjectId(keyId), userId: new Types.ObjectId(userId) },
         { isActive: false },
       );
       if (!result) throw new NotFoundException('Key not found');
       await this.notificationsService.onApiKeyDeleted(userId, result.provider, result.label);
+
+      await this.activityLogsService.record({
+        userId, actorId: actor?.id || userId,
+        actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
+        action: ActivityAction.DELETE, entityType: 'apikey', entityId: keyId,
+        changes: { before: { provider: result.provider, label: result.label } },
+        description: `${result.label} (${result.provider}) key removed`,
+      });
+
       return { message: 'Key deactivated' };
     }
   

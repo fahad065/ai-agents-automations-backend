@@ -189,18 +189,43 @@ Created in the same action as a `billing` record when an admin manually
 confirms a payment (enters the amount + service details, hits save) — see
 `implementation-guide.md` for the renew→billing→invoice→email flow design.
 
-### `activity_logs` — NEW. Admin-only.
+### `activity_logs` — DONE, 2026-11-09. Visible to the account owner (own
+entries only) AND admin (every entry, filterable) — corrected from this
+section's original "admin-only" framing per explicit user direction while
+building it: "if user logs in portal, then user should be able to see all
+the activity logs by its user_id only. But if admin logs in, then admin
+should see all activity logs of all types of users."
 ```
-_id, userId, actorRole: user | admin
+_id
+userId        -- whose ACCOUNT this entry belongs to (the subject) — NOT necessarily who performed it. When an admin acts on a client's behalf, this is the client's id, so the client sees "an admin did X on your account" in their own feed.
+actorId       -- who actually performed it (same as userId for self-service actions)
+actorRole: user | admin   -- role at the time of the action, stored not re-derived
 action: create | update | delete
 entityType, entityId
-changes: { before?: {}, after?: {} }         -- an EXPLICIT, hand-picked subset of fields per call site. NEVER the raw document. NEVER encryptedKey/password/embedding.
+changes: { before?: {}, after?: {} }         -- an EXPLICIT, hand-picked subset of fields per call site. NEVER the raw document. NEVER encryptedKey/password/embedding. Often just `{ fieldsChanged: [...] }` (key names, no values) when the real values could be sensitive (e.g. chatbot.channels carries plaintext WhatsApp/Instagram tokens).
 description
 createdAt
 ```
-See `rules.md` for how this gets populated (explicit calls through one shared
-service, not a generic auto-diffing interceptor) and `implementation-guide.md`
-for which actions are actually worth logging first.
+No `isDeleted` — same "closer to immutable log" reasoning as
+`knowledge_bases`/`conversations`: an audit trail that can be hidden by the
+account it's auditing isn't an audit trail.
+
+Indexes: `{userId:1, createdAt:-1}` (own feed + admin's per-user filter),
+`{createdAt:-1}` (admin's default global feed), `{entityType:1,
+createdAt:-1}` (admin filter by module).
+
+API: `GET /activity-logs/my` (own feed, paginated `page`/`limit`), `GET
+/activity-logs/admin` (admin-only, paginated + `userId`/`entityType`/`action`
+filters).
+
+Instrumented so far (a deliberately bounded, representative set per
+`implementation-guide.md`'s own guidance — not every CRUD everywhere):
+`ApiKeysService` (create/update/delete), `ChatbotsService` (create/update/
+delete + knowledge-base create/update/delete), `UserModulesService`
+(subscribe/toggle/cancel), `UsersService` (profile update/password change/
+deactivate, plus admin update/delete of another user). Adding a new call
+site anywhere else is one `activityLogsService.record({...})` call — see
+`rules.md` for the one-shared-method convention.
 
 ### `feedback` — one rating per customer per owned service, moderated before public
 ```

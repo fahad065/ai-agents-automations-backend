@@ -9,12 +9,15 @@ import {
   import { User, UserDocument } from './schemas/user.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
-  
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
+
   @Injectable()
   export class UsersService {
     constructor(
       @InjectModel(User.name) private userModel: Model<UserDocument>,
-      @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>
+      @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>,
+      private activityLogsService: ActivityLogsService,
     ) {}
   
     async findById(id: string) {
@@ -45,23 +48,47 @@ import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.s
         { new: true },
       ).select('-password -refreshToken').lean();
       if (!user) throw new NotFoundException('User not found');
+
+      await this.activityLogsService.record({
+        userId, actorId: userId, actorRole: ActorRole.USER,
+        action: ActivityAction.UPDATE, entityType: 'user', entityId: userId,
+        changes: { after: { fieldsChanged: Object.keys(dto) } },
+        description: `Profile updated (${Object.keys(dto).join(', ')})`,
+      });
+
       return { message: 'Profile updated', user };
     }
-  
+
     async changePassword(userId: string, oldPassword: string, newPassword: string) {
       const user = await this.userModel.findById(userId).select('+password');
       if (!user?.password) throw new BadRequestException('No password set (OAuth user)');
-  
+
       const match = await bcrypt.compare(oldPassword, user.password);
       if (!match) throw new BadRequestException('Incorrect current password');
-  
+
       user.password = await bcrypt.hash(newPassword, 12);
       await user.save();
+
+      // No field values logged, ever — just that the event happened.
+      await this.activityLogsService.record({
+        userId, actorId: userId, actorRole: ActorRole.USER,
+        action: ActivityAction.UPDATE, entityType: 'user', entityId: userId,
+        description: 'Password changed',
+      });
+
       return { message: 'Password updated' };
     }
-  
+
     async deactivate(userId: string) {
       await this.userModel.findByIdAndUpdate(userId, { isActive: false });
+
+      await this.activityLogsService.record({
+        userId, actorId: userId, actorRole: ActorRole.USER,
+        action: ActivityAction.UPDATE, entityType: 'user', entityId: userId,
+        changes: { after: { isActive: false } },
+        description: 'Account deactivated',
+      });
+
       return { message: 'Account deactivated' };
     }
 
@@ -118,7 +145,7 @@ import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.s
       role?: string;
       trialEndDate?: string;
       isFreeForever?: boolean;
-    }) {
+    }, adminId?: string) {
       const allowed = [
         'name', 'phoneNumber', 'country', 'isActive',
         'planType', 'role', 'trialEndDate', 'isFreeForever',
@@ -127,21 +154,40 @@ import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.s
       for (const key of allowed) {
         if (data[key] !== undefined) update[key] = data[key];
       }
-   
+
       const user = await this.userModel.findByIdAndUpdate(
         id, update, { new: true }
       ).select('-password -refreshToken');
-   
+
       if (!user) throw new NotFoundException('User not found');
+
+      if (adminId) {
+        await this.activityLogsService.record({
+          userId: id, actorId: adminId, actorRole: ActorRole.ADMIN,
+          action: ActivityAction.UPDATE, entityType: 'user', entityId: id,
+          changes: { after: update },
+          description: `Account updated by admin (${Object.keys(update).join(', ')})`,
+        });
+      }
+
       return user;
     }
-   
-    async adminDelete(id: string) {
+
+    async adminDelete(id: string, adminId?: string) {
       // Soft delete — never hard delete
       await this.userModel.findByIdAndUpdate(id, {
         isDeleted: true,
         isActive: false,
       });
+
+      if (adminId) {
+        await this.activityLogsService.record({
+          userId: id, actorId: adminId, actorRole: ActorRole.ADMIN,
+          action: ActivityAction.DELETE, entityType: 'user', entityId: id,
+          description: 'Account deactivated by admin',
+        });
+      }
+
       return { message: 'User deactivated successfully' };
     }
 

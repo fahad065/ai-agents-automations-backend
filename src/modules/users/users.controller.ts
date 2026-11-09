@@ -67,13 +67,13 @@ export class UsersController {
   @Patch(':id')
   updateUser(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     if (req.user.role !== 'admin') return { message: 'Forbidden' };
-    return this.usersService.adminUpdate(id, body);
+    return this.usersService.adminUpdate(id, body, req.user._id.toString());
   }
 
   @Delete(':id')
   deleteUser(@Req() req: any, @Param('id') id: string) {
     if (req.user.role !== 'admin') return { message: 'Forbidden' };
-    return this.usersService.adminDelete(id);
+    return this.usersService.adminDelete(id, req.user._id.toString());
   }
 
   // Grant free forever
@@ -83,7 +83,7 @@ export class UsersController {
     return this.usersService.adminUpdate(id, {
       isFreeForever: true,
       planType: 'lifetime',
-    });
+    }, req.user._id.toString());
   }
   
   // Extend trial by X days

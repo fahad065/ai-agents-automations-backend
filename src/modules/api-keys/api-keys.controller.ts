@@ -18,7 +18,7 @@ import {
     save(@Req() req: any, @Body() body: any) {
       const { userId: targetUserId, ...rest } = body;
       const ownerId = req.user.role === 'admin' && targetUserId ? targetUserId : req.user._id.toString();
-      return this.apiKeysService.saveKey(ownerId, rest);
+      return this.apiKeysService.saveKey(ownerId, rest, { id: req.user._id.toString(), role: req.user.role });
     }
 
     // Admin can pass ?userId= to check a specific client's keys (e.g. the
@@ -37,7 +37,7 @@ import {
   
     @Delete(':id')
     remove(@Req() req: any, @Param('id') id: string) {
-      return this.apiKeysService.deleteKey(req.user._id.toString(), id);
+      return this.apiKeysService.deleteKey(req.user._id.toString(), id, { id: req.user._id.toString(), role: req.user.role });
     }
 
     @Patch(':id')
@@ -45,7 +45,7 @@ import {
       return this.apiKeysService.saveKey(req.user._id.toString(), {
         ...body,
         key: body.value || body.key,
-      });
+      }, { id: req.user._id.toString(), role: req.user.role });
     }
 
     @Post(':provider/test')

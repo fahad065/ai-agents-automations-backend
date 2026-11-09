@@ -11,6 +11,8 @@ import { BillingService } from '../billing/billing.service';
 import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
 import { EmailService } from '../email/email.service';
 import { ModulesService } from '../modules/modules.service';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
 // Fields the chatbot's own owner is allowed to change via PUT /chatbots/:id.
 // Deliberately excludes `billing` and `embedKey` — those are admin-only /
@@ -67,6 +69,7 @@ export class ChatbotsService implements OnModuleInit {
     private billingService: BillingService,
     private emailService: EmailService,
     private modulesService: ModulesService,
+    private activityLogsService: ActivityLogsService,
   ) {}
 
   // Self-healing backfill (same pattern as ModulesService's) for the
@@ -106,7 +109,7 @@ export class ChatbotsService implements OnModuleInit {
   // else defaults to 'basic', the safest/cheapest tier. Omitting moduleSlug
   // entirely keeps the hand-negotiated-deal flow (dashboard's own
   // "+ New Chatbot" modal): admin sets pricing/tier later via PUT /:id/pricing.
-  async create(userId: string, dto: any): Promise<ChatbotDocument> {
+  async create(userId: string, dto: any, actor?: { id: string; role: 'user' | 'admin' }): Promise<ChatbotDocument> {
     const embedKey = crypto.randomBytes(16).toString('hex');
     const { moduleSlug, tier: requestedTier, ...rest } = dto;
 
@@ -153,6 +156,14 @@ export class ChatbotsService implements OnModuleInit {
     } catch (err) {
       this.logger.warn(`create() onboarding email(s) failed for chatbot=${chatbot._id}: ${err?.message}`);
     }
+
+    await this.activityLogsService.record({
+      userId, actorId: actor?.id || userId,
+      actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.CREATE, entityType: 'chatbot', entityId: (chatbot._id as Types.ObjectId).toString(),
+      changes: { after: { name: chatbot.name, template: chatbot.template } },
+      description: `Chatbot "${chatbot.name}" created`,
+    });
 
     return chatbot;
   }
@@ -302,7 +313,22 @@ export class ChatbotsService implements OnModuleInit {
     }
 
     Object.assign(chatbot, changes);
-    return chatbot.save();
+    const saved = await chatbot.save();
+
+    // `changes` can include `channels` (plaintext WhatsApp/Instagram access
+    // tokens — never encrypted the way ApiKey.encryptedKey is). Logging the
+    // field *names* that changed, never their values, is enough to be
+    // useful and keeps no secret anywhere near activity_logs (see
+    // ai/rules.md #10 — the caller picks exactly what's safe to log).
+    await this.activityLogsService.record({
+      userId: chatbot.userId.toString(), actorId: userId,
+      actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.UPDATE, entityType: 'chatbot', entityId: (chatbot._id as Types.ObjectId).toString(),
+      changes: { after: { fieldsChanged: Object.keys(changes) } },
+      description: `Chatbot "${chatbot.name}" updated (${Object.keys(changes).join(', ')})`,
+    });
+
+    return saved;
   }
 
   async delete(id: string, userId: string, isAdmin = false): Promise<{ message: string }> {
@@ -313,6 +339,15 @@ export class ChatbotsService implements OnModuleInit {
       this.knowledgeBaseModel.deleteMany({ chatbotId }),
       this.conversationModel.deleteMany({ chatbotId }),
     ]);
+
+    await this.activityLogsService.record({
+      userId: chatbot.userId.toString(), actorId: userId,
+      actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.DELETE, entityType: 'chatbot', entityId: chatbotId.toString(),
+      changes: { before: { name: chatbot.name, template: chatbot.template } },
+      description: `Chatbot "${chatbot.name}" deleted`,
+    });
+
     return { message: 'Chatbot deleted' };
   }
 
@@ -374,11 +409,21 @@ export class ChatbotsService implements OnModuleInit {
       embedding = [];
     }
 
-    return this.knowledgeBaseModel.create({
+    const entry = await this.knowledgeBaseModel.create({
       ...dto,
       chatbotId: new Types.ObjectId(chatbotId),
       embedding,
     });
+
+    await this.activityLogsService.record({
+      userId: chatbot.userId.toString(), actorId: userId,
+      actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.CREATE, entityType: 'knowledge_base', entityId: (entry._id as Types.ObjectId).toString(),
+      changes: { after: { type: dto.type } },
+      description: `Knowledge base entry added to "${chatbot.name}"`,
+    });
+
+    return entry;
   }
 
   // Edits an existing entry in place and re-embeds it, since the text
@@ -422,7 +467,17 @@ export class ChatbotsService implements OnModuleInit {
       this.logger.warn(`updateKnowledge() re-embedding skipped for chatbot=${chatbotId}: ${err?.message}`);
     }
 
-    return entry.save();
+    const saved = await entry.save();
+
+    await this.activityLogsService.record({
+      userId: chatbot.userId.toString(), actorId: userId,
+      actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.UPDATE, entityType: 'knowledge_base', entityId: (entry._id as Types.ObjectId).toString(),
+      changes: { after: { fieldsChanged: Object.keys(dto) } },
+      description: `Knowledge base entry updated on "${chatbot.name}"`,
+    });
+
+    return saved;
   }
 
   async listKnowledge(chatbotId: string, userId: string, isAdmin = false): Promise<KnowledgeBaseDocument[]> {
@@ -434,12 +489,21 @@ export class ChatbotsService implements OnModuleInit {
   }
 
   async deleteKnowledge(chatbotId: string, knowledgeId: string, userId: string, isAdmin = false): Promise<{ message: string }> {
-    await this.findOne(chatbotId, userId, isAdmin);
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
     const result = await this.knowledgeBaseModel.findOneAndDelete({
       _id: new Types.ObjectId(knowledgeId),
       chatbotId: new Types.ObjectId(chatbotId),
     });
     if (!result) throw new NotFoundException('Knowledge entry not found');
+
+    await this.activityLogsService.record({
+      userId: chatbot.userId.toString(), actorId: userId,
+      actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
+      action: ActivityAction.DELETE, entityType: 'knowledge_base', entityId: knowledgeId,
+      changes: { before: { type: result.type } },
+      description: `Knowledge base entry removed from "${chatbot.name}"`,
+    });
+
     return { message: 'Knowledge entry deleted' };
   }
 

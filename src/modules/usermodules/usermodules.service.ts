@@ -10,6 +10,8 @@ import { PipelineRunsService } from '../pipeline-runs/pipeline-runs.service';
 import { EmailService } from '../email/email.service';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import * as Sentry from '@sentry/nestjs';
+import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
 @Injectable()
 export class UserModulesService {
@@ -20,7 +22,8 @@ export class UserModulesService {
     private config: ConfigService,
     @InjectModel(PipelineRun.name) private pipelineRunModel: Model<PipelineRunDocument>,
     private readonly pipelineRunsService: PipelineRunsService,
-    private readonly emailService: EmailService
+    private readonly emailService: EmailService,
+    private readonly activityLogsService: ActivityLogsService,
   ) {}
 
   // ── Subscribe to a module ─────────────────────────────────
@@ -82,6 +85,13 @@ export class UserModulesService {
     } catch (e) {
       console.warn(`[Modules] Trial email failed: ${e.message}`);
     }
+
+    await this.activityLogsService.record({
+      userId: data.userId, actorId: data.userId, actorRole: ActorRole.USER,
+      action: ActivityAction.CREATE, entityType: 'usermodule', entityId: (newModule._id as Types.ObjectId).toString(),
+      changes: { after: { moduleName: data.moduleName, moduleType: data.moduleType } },
+      description: `Subscribed to "${data.moduleName}" (30-day trial)`,
+    });
 
     return newModule;
   }
@@ -169,16 +179,33 @@ export class UserModulesService {
 
     um.status = newStatus;
     await um.save();
+
+    await this.activityLogsService.record({
+      userId, actorId: userId, actorRole: ActorRole.USER,
+      action: ActivityAction.UPDATE, entityType: 'usermodule', entityId: userModuleId,
+      changes: { after: { status: newStatus } },
+      description: `"${um.moduleName}" ${newStatus === UserModuleStatus.PAUSED ? 'paused' : 'resumed'}`,
+    });
+
     return um;
   }
 
   // ── Soft delete ───────────────────────────────────────────
 
   async softDelete(userModuleId: string, userId: string): Promise<void> {
-    await this.userModuleModel.findOneAndUpdate(
+    const um = await this.userModuleModel.findOneAndUpdate(
       { _id: new Types.ObjectId(userModuleId), userId: new Types.ObjectId(userId) },
-      { isDeleted: true, deletedAt: new Date(), status: UserModuleStatus.CANCELLED }
+      { isDeleted: true, deletedAt: new Date(), status: UserModuleStatus.CANCELLED },
     );
+
+    if (um) {
+      await this.activityLogsService.record({
+        userId, actorId: userId, actorRole: ActorRole.USER,
+        action: ActivityAction.DELETE, entityType: 'usermodule', entityId: userModuleId,
+        changes: { before: { moduleName: um.moduleName } },
+        description: `Cancelled "${um.moduleName}"`,
+      });
+    }
   }
 
   // ── Admin: get all user modules ───────────────────────────

@@ -45,6 +45,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
   const billingService: any = {};
   const emailService: any = {};
   const modulesService: any = {};
+  const activityLogsService: any = { record: jest.fn().mockResolvedValue(undefined) };
 
   return new ChatbotsService(
     chatbotModel,
@@ -55,6 +56,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
     billingService,
     emailService,
     modulesService,
+    activityLogsService,
   );
 }
 
@@ -267,6 +269,7 @@ describe('ChatbotsService.findAllAdmin() — template filter', () => {
       conversationModel,
       {} as any,
       apiKeysService,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,

@@ -58,6 +58,7 @@ welcomeDay1Sent, welcomeDay3Sent, welcomeDay7Sent   -- multi-replica cron guards
 totalBilled                                          -- denormalized, keep (dashboard reads it often)
 onboarding: {}
 notifyPreferences: {}
+deletionRequestedAt?, pendingDeletionAt?             -- DONE, 2026-11-10 — account-deletion flow, see below
 ```
 Dropped from today's real `User` schema: `facebookId`/`appleId` (dead —
 Google is the only working social login), `totalAgents`/`totalAutomations`
@@ -226,6 +227,50 @@ delete + knowledge-base create/update/delete), `UserModulesService`
 deactivate, plus admin update/delete of another user). Adding a new call
 site anywhere else is one `activityLogsService.record({...})` call — see
 `rules.md` for the one-shared-method convention.
+
+### Account deletion — DONE, 2026-11-10
+Not a schema of its own — two fields on `users` (above) plus a new
+`src/modules/account-deletion/` module. User-confirmed policy (asked
+explicitly before building, not assumed):
+
+1. **Billing retained, anonymized — never hard-deleted.** No denormalized
+   name/email snapshot exists on `Billing` to begin with (confirmed by
+   reading the schema before deciding this), so anonymizing the `User`
+   doc in place (stable `_id`) is sufficient — `Billing.userId` and
+   `ActivityLog.userId`/`actorId` keep resolving, now to a scrubbed
+   identity, with zero changes needed to either collection.
+2. **7 working-day notice, account stays fully usable the whole time** —
+   not a lock-immediately-then-wait model. The point of the window is so
+   the user can actually get into Settings and download their export;
+   locking them out during it would defeat that. An email goes out the
+   moment they request it (exact deadline date, backup instructions, the
+   "we're not responsible after this date" disclaimer) and a second one
+   once deletion actually runs. They can cancel the pending request at
+   any time before the deadline from the same Settings page.
+3. **Export is genuinely everything**: profile, API key metadata (never
+   raw/decrypted keys), chatbots, knowledge base, conversations
+   (summary-level — counts/channel/status, not full message transcripts,
+   flagged as a scope boundary rather than silently dropped),
+   subscriptions, full billing history, and their own activity log — one
+   `.xlsx` (via `exceljs`, newly added dependency) with one sheet per
+   collection, built in `AccountDeletionService.exportUserData()`.
+
+`AccountDeletionCron` (`0 3 * * *`, earliest of the day's crons since
+it's the most destructive) sweeps for `pendingDeletionAt <= now`,
+atomically claims each user the same way `chatbot-billing.cron.ts`
+already does (so two replicas can't double-process one deletion), then
+hard-deletes everything that's the user's own operational content —
+`Chatbot`+`KnowledgeBase`+`Conversation`, `ApiKey`, `UserModule`,
+`Notification` — and anonymizes the `User` doc itself (name/email/phone/
+OAuth ids/password/refreshToken scrubbed, a stable but no-longer-real
+email so the unique index keeps holding). `PipelineRun` was deliberately
+left untouched too, same "cost/audit-ish data, not pure operational
+content" reasoning as `Billing`.
+
+API: `POST /account/deletion/request`, `POST /account/deletion/cancel`,
+`GET /account/deletion/status`, `GET /account/export` (streams the
+`.xlsx`) — all under `JwtAuthGuard`, self-service only, no admin
+override (deleting someone else's account isn't a feature).
 
 ### `feedback` — one rating per customer per owned service, moderated before public
 ```

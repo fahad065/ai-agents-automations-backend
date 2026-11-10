@@ -181,6 +181,18 @@ export class User {
 
   @Prop({ default: 0 })
   totalAutomations: number;
+
+  // ── Account deletion ─────────────────────────────────────────
+  // Set the moment a user requests deletion; cleared if they cancel.
+  // AccountDeletionCron sweeps for pendingDeletionAt <= now daily and
+  // performs the real deletion then — the account stays fully usable in
+  // the meantime so the user can actually get to Settings to export
+  // their backup.
+  @Prop()
+  deletionRequestedAt?: Date;
+
+  @Prop()
+  pendingDeletionAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
@@ -190,3 +202,4 @@ UserSchema.index({ googleId: 1 }, { sparse: true });
 UserSchema.index({ planType: 1 });
 UserSchema.index({ trialEndDate: 1 });
 UserSchema.index({ isDeleted: 1 });
+UserSchema.index({ pendingDeletionAt: 1 }, { sparse: true });

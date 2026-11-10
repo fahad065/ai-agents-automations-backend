@@ -752,4 +752,57 @@ export class EmailService {
     `);
     await this.send(user.email, `"${data.chatbotName}" is paused — payment needed to resume`, html);
   }
+
+  // ── Account deletion requested ─────────────────────────────
+  async sendAccountDeletionRequestedEmail(
+    user: { name: string; email: string },
+    data: { scheduledFor: Date; workingDaysLeft: number },
+  ): Promise<void> {
+    const settingsUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/settings?tab=security`;
+    const deadline = data.scheduledFor.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const html = this.base(`
+      <div style="padding:40px 36px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+        <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;">Account deletion requested</h1>
+        <p style="color:#737373;font-size:14px;margin:0 0 28px;">Hi ${user.name || 'there'}, this confirms what you asked for.</p>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:20px;margin:0 0 24px;text-align:left;">
+          <p style="color:#f59e0b;font-size:14px;font-weight:600;margin:0 0 10px;">Your account and all its data will be permanently deleted on ${deadline} (${data.workingDaysLeft} working days from now).</p>
+          <p style="color:#a3a3a3;font-size:14px;line-height:1.7;margin:0;">
+            Download a full backup of your data — chatbots, knowledge base, API key labels, subscriptions and billing history — from
+            <strong style="color:#e5e5e5;">Settings → Security → Download My Data</strong> before then.
+            Once the deletion runs, LogicMate cannot recover your data and is not responsible for anything not backed up before this date.
+          </p>
+        </div>
+        <a href="${settingsUrl}"
+           style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">
+          Go to Settings →
+        </a>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;">
+          Changed your mind? You can cancel this request from the same Settings page any time before ${deadline}.
+          Questions? Reply to this email or contact hello@logicmate.io
+        </p>
+      </div>
+    `);
+    await this.send(user.email, '⚠️ Account deletion requested — action needed', html);
+  }
+
+  // ── Account deletion completed ──────────────────────────────
+  async sendAccountDeletionCompletedEmail(user: { name: string; email: string }): Promise<void> {
+    const html = this.base(`
+      <div style="padding:40px 36px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">🗑️</div>
+        <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;">Your account has been deleted</h1>
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 20px;">
+          Hi ${user.name || 'there'}, as requested, your LogicMate account and all associated data (chatbots, knowledge base, conversations, API keys and subscriptions) have been permanently deleted.
+        </p>
+        <p style="color:#737373;font-size:13px;line-height:1.7;margin:0;">
+          Billing and invoice records are retained in anonymized form only, for our own accounting and legal obligations — they no longer carry your name or contact details.
+        </p>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;">
+          This is the last email you'll receive from us. If this wasn't you, contact hello@logicmate.io immediately.
+        </p>
+      </div>
+    `);
+    await this.send(user.email, 'Your LogicMate account has been deleted', html);
+  }
 }

@@ -11,6 +11,59 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-10 — Account deletion + data export built, closes the last item from the previous session's list
+
+User-confirmed policy before any code (asked via a real decision, not
+guessed): billing anonymized not deleted (confirmed via reading
+`billing.schema.ts` first — no denormalized PII to scrub, so anonymizing
+`User` in place is enough), a 7-working-day notice with the account
+staying fully usable the whole time (not a lock-then-wait model) so the
+user can actually reach Settings to export first, and the export
+covering everything including billing history. Full design recorded in
+`architecture.md`'s new "Account deletion" section — read that for the
+why; this entry is just the what-shipped.
+
+**New `src/modules/account-deletion/`**: `AccountDeletionService`
+(`requestDeletion`/`cancelDeletion`/`getStatus`/`exportUserData`/
+`performScheduledDeletions`), `AccountDeletionController` (`POST
+/account/deletion/request`, `POST /account/deletion/cancel`, `GET
+/account/deletion/status`, `GET /account/export`), `AccountDeletionCron`
+(`0 3 * * *`, atomic-claim pattern same as `chatbot-billing.cron.ts`).
+`users.schema.ts` gained `deletionRequestedAt?`/`pendingDeletionAt?` +
+a sparse index. Added `exceljs` (new dependency, wasn't in this repo
+before) for the `.xlsx` export — one sheet per data type (Profile, API
+Keys, Subscriptions, Chatbots, Knowledge Base, Conversations, Billing,
+Activity Log).
+
+Two new `EmailService` templates: `sendAccountDeletionRequestedEmail`
+(the deadline + backup instructions + disclaimer, sent the moment
+deletion is requested) and `sendAccountDeletionCompletedEmail` (sent
+right before the user's own email gets scrubbed — captured into a local
+variable first, specifically so this last email can still reach them).
+
+**Terms of Service and Privacy Policy content updated** in `seed()`'s
+copy (new ToS section 8 "Account termination and deletion," rewritten
+Privacy Policy sections 5 "Data retention" and 6 "Your rights") — but
+this only affects a *fresh* seed, not the user's live pages, since
+`seed()` only reaches docs with no `lastEditedBy` set and their real
+Privacy/Terms docs already have one (every save through `/dashboard/cms`
+sets it). Gave the user the exact HTML to paste into their live pages
+directly instead of trying to reach the DB from this sandbox (no network
+path to Atlas, same limitation as every prior session).
+
+**Verified**: `tsc --noEmit`, `nest build`, Jest (31/31) all clean. Also
+booted the compiled app against a deliberately unreachable Mongo URI to
+confirm the new module's DI wiring resolves (9 injected models in one
+service, more cross-cutting than most modules in this codebase) — the
+boot log shows `AppModule dependencies initialized` before the expected
+`MongooseServerSelectionError`, same verification pattern used for the
+Sentry wiring in an earlier session. No live Mongo in this sandbox to
+actually run `performScheduledDeletions()` or exercise the full
+request→wait→delete flow end to end — worth a real test against a
+throwaway account once this is running somewhere with real DB access.
+
+---
+
 ## 2026-11-09 — `activity_logs` built (full), Notifications module audited and two real gaps fixed
 
 With CMS confirmed done and merged, the user moved to the next item on

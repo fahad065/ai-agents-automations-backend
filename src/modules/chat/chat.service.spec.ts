@@ -208,6 +208,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     const fetchSpy = jest.spyOn(global, 'fetch');
 
     const result = await (service as any).extractLeadInfo(
+      'openai',
       'sk-dummy',
       [{ role: 'user', content: 'anything' }],
       { name: 'Ahmed', email: 'ahmed@example.com', phone: '+971500000000' },

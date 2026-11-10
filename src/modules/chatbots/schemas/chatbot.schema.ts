@@ -1,7 +1,26 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { ApiKeyProvider } from '../../api-keys/schemas/api-key.schema';
 
 export type ChatbotDocument = Chatbot & Document;
+
+// Which BYOK provider+model this chatbot's chat replies / knowledge-base
+// embeddings are generated with. `model: 'auto'` (the default) means "let
+// the backend pick a sensible default for whichever provider is chosen" —
+// see ai-provider.util.ts's resolveChatModel()/resolveEmbeddingModel().
+// Provider here is always explicit (it determines which of the owner's
+// BYOK keys actually gets billed); only the specific model within that
+// provider defaults to auto. Anthropic is never valid for
+// embeddingModelConfig — it has no embeddings API at all (validated in
+// ChatbotsService.create()/update(), not at the schema level).
+@Schema({ _id: false })
+export class AiModelConfig {
+  @Prop({ type: String, enum: ApiKeyProvider, default: ApiKeyProvider.OPENAI })
+  provider: ApiKeyProvider;
+
+  @Prop({ default: 'auto' })
+  model: string;
+}
 
 @Schema({ _id: false })
 export class WebsiteChannel {
@@ -226,6 +245,15 @@ export class Chatbot {
 
   @Prop({ type: ChatbotBilling, default: () => ({}) })
   billing: ChatbotBilling;
+
+  // Which BYOK provider/model powers this bot's replies vs. its knowledge-
+  // base embeddings. Defaults preserve exact pre-existing behavior (OpenAI,
+  // auto model) for every chatbot created before this field existed.
+  @Prop({ type: AiModelConfig, default: () => ({}) })
+  chatModelConfig: AiModelConfig;
+
+  @Prop({ type: AiModelConfig, default: () => ({}) })
+  embeddingModelConfig: AiModelConfig;
 }
 
 export const ChatbotSchema = SchemaFactory.createForClass(Chatbot);

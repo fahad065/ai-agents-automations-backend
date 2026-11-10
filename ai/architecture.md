@@ -66,10 +66,11 @@ Google is the only working social login), `totalAgents`/`totalAutomations`
 demand instead), and no per-service subscription dates live here — those
 belong once, on each `userservices` row, not duplicated onto the user.
 
-### `apikeys` — BYOK key storage (unchanged in spirit)
+### `apikeys` — BYOK key storage -- DONE, 2026-11-10 — see implementation notes below
 ```
 _id, user_id
-provider (dropdown, preset list — openai, whatsapp, etc.)
+provider (dropdown, preset list — atlas_seedance, youtube_data, youtube_oauth,
+          openai, anthropic, gemini, elevenlabs, canva, buffer, ollama, instagram_oauth)
 label
 encryptedKey (hidden field — never select it by default, never log it anywhere, including activity_logs)
 status: active | inactive
@@ -80,6 +81,63 @@ Dropped: `agentId?` (referenced a `UserAgent` model that no longer exists
 anywhere in the schema — same dead reference dropped from several other
 collections below). `expiresAt` is not carried forward unless a real
 need for key expiration shows up — flag it, don't add it speculatively.
+
+**Implementation notes:**
+- `ApiKeysService.onModuleInit()` self-heals every pre-existing doc
+  (`isActive: boolean` → `status` enum + `isDeleted`) via one aggregation-
+  pipeline `updateMany()`, same pattern as `ModulesService`/`ChatbotsService`
+  elsewhere — no manual migration script, since this sandbox has no network
+  path to the real MongoDB Atlas instance.
+- `deleteKey()` is now a REAL soft-delete (`isDeleted: true`) — it used to
+  only ever flip `isActive: false`, which read as "Delete" in the UI but
+  behaved like "disable."
+- **Multi-provider AI support added the same session** — `anthropic` and
+  `gemini` added to the provider enum (previously OpenAI was the *only*
+  provider the chatbot engine could actually use, regardless of what a
+  customer added). New `src/modules/api-keys/ai-provider.util.ts` is the
+  shared adapter every AI-calling step goes through: `callChatCompletion()`
+  branches per-provider wire format (OpenAI chat-completions vs Anthropic
+  messages API vs Gemini generateContent), `getEmbeddingVector()` same for
+  embeddings (OpenAI/Gemini only — **Anthropic has no embeddings API at
+  all**, enforced in `ChatbotsService.create()`/`update()` via
+  `assertEmbeddingProviderValid()`, not just a UI restriction).
+- **Provider is always explicit; the specific model within a provider
+  defaults to `"auto"`** — confirmed with the user as the right split:
+  provider determines which of the customer's own BYOK keys gets billed
+  (never safe to auto-pick), while the exact model is a reliability/cost
+  default most customers don't need to think about (same shape as the
+  pre-existing Python-side `video_model: "auto" | str` field). "Auto" here
+  is a fixed per-provider default model (`gpt-4o-mini` / `claude-3-5-
+  haiku-latest` / `gemini-2.0-flash`), not a live `models.list()` probe per
+  request — unlike `core/model_health.py`'s `get_best_openai_*` helpers on
+  the Python side, a live availability check on every customer-facing chat
+  message isn't worth the extra round trip.
+- `Chatbot.chatModelConfig`/`embeddingModelConfig` (`{provider, model}`,
+  both default to OpenAI/auto) live on the `chatbots` collection itself —
+  that collection predates this redesign and isn't otherwise documented in
+  this file (see the migration-mapping table further below). The chatbot-
+  owner-editable fields list (`CUSTOMER_EDITABLE_FIELDS` in
+  `chatbots.service.ts`) now includes both. `ChatbotsService.findAllAdmin()`'s
+  "needs setup" queue (`setupFlags.noOpenAiKey`) now checks whichever
+  provider each bot is actually configured for, not a hardcoded OpenAI
+  check, so a bot fully set up on Claude never falsely shows as needing
+  setup.
+- **Still platform-key-only, not yet fixed:** agents/automations
+  (`UserModulesService.runPipeline()` → the Python pipeline service) never
+  send a customer's BYOK key at all — every YouTube/Instagram pipeline run
+  bills LogicMate's own platform `OPENAI_API_KEY`, contradicting the BYOK
+  principle. Confirmed with the user this is a real bug, not by design —
+  deliberately sequenced for later ("first we will focus on chatbot
+  service and then jump to agents and automations"). Next session touching
+  agents/automations BYOK needs to: (1) pass the decrypted key from NestJS
+  to Python per run, (2) rewrite `script_writer.py`/`audio_generator.py`'s
+  module-level `OpenAI(api_key=OPENAI_API_KEY)` clients to accept a
+  per-request key instead, (3) apply the same provider/model-selection
+  design confirmed here (provider explicit, model auto-with-override), (4)
+  fix `model_health.py`'s availability probe, which currently checks
+  LogicMate's own platform account via `client.models.list()` rather than
+  the actual customer's — "auto" would otherwise recommend a model the
+  customer's own account/tier can't necessarily access.
 
 ### `notifications` — unchanged
 ```

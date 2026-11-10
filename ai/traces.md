@@ -11,6 +11,78 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-10 (even later) — `apikeys` module rebuilt (new UML schema) + multi-provider AI (OpenAI/Claude/Gemini) for chatbots
+
+Picked up the next item in the user's stated sequence ("once you done with
+these, then we will jump to api keys and users module"). Started with the
+schema migration itself, then a user question mid-implementation ("if
+user is adding claude/openai/gemini... do we need to consider model as
+well?") turned into a real architecture detour — answered below.
+
+**`apikeys` schema migration** — `isActive: boolean` → `status` enum +
+real `isDeleted` soft-delete, `agentId`/`expiresAt` dropped (both
+confirmed dead via grep first). Self-healing `onModuleInit()` backfill,
+same pattern as every other collection in this redesign (one aggregation-
+pipeline `updateMany()` doing the field rename + stale-field cleanup in
+one atomic op). `deleteKey()` is now a real delete, not a disable.
+
+**Multi-provider detour** — asked the user directly whether adding a
+Claude/Gemini key needs a model-selection concept too, scoped first to
+chatbots, then the user widened the question to agents/automations as
+well. Investigated rather than assumed, and found something bigger than
+expected: **agents/automations don't use BYOK at all** —
+`UserModulesService.runPipeline()`'s payload to Python never includes an
+API key, and `script_writer.py`/`audio_generator.py` both build their
+OpenAI client from a platform-wide `OPENAI_API_KEY` env var at module
+load. Every YouTube/Instagram pipeline run bills LogicMate's own account,
+not the customer's — a real contradiction of this file's own stated BYOK
+principle, not a design gap. Flagged this to the user explicitly rather
+than quietly fixing it (changes production billing behavior). User
+confirmed: yes, BYOK should be universal across every service, but
+**sequencing stays chatbots first, agents/automations later** — so this
+session's actual code only touches chatbots; the agents/automations BYOK
+fix is a flagged, confirmed-but-deferred item (see `architecture.md`'s
+`apikeys` section for the exact follow-up steps).
+
+**What shipped for chatbots:**
+- `ApiKeyProvider` gained `anthropic`/`gemini` (+ `testKey()` branches for
+  both).
+- New `src/modules/api-keys/ai-provider.util.ts` — the shared adapter
+  every AI call now goes through: `callChatCompletion()` (OpenAI/
+  Anthropic/Gemini each have genuinely different request/response shapes)
+  and `getEmbeddingVector()` (OpenAI/Gemini only — confirmed Anthropic has
+  no embeddings API at all, enforced server-side in
+  `ChatbotsService.create()`/`update()`, not just a UI restriction).
+- Design confirmed with the user: **provider is always explicit** (it
+  decides which of the customer's own keys gets billed — never safe to
+  auto-pick), **the specific model within that provider defaults to
+  `"auto"`** (a fixed per-provider default, not a live `models.list()`
+  probe per chat message — that would be a real latency cost on a
+  customer-facing endpoint for very little benefit). Same shape the
+  Python pipeline already uses for `video_model: "auto" | str"`, just
+  applied consistently now.
+- `Chatbot.chatModelConfig`/`embeddingModelConfig` (`{provider, model}`,
+  both default OpenAI/auto) — owner-editable via the existing
+  `PUT /chatbots/:id`, nothing new needed route-wise.
+- `ChatService.chat()` and `ChatbotsService.addKnowledge()`/
+  `updateKnowledge()` rewritten to resolve provider+key per-chatbot
+  instead of a hardcoded OpenAI path. `findAllAdmin()`'s "needs setup"
+  queue now checks whichever provider each bot is actually configured
+  for — previously a bot fully working on Claude would have permanently
+  shown as "needs setup" since the check only ever looked for OpenAI.
+- Frontend: `api-keys-page.tsx` gained Anthropic/Gemini to the add-key
+  provider grid. `chatbot-config-page.tsx` gained a new "AI Model"
+  section on the Overview tab (provider dropdown + model input per chat/
+  embedding, defaulting to Auto) and the OpenAI-only key-gate dialog/
+  banner was generalized to whichever provider the bot is actually
+  missing a key for (`AddOpenAiKeyDialog` → `AddProviderKeyDialog`).
+
+**Verified**: backend `tsc --noEmit`, `nest build`, Jest (31/31, one test
+updated for `extractLeadInfo()`'s new `provider` parameter) all clean.
+Frontend `tsc --noEmit` + `next build` (all 43 routes) clean.
+
+---
+
 ## 2026-11-10 (later same day) — Account deletion rebuilt: the first version's design didn't match what the user actually meant
 
 User tested the first version's wording against their own mental model

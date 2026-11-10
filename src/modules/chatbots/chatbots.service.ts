@@ -7,6 +7,7 @@ import { KnowledgeBase, KnowledgeBaseDocument } from './schemas/knowledge-base.s
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
+import { getEmbeddingVector } from '../api-keys/ai-provider.util';
 import { BillingService } from '../billing/billing.service';
 import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
 import { EmailService } from '../email/email.service';
@@ -30,7 +31,19 @@ const CUSTOMER_EDITABLE_FIELDS = [
   'humanHandoff',
   'channels',
   'outlets',
+  'chatModelConfig',
+  'embeddingModelConfig',
 ];
+
+// Anthropic has no embeddings API at all (see ai-provider.util.ts) — never
+// valid as embeddingModelConfig's provider, on create or update.
+function assertEmbeddingProviderValid(provider: ApiKeyProvider | undefined): void {
+  if (provider === ApiKeyProvider.ANTHROPIC) {
+    throw new BadRequestException(
+      'Anthropic has no embeddings API — pick OpenAI or Gemini for knowledge-base embeddings.',
+    );
+  }
+}
 
 function pickCustomerEditable(dto: any): any {
   const out: any = {};
@@ -112,6 +125,7 @@ export class ChatbotsService implements OnModuleInit {
   async create(userId: string, dto: any, actor?: { id: string; role: 'user' | 'admin' }): Promise<ChatbotDocument> {
     const embedKey = crypto.randomBytes(16).toString('hex');
     const { moduleSlug, tier: requestedTier, ...rest } = dto;
+    assertEmbeddingProviderValid(rest.embeddingModelConfig?.provider);
 
     const billing: any = {};
     const tier = requestedTier === 'pro' ? 'pro' : 'basic';
@@ -216,9 +230,23 @@ export class ChatbotsService implements OnModuleInit {
     const ownerIds = [...new Set(
       bots.map((b) => (b.userId as any)?._id?.toString()).filter(Boolean),
     )];
-    const ownersWithOpenAiKey = await this.apiKeysService.getUserIdsWithActiveKey(
-      ownerIds,
-      ApiKeyProvider.OPENAI,
+
+    // "Needs setup" has to reflect whichever provider each bot is actually
+    // configured for (chatModelConfig/embeddingModelConfig default to
+    // OpenAI, but may be Anthropic/Gemini) — not a blanket OpenAI check.
+    // A bot fully set up on Claude should never show as "needs setup" just
+    // because its owner has no OpenAI key.
+    const providersInUse = [...new Set(
+      bots.flatMap((b: any) => [
+        b.chatModelConfig?.provider || ApiKeyProvider.OPENAI,
+        b.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI,
+      ]),
+    )] as ApiKeyProvider[];
+    const keysByProvider = new Map<ApiKeyProvider, Set<string>>();
+    await Promise.all(
+      providersInUse.map(async (provider) => {
+        keysByProvider.set(provider, await this.apiKeysService.getUserIdsWithActiveKey(ownerIds, provider));
+      }),
     );
 
     // Per-tenant usage — message volume, not just global aggregate stats.
@@ -252,10 +280,18 @@ export class ChatbotsService implements OnModuleInit {
     const allTimeByBot = new Map(allTimeStats.map((s) => [String(s._id), s]));
     const recentByBot = new Map(recentStats.map((s) => [String(s._id), s]));
 
-    return bots.map((b) => {
+    return bots.map((b: any) => {
       const ownerId = (b.userId as any)?._id?.toString();
       const botId = String(b._id);
-      const noOpenAiKey = !ownerId || !ownersWithOpenAiKey.has(ownerId);
+      const chatProvider = b.chatModelConfig?.provider || ApiKeyProvider.OPENAI;
+      const embeddingProvider = b.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
+      const hasChatKey = !!ownerId && !!keysByProvider.get(chatProvider)?.has(ownerId);
+      const hasEmbeddingKey = !!ownerId && !!keysByProvider.get(embeddingProvider)?.has(ownerId);
+      // Field name kept as noOpenAiKey for frontend compatibility — it now
+      // means "missing a key for this bot's configured AI provider(s)",
+      // which for every pre-existing bot (still defaulted to OpenAI) is
+      // identical to what it checked before this field existed.
+      const noOpenAiKey = !hasChatKey || !hasEmbeddingKey;
       const whatsappPending = !!b.channels?.whatsapp?.enabled && !b.channels?.whatsapp?.phoneNumberId;
       const instagramPending = !!b.channels?.instagram?.enabled && !b.channels?.instagram?.accountId;
       const allTime = allTimeByBot.get(botId);
@@ -280,6 +316,7 @@ export class ChatbotsService implements OnModuleInit {
   async update(id: string, userId: string, dto: any, isAdmin = false): Promise<ChatbotDocument> {
     const chatbot = await this.findOne(id, userId, isAdmin);
     const changes = pickCustomerEditable(dto);
+    assertEmbeddingProviderValid(changes.embeddingModelConfig?.provider);
 
     // Setup/exploration stays open to an unverified account — only going
     // live is gated. Deliberately not a full account lock/deadline: that
@@ -351,33 +388,21 @@ export class ChatbotsService implements OnModuleInit {
     return { message: 'Chatbot deleted' };
   }
 
-  private async getEmbedding(text: string, apiKey: string): Promise<number[]> {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI embeddings error: ${response.status}`);
-    }
-
-    const data = await response.json() as any;
-    return data.data[0].embedding as number[];
-  }
-
-  // LogicMate is bring-your-own-key: every chatbot owner must add their own
-  // OpenAI key via Dashboard → API Keys before knowledge base embedding works.
-  // No platform-wide fallback — each customer's usage is billed on their own key.
-  private async resolveOpenAiKey(userId: string): Promise<string | null> {
+  // Resolves the bot's own embeddingModelConfig (default OpenAI/auto) and
+  // the owner's BYOK key for that provider — never the caller's key, so an
+  // admin embedding knowledge on a client's behalf still bills the client.
+  // No platform-wide fallback; null means "no key on file", handled by the
+  // caller (store the entry without an embedding, keyword-fallback only).
+  private async resolveEmbedding(chatbot: ChatbotDocument, text: string): Promise<number[] | null> {
+    const provider = chatbot.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
+    const model = chatbot.embeddingModelConfig?.model;
+    let apiKey: string;
     try {
-      return await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
+      apiKey = await this.apiKeysService.getDecryptedKey(chatbot.userId.toString(), provider);
     } catch {
       return null;
     }
+    return getEmbeddingVector({ provider, model, apiKey, text });
   }
 
   async addKnowledge(chatbotId: string, userId: string, dto: any, isAdmin = false): Promise<KnowledgeBaseDocument> {
@@ -387,12 +412,9 @@ export class ChatbotsService implements OnModuleInit {
     let embedding: number[] = [];
 
     try {
-      // Always embeds with the bot OWNER's key (BYOK) — an admin adding
-      // knowledge on a client's behalf still bills the client's own key,
-      // never a platform-wide fallback.
-      const apiKey = await this.resolveOpenAiKey(chatbot.userId.toString());
-      if (!apiKey) throw new Error('No OpenAI key available');
-
+      // Always embeds with the bot OWNER's key + configured provider (BYOK)
+      // — an admin adding knowledge on a client's behalf still bills the
+      // client's own key, never a platform-wide fallback.
       let textToEmbed = '';
       if (dto.type === 'faq') {
         textToEmbed = `${dto.question || ''} ${dto.answer || ''}`.trim();
@@ -401,7 +423,9 @@ export class ChatbotsService implements OnModuleInit {
       }
 
       if (textToEmbed) {
-        embedding = await this.getEmbedding(textToEmbed, apiKey);
+        const vector = await this.resolveEmbedding(chatbot, textToEmbed);
+        if (!vector) throw new Error('No API key available for embedding provider');
+        embedding = vector;
       }
     } catch (err) {
       // No API key or embedding failed — store without embedding
@@ -454,14 +478,14 @@ export class ChatbotsService implements OnModuleInit {
     if (dto.sourceUrl !== undefined) entry.sourceUrl = dto.sourceUrl;
 
     try {
-      const apiKey = await this.resolveOpenAiKey(chatbot.userId.toString());
-      if (!apiKey) throw new Error('No OpenAI key available');
       const textToEmbed =
         entry.type === 'faq'
           ? `${entry.question || ''} ${entry.answer || ''}`.trim()
           : entry.content || '';
       if (textToEmbed) {
-        entry.embedding = await this.getEmbedding(textToEmbed, apiKey);
+        const vector = await this.resolveEmbedding(chatbot, textToEmbed);
+        if (!vector) throw new Error('No API key available for embedding provider');
+        entry.embedding = vector;
       }
     } catch (err) {
       this.logger.warn(`updateKnowledge() re-embedding skipped for chatbot=${chatbotId}: ${err?.message}`);

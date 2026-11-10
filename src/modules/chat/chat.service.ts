@@ -7,6 +7,7 @@ import { Conversation, ConversationDocument } from '../chatbots/schemas/conversa
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
+import { callChatCompletion, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
 import { isChatbotBillingActive } from '../chatbots/billing-status.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType, NotificationPriority } from '../notifications/schemas/notification.schema';
@@ -35,27 +36,13 @@ export class ChatService {
     private emailService: EmailService,
   ) {}
 
-  private async getEmbedding(text: string, apiKey: string): Promise<number[]> {
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model: 'text-embedding-3-small', input: text }),
-    });
-
-    if (!response.ok) throw new Error(`OpenAI embeddings error: ${response.status}`);
-    const data = await response.json() as any;
-    return data.data[0].embedding as number[];
-  }
-
   // LogicMate is bring-your-own-key: every chatbot owner must add their own
-  // OpenAI key via Dashboard → API Keys before their bot can reply with AI.
-  // No platform-wide fallback — each customer's usage is billed on their own key.
-  private async resolveOpenAiKey(userId: string): Promise<string | null> {
+  // key for whichever provider their bot is configured to use (Dashboard →
+  // API Keys) before it can reply with AI. No platform-wide fallback —
+  // each customer's usage is billed on their own key.
+  private async resolveKey(userId: string, provider: ApiKeyProvider): Promise<string | null> {
     try {
-      return await this.apiKeysService.getDecryptedKey(userId, ApiKeyProvider.OPENAI);
+      return await this.apiKeysService.getDecryptedKey(userId, provider);
     } catch {
       return null;
     }
@@ -122,6 +109,7 @@ ${knowledgeSection}`;
   // name/email/phone is still missing, so it naturally stops once a lead
   // is fully captured instead of running on every message forever.
   private async extractLeadInfo(
+    provider: ApiKeyProvider,
     apiKey: string,
     recentMessages: { role: string; content: string }[],
     known: { name?: string; email?: string; phone?: string },
@@ -133,29 +121,24 @@ ${knowledgeSection}`;
     if (!missing.length) return {};
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          temperature: 0,
-          max_tokens: 150,
-          messages: [
-            {
-              role: 'system',
-              content: `Extract the customer's own contact details from this chat, if shared. Return strict JSON: {"name": string|null, "email": string|null, "phone": string|null}. Only include a field the customer explicitly stated about themselves — never guess, infer, or invent one. Normalize phone numbers to digits with an optional leading "+". Still missing: ${missing.join(', ')}.`,
-            },
-            ...recentMessages,
-          ],
-        }),
+      // Always the cheap/fast "auto" model for this utility call, regardless
+      // of whatever model the chatbot's chatModelConfig picked for the
+      // customer-facing reply — no reason to pay for a bigger model here.
+      const content = await callChatCompletion({
+        provider,
+        apiKey,
+        temperature: 0,
+        maxTokens: 150,
+        jsonMode: true,
+        messages: [
+          {
+            role: 'system',
+            content: `Extract the customer's own contact details from this chat, if shared. Return strict JSON: {"name": string|null, "email": string|null, "phone": string|null}. Only include a field the customer explicitly stated about themselves — never guess, infer, or invent one. Normalize phone numbers to digits with an optional leading "+". Still missing: ${missing.join(', ')}.`,
+          },
+          ...(recentMessages as ChatMessage[]),
+        ],
       });
-      if (!response.ok) return {};
-      const data = (await response.json()) as any;
-      const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+      const parsed = JSON.parse(content || '{}');
       const result: { name?: string; email?: string; phone?: string } = {};
       if (typeof parsed.name === 'string' && parsed.name.trim()) result.name = parsed.name.trim();
       if (typeof parsed.email === 'string' && parsed.email.trim()) result.email = parsed.email.trim();
@@ -338,12 +321,23 @@ ${knowledgeSection}`;
     conversation.messages.push({ role: 'user', content: message, timestamp: new Date() });
 
     try {
-      // 4. Get the bot owner's own OpenAI key (BYOK — no platform fallback)
+      // 4. Resolve the bot's own configured provider/model + the owner's
+      // BYOK key for it (defaults to OpenAI/auto for every bot created
+      // before chatModelConfig/embeddingModelConfig existed). Chat and
+      // embeddings can use different providers (e.g. Claude for replies,
+      // since it has no embeddings API at all, OpenAI/Gemini for ranking).
       const userId = chatbot.userId.toString();
-      const apiKey = await this.resolveOpenAiKey(userId);
+      const chatProvider = chatbot.chatModelConfig?.provider || ApiKeyProvider.OPENAI;
+      const chatModel = chatbot.chatModelConfig?.model;
+      const embeddingProvider = chatbot.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
+      const embeddingModel = chatbot.embeddingModelConfig?.model;
+
+      const apiKey = await this.resolveKey(userId, chatProvider);
       if (!apiKey) {
-        this.logger.warn(`No OpenAI key on file for chatbot owner — returning fallbackMessage for embedKey=${embedKey}`);
+        this.logger.warn(`No ${chatProvider} key on file for chatbot owner — returning fallbackMessage for embedKey=${embedKey}`);
       }
+      const embeddingApiKey =
+        embeddingProvider === chatProvider ? apiKey : await this.resolveKey(userId, embeddingProvider);
 
       // 5. Retrieve knowledge entries
       const allKnowledge = await this.knowledgeBaseModel
@@ -352,7 +346,7 @@ ${knowledgeSection}`;
 
       let knowledgeSnippets: string[] = [];
 
-      if (apiKey && allKnowledge.length > 0) {
+      if (embeddingApiKey && allKnowledge.length > 0) {
         // Get embeddings for knowledge with vectors
         const knowledgeWithEmbeddings = allKnowledge.filter(
           (k) => k.embedding && k.embedding.length > 0,
@@ -360,7 +354,12 @@ ${knowledgeSection}`;
 
         if (knowledgeWithEmbeddings.length > 0) {
           try {
-            const queryEmbedding = await this.getEmbedding(message, apiKey);
+            const queryEmbedding = await getEmbeddingVector({
+              provider: embeddingProvider,
+              model: embeddingModel,
+              apiKey: embeddingApiKey,
+              text: message,
+            });
 
             // Find top 4 by cosine similarity
             const scored = knowledgeWithEmbeddings
@@ -398,35 +397,27 @@ ${knowledgeSection}`;
 
       // 6. Build conversation history (last 10 messages)
       const history = conversation.messages.slice(-10);
-      const openAiMessages = [
+      const chatMessages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
+        ...history.map((m) => ({ role: m.role as ChatMessage['role'], content: m.content })),
       ];
 
       let reply = chatbot.fallbackMessage;
 
       if (apiKey) {
-        // 7. Call OpenAI
-        const completionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: openAiMessages,
-            max_tokens: 512,
+        // 7. Call the configured provider
+        try {
+          const content = await callChatCompletion({
+            provider: chatProvider,
+            model: chatModel,
+            apiKey,
+            messages: chatMessages,
+            maxTokens: 512,
             temperature: 0.7,
-          }),
-        });
-
-        if (completionResponse.ok) {
-          const completionData = await completionResponse.json() as any;
-          reply = completionData.choices?.[0]?.message?.content?.trim() || chatbot.fallbackMessage;
-        } else {
-          const errBody = await completionResponse.text();
-          this.logger.error(`OpenAI chat completion failed (${completionResponse.status}): ${errBody}`);
+          });
+          reply = content || chatbot.fallbackMessage;
+        } catch (err: any) {
+          this.logger.error(`${chatProvider} chat completion failed: ${err?.message}`);
         }
       }
 
@@ -439,6 +430,7 @@ ${knowledgeSection}`;
       // just as much as a Pro one. Stops running once all three are known.
       if (apiKey && (!conversation.visitorName || !conversation.visitorEmail || !conversation.visitorPhone)) {
         const extracted = await this.extractLeadInfo(
+          chatProvider,
           apiKey,
           history.map((m) => ({ role: m.role, content: m.content })),
           {

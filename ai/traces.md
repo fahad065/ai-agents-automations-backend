@@ -11,6 +11,58 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-10 (latest) — Diagnosed: new-signup admin alerts fail completely silently
+
+User checked production MongoDB directly and found 2-3 real signups from
+the day before with zero admin-alert email and no sign of them anywhere
+— found out purely by accident, not from any platform signal. Traced
+`AuthService.register()` end to end rather than guessing at a Resend
+outage.
+
+**Root cause, confirmed in code, not assumed:** `EmailService.send()` —
+the one shared method every outbound email goes through — wraps its
+entire body in try/catch and on failure only does
+`this.logger.error(...)` (a Railway log line) before returning `false`.
+It never throws, so `register()`'s two notification calls
+(`sendAdminAlert()` for the email, `notificationsService.onUserRegistered()`
+for the in-app bell notification, itself wrapped in `.catch(() => {})`)
+can both fail for any reason — bad/revoked `RESEND_API_KEY`, lapsed
+domain verification, Resend quota/rate-limit, a DB hiccup — with
+**zero** surfacing anywhere an admin would actually see it. This is by
+design for *not blocking signup* (correct — a flaky email provider
+should never fail someone's registration), but the complete absence of
+any failure signal is the actual gap: there was never a safety net
+behind the "don't block signup" decision.
+
+Also found, while reading the notification path: `onUserRegistered()`'s
+`actionUrl` was `/admin/users`, a route that doesn't exist on this
+platform (the real admin users page is `/dashboard/users`) — so even a
+successfully-created in-app notification would have 404'd on click.
+
+**Fixed:**
+- `EmailService.send()`'s catch block now also calls
+  `Sentry.captureException()` (tagged `area: email`, the subject, and the
+  recipient) — Sentry is already live in this backend (see the "Per-tenant
+  usage/error monitoring" section of CLAUDE.md), so this is a one-line
+  addition that covers *every* email send at once, not just signup alerts.
+  A failed send now shows up in the Sentry dashboard instead of only a
+  Railway log line nobody is watching.
+- `onUserRegistered()`'s `actionUrl` corrected to `/dashboard/users`.
+
+**Not fixed, flagged instead — needs the user to check things this
+sandbox can't reach:** I can't see Railway's logs, the Resend dashboard,
+or confirm `RESEND_API_KEY`/`ADMIN_NOTIFY_EMAIL` env vars from here (same
+no-network-to-production limitation noted throughout this whole project).
+Told the user to check Railway's logs for `[Email] Failed "New signup...`
+lines around Nov 10 (now that Sentry captures it going forward, this is
+the last time this has to be a manual log hunt), and to check Resend's
+own dashboard for bounced/failed sends or an API-key/domain issue around
+that date.
+
+**Verified**: `tsc --noEmit`, `nest build`, Jest (31/31) all clean.
+
+---
+
 ## 2026-11-10 (even later) — `apikeys` module rebuilt (new UML schema) + multi-provider AI (OpenAI/Claude/Gemini) for chatbots
 
 Picked up the next item in the user's stated sequence ("once you done with

@@ -209,7 +209,7 @@ export class NotificationsService {
         message: `${name} (${email}) just created an account.`,
         priority: NotificationPriority.MEDIUM,
         icon: '👤',
-        actionUrl: '/admin/users',
+        actionUrl: '/dashboard/users',
         metadata: { name, email, newUserId },
       });
       // await this.emailService.sendEmail(

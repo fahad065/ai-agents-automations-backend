@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as Sentry from '@sentry/nestjs';
 
 @Injectable()
 export class EmailService {
@@ -45,6 +46,17 @@ export class EmailService {
       return true;
     } catch (e) {
       this.logger.error(`[Email] Failed "${subject}": ${e.message}`);
+      // This previously only ever reached a Railway log line nobody was
+      // watching — confirmed real-world impact: a Resend failure around
+      // new-signup admin alerts went completely unnoticed until the admin
+      // happened to check the production DB directly. Every email send
+      // (including the admin-critical ones like new-signup/payment alerts)
+      // goes through this one method, so capturing here covers all of them
+      // at once rather than wrapping each call site individually.
+      Sentry.captureException(e, {
+        tags: { area: 'email', subject },
+        extra: { to: Array.isArray(to) ? to.join(', ') : to },
+      });
       return false;
     }
   }

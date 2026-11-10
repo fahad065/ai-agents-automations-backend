@@ -14,20 +14,12 @@ import { ActivityLog, ActivityLogDocument, ActivityAction, ActorRole } from '../
 import { EmailService } from '../email/email.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 
-const WORKING_DAYS_NOTICE = 7;
+export type DeletionMode = 'instant' | 'scheduled';
 
-// Monday-Friday only, per the user's explicit "7 working days" requirement
-// — skips weekends when counting the deletion deadline.
-function addWorkingDays(from: Date, days: number): Date {
-  const result = new Date(from);
-  let added = 0;
-  while (added < days) {
-    result.setDate(result.getDate() + 1);
-    const dayOfWeek = result.getDay();
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) added++;
-  }
-  return result;
-}
+// Plain calendar days, not working days — click day is day 0, the
+// reminder fires on day 7, deletion runs on day 8 (this value).
+const SCHEDULED_DELETION_DAYS = 8;
+const REMINDER_DAYS_BEFORE = 1;
 
 @Injectable()
 export class AccountDeletionService {
@@ -49,23 +41,30 @@ export class AccountDeletionService {
 
   // ─── Request / cancel ──────────────────────────────────────
 
-  async requestDeletion(userId: string) {
+  async requestDeletion(userId: string, mode: DeletionMode) {
     const user = await this.userModel.findById(userId);
     if (!user || user.isDeleted) throw new NotFoundException('Account not found');
+
+    if (mode === 'instant') {
+      await this.deleteUserData(user, 'instant');
+      return { message: 'Account deleted immediately' };
+    }
 
     // Idempotent — re-requesting doesn't push the deadline further out.
     if (user.pendingDeletionAt) {
       return { message: 'Deletion already scheduled', scheduledFor: user.pendingDeletionAt };
     }
 
-    const scheduledFor = addWorkingDays(new Date(), WORKING_DAYS_NOTICE);
+    const scheduledFor = new Date();
+    scheduledFor.setDate(scheduledFor.getDate() + SCHEDULED_DELETION_DAYS);
     user.deletionRequestedAt = new Date();
     user.pendingDeletionAt = scheduledFor;
+    user.deletionReminderSent = false;
     await user.save();
 
     await this.emailService.sendAccountDeletionRequestedEmail(
       { name: user.name, email: user.email },
-      { scheduledFor, workingDaysLeft: WORKING_DAYS_NOTICE },
+      { scheduledFor },
     );
 
     await this.activityLogsService.record({
@@ -85,6 +84,7 @@ export class AccountDeletionService {
 
     user.pendingDeletionAt = undefined;
     user.deletionRequestedAt = undefined;
+    user.deletionReminderSent = false;
     await user.save();
 
     await this.activityLogsService.record({
@@ -185,6 +185,45 @@ export class AccountDeletionService {
     return Buffer.from(buffer);
   }
 
+  // ─── Day-7 reminder pass (called by the cron) ───────────────
+  // Fires once, exactly REMINDER_DAYS_BEFORE ahead of the real deletion
+  // date — claimed atomically (same multi-replica pattern as
+  // chatbot-billing.cron.ts) so it can never double-send.
+  async sendDueReminders(): Promise<{ sent: number }> {
+    const reminderCutoff = new Date();
+    reminderCutoff.setDate(reminderCutoff.getDate() + REMINDER_DAYS_BEFORE);
+
+    const candidates = await this.userModel
+      .find({
+        pendingDeletionAt: { $lte: reminderCutoff, $gt: new Date() },
+        deletionReminderSent: { $ne: true },
+        isDeleted: { $ne: true },
+      })
+      .select('_id')
+      .lean();
+
+    let sent = 0;
+    for (const { _id } of candidates) {
+      const claimed = await this.userModel.findOneAndUpdate(
+        { _id, deletionReminderSent: { $ne: true } },
+        { $set: { deletionReminderSent: true } },
+        { new: true },
+      );
+      if (!claimed) continue; // another replica already claimed it
+
+      try {
+        await this.emailService.sendAccountDeletionReminderEmail(
+          { name: claimed.name, email: claimed.email },
+          { scheduledFor: claimed.pendingDeletionAt! },
+        );
+        sent++;
+      } catch (err: any) {
+        this.logger.error(`sendDueReminders() failed for user=${_id}: ${err?.message}`);
+      }
+    }
+    return { sent };
+  }
+
   // ─── Scheduled execution (called by the cron) ───────────────
   // Anonymizes the User doc in place (stable _id, so Billing/ActivityLog
   // references still resolve and correctly show "a deleted account" —
@@ -211,7 +250,7 @@ export class AccountDeletionService {
       if (!claimed) continue;
 
       try {
-        await this.deleteUserData(claimed);
+        await this.deleteUserData(claimed, 'scheduled');
         processed++;
       } catch (err: any) {
         this.logger.error(`performScheduledDeletions() failed for user=${_id}: ${err?.message}`);
@@ -220,7 +259,7 @@ export class AccountDeletionService {
     return { processed };
   }
 
-  private async deleteUserData(user: UserDocument) {
+  private async deleteUserData(user: UserDocument, mode: DeletionMode) {
     const uid = user._id as Types.ObjectId;
     const originalEmail = user.email;
     const originalName = user.name;
@@ -251,14 +290,18 @@ export class AccountDeletionService {
     user.appleId = undefined;
     user.avatar = undefined;
     user.isActive = false;
+    user.isDeleted = true;
     user.pendingDeletionAt = undefined;
     user.deletionRequestedAt = undefined;
+    user.deletionReminderSent = false;
     await user.save();
 
     await this.activityLogsService.record({
       userId: uid.toString(), actorId: uid.toString(), actorRole: ActorRole.USER,
       action: ActivityAction.DELETE, entityType: 'user', entityId: uid.toString(),
-      description: 'Account and all associated data permanently deleted (scheduled deletion)',
+      description: mode === 'instant'
+        ? 'Account and all associated data permanently deleted (instant)'
+        : 'Account and all associated data permanently deleted (scheduled deletion)',
     });
 
     await this.emailService.sendAccountDeletionCompletedEmail({ name: originalName, email: originalEmail }).catch(() => {});

@@ -11,6 +11,60 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-10 (later same day) — Account deletion rebuilt: the first version's design didn't match what the user actually meant
+
+User tested the first version's wording against their own mental model
+and it didn't match — they'd pictured something closer to three
+genuinely distinct buttons with different mechanics, not one flow with
+a single implicit mode. Asked three clarifying questions before
+touching code rather than guessing a second time (calendar vs working
+days, whether any email fires before the reminder, how "Instant" should
+be confirmed) — all three came back as the recommended option, which
+simplified the rebuild.
+
+**Deactivate Account** turned out to need zero backend changes — traced
+`AuthService.login()` first rather than assuming, and it already throws
+`UnauthorizedException('Account deactivated')` for `isActive: false`,
+and the admin Users page already has the reactivate toggle. The user's
+described behavior was already fully live; nothing to build.
+
+**Delete Account Permanently** rebuilt with a real mode split:
+- `requestDeletion(userId, mode: 'instant' | 'scheduled')` — `instant`
+  runs `deleteUserData()` synchronously in the same request, no waiting,
+  no cancel path (there's nothing pending to cancel). `scheduled` sets
+  `pendingDeletionAt = now + 8 calendar days` (not working days — the
+  "7 working days" from the first version was a misread; the user's
+  actual words were "day 7 reminder, day 8 delete," which only makes
+  sense as calendar days).
+- New `deletionReminderSent` flag on `users` + `AccountDeletionService.
+  sendDueReminders()` — a second cron pass (atomic-claim, same pattern
+  as the deletion pass) that fires exactly one reminder email, one day
+  before `pendingDeletionAt`, and can never double-send across replicas.
+  `sendAccountDeletionRequestedEmail` still fires immediately on request
+  too (day 0) — two emails total for the scheduled path, matching the
+  "send one immediately too" answer.
+- Frontend's confirm dialog now picks a mode first (two cards, "Delete
+  in 8 days" / "Delete instantly"), and only renders the typed-`DELETE`
+  confirmation input when Instant is selected — the scheduled path keeps
+  a plain confirm button, since it already has a real cancel window.
+
+Everything else from the first version (billing anonymized not deleted,
+`deleteUserData()`'s exact deletion scope, the `.xlsx` export, the
+Terms/Privacy copy already handed to the user) is unchanged — this was
+a correction to the *mechanics* of deletion/reminder timing and the
+Deactivate/Delete split, not a rebuild from scratch.
+
+**Verified**: `tsc --noEmit`, `nest build`, Jest (31/31) all clean.
+
+**User explicitly asked to push straight to `main` this time** (both
+`fahad-development` and `main`, no local-test gate first) — different
+from the established CMS-era workflow (push to `fahad-development`,
+user pulls and tests locally, then says when to push to `main`). Noted
+here in case a future session wonders why this one skipped that step —
+it was a direct instruction this time, not a default.
+
+---
+
 ## 2026-11-10 — Account deletion + data export built, closes the last item from the previous session's list
 
 User-confirmed policy before any code (asked via a real decision, not

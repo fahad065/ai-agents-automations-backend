@@ -183,16 +183,23 @@ export class User {
   totalAutomations: number;
 
   // ── Account deletion ─────────────────────────────────────────
-  // Set the moment a user requests deletion; cleared if they cancel.
-  // AccountDeletionCron sweeps for pendingDeletionAt <= now daily and
-  // performs the real deletion then — the account stays fully usable in
-  // the meantime so the user can actually get to Settings to export
-  // their backup.
+  // Two paths: instant (deleted synchronously, no fields below ever get
+  // set) or scheduled — set the moment a user requests the 8-calendar-day
+  // path; cleared if they cancel. `pendingDeletionAt` is the actual
+  // deletion date (day 8), not the request date. AccountDeletionCron
+  // sweeps daily: sends one reminder on day 7 (pendingDeletionAt - 1 day,
+  // claimed via deletionReminderSent so it only ever fires once), then
+  // performs the real deletion once pendingDeletionAt <= now. The account
+  // stays fully usable the whole time so the user can actually get to
+  // Settings to export their backup.
   @Prop()
   deletionRequestedAt?: Date;
 
   @Prop()
   pendingDeletionAt?: Date;
+
+  @Prop({ default: false })
+  deletionReminderSent: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

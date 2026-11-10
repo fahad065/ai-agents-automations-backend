@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { AccountDeletionService } from './account-deletion.service';
+import { AccountDeletionService, DeletionMode } from './account-deletion.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('account')
@@ -25,8 +25,11 @@ export class AccountDeletionController {
   }
 
   @Post('deletion/request')
-  requestDeletion(@Req() req: any) {
-    return this.accountDeletionService.requestDeletion(req.user._id.toString());
+  requestDeletion(@Req() req: any, @Body() body: { mode?: DeletionMode }) {
+    if (body?.mode !== 'instant' && body?.mode !== 'scheduled') {
+      throw new BadRequestException('mode must be "instant" or "scheduled"');
+    }
+    return this.accountDeletionService.requestDeletion(req.user._id.toString(), body.mode);
   }
 
   @Post('deletion/cancel')

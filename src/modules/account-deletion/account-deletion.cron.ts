@@ -13,6 +13,11 @@ export class AccountDeletionCron {
   // does the most destructive work and shouldn't compete with them.
   @Cron('0 3 * * *')
   async run() {
+    const { sent } = await this.accountDeletionService.sendDueReminders();
+    if (sent > 0) {
+      this.logger.log(`[AccountDeletionCron] Sent ${sent} day-7 deletion reminder(s).`);
+    }
+
     const { processed } = await this.accountDeletionService.performScheduledDeletions();
     if (processed > 0) {
       this.logger.log(`[AccountDeletionCron] Processed ${processed} scheduled deletion(s).`);

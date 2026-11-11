@@ -165,6 +165,82 @@ need for key expiration shows up — flag it, don't add it speculatively.
   the actual customer's — "auto" would otherwise recommend a model the
   customer's own account/tier can't necessarily access.
 
+### `documents` — new entity, DONE, 2026-11-11 (upload capability only — see note on the deferred trigger below)
+```
+_id, user_id
+documentType (open-ended string, not enum-constrained — same reasoning as
+              apikeys.provider: country-specific preset suggestions in the
+              UI, e.g. UAE -> Emirates ID, but the user must be able to
+              type one that isn't in the list)
+fileUrl (Vercel Blob public URL)
+fileType? (mime type)
+fileSize? (bytes)
+uploadedAt
+isDeleted
+```
+User-directed, from a larger described flow (trial -> payment -> invoice ->
+one-time "you're a paid member, upload an ID" dashboard nudge). Confirmed
+via `AskUserQuestion` before building: (1) **separate top-level collection**,
+not an embedded array on `User` — matches the `activity_logs`/`notifications`
+pattern already established in this redesign (one row per upload, indexed
+on `userId`, no unbounded-embedded-array problem as a user uploads more
+documents over time); (2) **build the upload capability now, defer the
+trigger** — the "show the nudge once, after the user's first confirmed
+payment" behavior depends on a "first payment" event that has no home yet
+(`userservices`/invoicing isn't built — it's the module planned *after*
+`users`, which is what's actually in progress right now). Building a piece
+of that out of order risked having to redo it once the real module is
+designed.
+
+**Implementation notes:**
+- New `src/modules/documents/` (schema/service/controller/module), Mongoose
+  class named `UploadedDocument` (not `Document`) to avoid colliding with
+  Mongoose's own `Document` type every schema file in this codebase
+  imports — collection name pinned explicitly to `documents` via
+  `@Schema({collection: 'documents'})` regardless of the TS class name.
+- **File storage: Vercel Blob**, not S3/Cloudinary — confirmed via what
+  already exists rather than introducing a new provider: `@vercel/blob` is
+  already an installed frontend dependency and the user already has a
+  working `BLOB_READ_WRITE_TOKEN` (used today by
+  `scripts/upload-demo-video.mjs`, a one-off CLI uploader — see frontend
+  CLAUDE.md). This backend now also depends on `@vercel/blob` (added via
+  `npm install`, confirmed the sandbox's npm registry access works for a
+  genuinely new package, not just a locked one) and needs the **same
+  `BLOB_READ_WRITE_TOKEN` value added as a Railway env var** — it's a
+  Vercel-project-scoped token, not tied to the Vercel hosting itself, so
+  reusing it server-side from Railway is fine. Upload is server-side only
+  (`DocumentsService.uploadDocument()` calls `put()` directly with the
+  token) — the token is never sent to the browser.
+- `POST /documents` accepts multipart/form-data (`FileInterceptor('file')`
+  from `@nestjs/platform-express` — `multer` itself already resolved
+  transitively via that package, only `@types/multer` needed adding as a
+  dev dependency for `Express.Multer.File` typing). 10MB cap, JPG/PNG/
+  WEBP/PDF only. Admin can pass `body.userId` to upload on a client's
+  behalf, same bypass shape as `api-keys`/`chatbots`.
+- `GET /documents` (own, or `?userId=` for admin) / `DELETE /documents/:id`
+  (soft-delete both the Mongo record and the actual Vercel Blob object via
+  `del()` — a failed blob-delete, e.g. token missing in a dev environment,
+  never blocks the DB-side soft-delete, same "never let a secondary
+  concern block the primary action" pattern used elsewhere in this
+  codebase, e.g. `EmailService`'s swallowed send failures).
+- **Not built, deliberately deferred (see above):** no `GET
+  /documents/types?country=` endpoint — the country -> preset-document-type
+  mapping is small, purely presentational data, and lives client-side only
+  (same precedent as `api-keys-page.tsx`'s own hardcoded `PROVIDERS` list),
+  not worth a backend round trip. No "first payment -> one-time nudge"
+  banner trigger — flagged to build once `userservices`/invoicing exists.
+  **User specifically asked that the eventual nudge reuse the existing
+  `ProfileCompletionBanner` mechanism** (just adding a documents-check to
+  it), not a new banner component — noted here so that decision isn't lost
+  before `userservices` is built.
+
+**Verified**: `tsc --noEmit` clean, `nest build` clean, existing Jest suite
+still 31/31 (untouched by this change). No live Vercel Blob account in this
+sandbox to test a real upload end-to-end — `put()`/`del()` calls were
+traced against `@vercel/blob`'s own type definitions (`PutCommandOptions`,
+`PutBlobResult`), not run live. Worth a real upload test once
+`BLOB_READ_WRITE_TOKEN` is set on Railway.
+
 ### `notifications` — unchanged
 ```
 _id, user_id

@@ -11,6 +11,46 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-11 (later) — New `documents` entity: upload capability built, nudge-banner trigger deliberately deferred
+
+User described a larger flow while asking to start the "users module" work
+(trial -> day-25 payment reminder -> admin-confirmed invoice -> one-time
+"you're a paid member, please upload an ID" dashboard nudge) and asked for
+a new `documents`/`attachments` object in the UML. Two real design
+decisions here, both confirmed via `AskUserQuestion` before writing code:
+
+1. **Separate `documents` collection**, not an embedded array on `User` —
+   matches the `activity_logs`/`notifications` pattern this whole redesign
+   already uses for "a user has many of these."
+2. **Build the upload capability now; defer the nudge-banner trigger** —
+   "first confirmed payment" has no home yet (`userservices`/invoicing is
+   the module planned *after* `users`, not built). Building a stand-in for
+   that now risked redoing it once the real module exists.
+
+Shipped: new `src/modules/documents/` module — schema (`UploadedDocument`,
+named to avoid colliding with Mongoose's own `Document` type, collection
+pinned to `documents`), service, controller. File storage is **Vercel
+Blob** — confirmed the user already has `@vercel/blob` + a working
+`BLOB_READ_WRITE_TOKEN` wired up on the frontend (the demo-video uploader
+script), so this reuses that instead of introducing a new storage
+provider; **this backend now needs the same token added as a Railway env
+var**. `POST /documents` (multipart, 10MB cap, JPG/PNG/WEBP/PDF),
+`GET /documents` (own or `?userId=` for admin), `DELETE /documents/:id`
+(soft-delete + best-effort blob cleanup). See `architecture.md`'s new
+`documents` section for the full implementation notes, including the
+user's explicit instruction (sent mid-build) that the eventual nudge
+banner should reuse the existing `ProfileCompletionBanner` mechanism
+rather than being a new component — noted there so it isn't lost before
+`userservices` gets built.
+
+**Verified**: `tsc --noEmit` clean, `nest build` clean, Jest 31/31 (no
+spec changes needed — nothing this touched is covered by the existing
+suite). No live Vercel Blob account in this sandbox to test a real upload;
+`put()`/`del()` calls were traced against `@vercel/blob`'s own shipped
+type definitions, not run live.
+
+---
+
 ## 2026-11-11 — `apikeys.provider` opened up to any provider, not just the preset list
 
 User asked directly: the Add API Key dropdown should keep the existing

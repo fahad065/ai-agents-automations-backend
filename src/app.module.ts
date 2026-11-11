@@ -27,6 +27,7 @@ import { ChatbotsModule } from './modules/chatbots/chatbots.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
 import { AccountDeletionModule } from './modules/account-deletion/account-deletion.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { AccountDeletionModule } from './modules/account-deletion/account-deleti
     ChatModule,
     ActivityLogsModule,
     AccountDeletionModule,
+    DocumentsModule,
   ],
   providers: [
     // Apply rate limiting globally

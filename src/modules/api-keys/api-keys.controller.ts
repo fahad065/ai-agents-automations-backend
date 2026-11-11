@@ -3,7 +3,6 @@ import {
     Body, Param, Query, Req, UseGuards, Patch
   } from '@nestjs/common';
   import { ApiKeysService } from './api-keys.service';
-  import { ApiKeyProvider } from './schemas/api-key.schema';
   import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
   @Controller('api-keys')
@@ -31,7 +30,7 @@ import {
     }
   
     @Get('test/:provider')
-    test(@Req() req: any, @Param('provider') provider: ApiKeyProvider) {
+    test(@Req() req: any, @Param('provider') provider: string) {
       return this.apiKeysService.testKey(req.user._id.toString(), provider);
     }
   
@@ -51,9 +50,6 @@ import {
     @Post(':provider/test')
     @UseGuards(JwtAuthGuard)
     testByProvider(@Param('provider') provider: string, @Req() req: any) {
-      return this.apiKeysService.testKey(
-        req.user._id.toString(),
-        provider as ApiKeyProvider,
-      );
+      return this.apiKeysService.testKey(req.user._id.toString(), provider);
     }
   }

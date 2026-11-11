@@ -18,6 +18,18 @@ export interface Actor {
   role: 'user' | 'admin';
 }
 
+// Provider is open-ended (see api-key.schema.ts) — this keeps whatever a
+// user types ("Stripe Payments", "stripe-payments", "STRIPE") landing as
+// the same stored provider key, regardless of casing/spacing/punctuation,
+// so it's reliably matched on the next add/lookup for that same service.
+function normalizeProvider(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
   @Injectable()
   export class ApiKeysService implements OnModuleInit {
     private readonly logger = new Logger(ApiKeysService.name);
@@ -71,17 +83,21 @@ export interface Actor {
     }
 
     async saveKey(userId: string, body: {
-      provider: ApiKeyProvider;
+      provider: string;
       label: string;
       key: string;
     }, actor?: Actor) {
       const encrypted = this.encrypt(body.key);
+      const provider = normalizeProvider(body.provider);
+      if (!provider) {
+        throw new Error('Provider is required');
+      }
 
       // Never matches a soft-deleted doc — re-adding a provider after
       // deleting it creates a genuinely fresh record, not a resurrection.
       const existing = await this.apiKeyModel.findOne({
         userId: new Types.ObjectId(userId),
-        provider: body.provider,
+        provider,
         isDeleted: { $ne: true },
       });
 
@@ -95,31 +111,31 @@ export interface Actor {
           userId, actorId: actor?.id || userId,
           actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
           action: ActivityAction.UPDATE, entityType: 'apikey', entityId: (existing._id as Types.ObjectId).toString(),
-          changes: { after: { provider: body.provider, label: body.label } },
-          description: `${body.label} (${body.provider}) key updated`,
+          changes: { after: { provider, label: body.label } },
+          description: `${body.label} (${provider}) key updated`,
         });
 
-        return { message: 'Key updated', provider: body.provider };
+        return { message: 'Key updated', provider };
       }
 
       const created = await this.apiKeyModel.create({
         userId: new Types.ObjectId(userId),
-        provider: body.provider,
+        provider,
         label: body.label,
         encryptedKey: encrypted,
       });
 
-      await this.notificationsService.onApiKeyAdded(userId, body.provider, body.label);
+      await this.notificationsService.onApiKeyAdded(userId, provider, body.label);
 
       await this.activityLogsService.record({
         userId, actorId: actor?.id || userId,
         actorRole: actor?.role === 'admin' ? ActorRole.ADMIN : ActorRole.USER,
         action: ActivityAction.CREATE, entityType: 'apikey', entityId: (created._id as Types.ObjectId).toString(),
-        changes: { after: { provider: body.provider, label: body.label } },
-        description: `${body.label} (${body.provider}) key added`,
+        changes: { after: { provider, label: body.label } },
+        description: `${body.label} (${provider}) key added`,
       });
 
-      return { message: 'Key saved', provider: body.provider };
+      return { message: 'Key saved', provider };
     }
 
     async getKeys(userId: string) {
@@ -133,7 +149,7 @@ export interface Actor {
     // Batch existence check — used by the admin chatbot "needs setup" queue
     // to flag every bot whose owner is missing an OpenAI key in one query,
     // instead of an N+1 getKeys() call per bot in the list.
-    async getUserIdsWithActiveKey(userIds: string[], provider: ApiKeyProvider): Promise<Set<string>> {
+    async getUserIdsWithActiveKey(userIds: string[], provider: string): Promise<Set<string>> {
       if (!userIds.length) return new Set();
       const rows = await this.apiKeyModel
         .find(
@@ -149,7 +165,7 @@ export interface Actor {
       return new Set(rows.map((r) => r.userId.toString()));
     }
 
-    async getDecryptedKey(userId: string, provider: ApiKeyProvider): Promise<string> {
+    async getDecryptedKey(userId: string, provider: string): Promise<string> {
       const record = await this.apiKeyModel
         .findOne({
           userId: new Types.ObjectId(userId),
@@ -191,7 +207,7 @@ export interface Actor {
       return { message: 'Key deleted' };
     }
 
-    async testKey(userId: string, provider: ApiKeyProvider) {
+    async testKey(userId: string, provider: string) {
       const key = await this.getDecryptedKey(userId, provider);
 
       // Actually test connectivity per provider

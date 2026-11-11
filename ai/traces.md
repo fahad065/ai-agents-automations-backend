@@ -11,6 +11,53 @@ correcting it, don't silently edit history.
 
 ---
 
+## 2026-11-11 — `apikeys.provider` opened up to any provider, not just the preset list
+
+User asked directly: the Add API Key dropdown should keep the existing
+preset providers, but if something's missing, let the user type a name
+and save it as a new provider — not restricted to the AI/known list.
+Confirmed this is the generic BYOK key store the user described
+separately in the same conversation ("that API key collection is not
+just only for AI... but also other user will be adding different type
+of API keys... on the go, so we will be adding multiple different types
+of API keys") — this change makes that actually true at the schema
+level, not just true by convention.
+
+- `ApiKey.provider`: `@Prop({enum: ApiKeyProvider})` → `@Prop({type:
+  String})` — no longer a storage whitelist. `ApiKeyProvider` stays as a
+  TS enum, now purely for type safety at the AI-specific call sites
+  (`ai-provider.util.ts`, `testKey()`'s branches), not a validation
+  constraint.
+- New `normalizeProvider()` in `ApiKeysService` — slugifies whatever gets
+  typed (trim, lowercase, non-alnum → `_`) so repeat adds of the same
+  provider under slightly different casing/spacing always land on the
+  same stored key.
+- `getUserIdsWithActiveKey()`/`getDecryptedKey()`/`testKey()` widened
+  from `ApiKeyProvider` to `string` params — call sites passing a known
+  enum value (`ApiKeyProvider.OPENAI` etc.) are unaffected, since enum
+  members are just their string literal.
+- **Deliberately NOT widened**: `Chatbot.chatModelConfig`/
+  `embeddingModelConfig` stay constrained to `ApiKeyProvider` — those
+  decide which AI adapter (`ai-provider.util.ts`) actually gets called,
+  and that code only knows openai/anthropic/gemini. Only the generic
+  key-storage field needed to open up.
+- Frontend: `api-keys-page.tsx`'s Add-key dialog's provider picker
+  changed from a button-grid to a real `<select>` dropdown (per the
+  user's explicit ask for "a dropdown"), with an "Other" option revealing
+  a free-text input. Each known option is prefixed with its existing
+  emoji icon; "Other" is prefixed with 🔑 — both per a follow-up message
+  mid-implementation asking specifically for icon parity on known
+  providers and a key-icon default for anything typed in. The
+  table/badge rendering already fell back to 🔑 for any provider not in
+  the `PROVIDERS` list (confirmed before relying on it, not assumed), so
+  a newly-typed custom provider automatically gets the right icon there
+  too with no extra code.
+
+**Verified**: backend `tsc --noEmit`, `nest build`, Jest (31/31) all
+clean. Frontend `tsc --noEmit` + `next build` (all 43 routes) clean.
+
+---
+
 ## 2026-11-10 (latest) — Diagnosed: new-signup admin alerts fail completely silently
 
 User checked production MongoDB directly and found 2-3 real signups from

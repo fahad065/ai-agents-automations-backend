@@ -3,6 +3,15 @@ import { Document, Types } from 'mongoose';
 
 export type ApiKeyDocument = ApiKey & Document;
 
+// Known/suggested provider identifiers — used as typed constants by the AI
+// code paths (ai-provider.util.ts, Chatbot.chatModelConfig/
+// embeddingModelConfig, which stay genuinely enum-constrained to these
+// since the chat/embedding adapters only know how to call these three).
+// The ApiKey.provider FIELD ITSELF is no longer constrained to this list
+// (see the schema below) — a user can add a key for any provider by
+// typing a name in the dashboard, and it's stored as a plain string. This
+// enum exists for type safety at known call sites, not as a validation
+// whitelist.
 export enum ApiKeyProvider {
   ATLAS_SEEDANCE = 'atlas_seedance',
   YOUTUBE_DATA = 'youtube_data',
@@ -43,8 +52,14 @@ export class ApiKey {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
-  @Prop({ enum: ApiKeyProvider, required: true })
-  provider: ApiKeyProvider;
+  // Open-ended, not enum-constrained — a customer can add a key for any
+  // provider (Stripe, Twilio, SendGrid, whatever), not just the AI/known
+  // ones. ApiKeysService.saveKey() normalizes whatever gets typed into a
+  // consistent slug (lowercase, underscored) before this is ever written,
+  // so "Stripe Payments" and "stripe payments" always land as the same
+  // provider key.
+  @Prop({ type: String, required: true, trim: true })
+  provider: string;
 
   @Prop({ required: true })
   label: string;

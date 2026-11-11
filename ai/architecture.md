@@ -69,7 +69,8 @@ belong once, on each `userservices` row, not duplicated onto the user.
 ### `apikeys` — BYOK key storage -- DONE, 2026-11-10 — see implementation notes below
 ```
 _id, user_id
-provider (dropdown, preset list — atlas_seedance, youtube_data, youtube_oauth,
+provider (open-ended string, not enum-constrained — see note below.
+          Suggested/known values: atlas_seedance, youtube_data, youtube_oauth,
           openai, anthropic, gemini, elevenlabs, canva, buffer, ollama, instagram_oauth)
 label
 encryptedKey (hidden field — never select it by default, never log it anywhere, including activity_logs)
@@ -91,6 +92,31 @@ need for key expiration shows up — flag it, don't add it speculatively.
 - `deleteKey()` is now a REAL soft-delete (`isDeleted: true`) — it used to
   only ever flip `isActive: false`, which read as "Delete" in the UI but
   behaved like "disable."
+- **`provider` is open-ended, not enum-constrained, 2026-11-11** — the user
+  explicitly asked that the API Keys dialog support ANY provider, not just
+  AI/known ones: "if there is something missing, let user type in the
+  input field and we will consider that provider and save it in the
+  database." The `@Prop({enum: ApiKeyProvider})` constraint on
+  `ApiKey.provider` was removed (now `@Prop({type: String})`) —
+  `ApiKeyProvider` stays as a TS enum of known/suggested values, used only
+  for type safety at the AI-specific call sites (`ai-provider.util.ts`,
+  `testKey()`'s per-provider branches); it's no longer a storage
+  whitelist. `ApiKeysService.saveKey()` normalizes whatever gets typed
+  (`normalizeProvider()`: trim, lowercase, non-alnum runs → `_`) so
+  "Stripe Payments"/"stripe-payments"/"STRIPE PAYMENTS" always land as the
+  same stored provider key on repeat adds. Frontend: `api-keys-page.tsx`'s
+  Add-key dialog's provider picker changed from a button-grid to a real
+  `<select>` dropdown (per the user's explicit ask) with an "Other" option
+  that reveals a free-text input for a custom provider name; each known
+  option is prefixed with its emoji icon, and "Other" with 🔑 — new
+  providers typed this way fall through to the same 🔑 default icon the
+  table/badge rendering already used for anything not in the `PROVIDERS`
+  list (that fallback already existed, confirmed before relying on it).
+  `Chatbot.chatModelConfig`/`embeddingModelConfig` on the chatbots
+  collection were deliberately NOT widened — those stay genuinely
+  constrained to `ApiKeyProvider` (openai/anthropic/gemini only), since
+  the chat/embedding adapters only know how to call those three; this
+  change only affects the generic key-storage field.
 - **Multi-provider AI support added the same session** — `anthropic` and
   `gemini` added to the provider enum (previously OpenAI was the *only*
   provider the chatbot engine could actually use, regardless of what a

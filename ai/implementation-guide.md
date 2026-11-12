@@ -144,3 +144,69 @@ Drops into fields already in the schema (`services.stripePriceId`,
 when the LLC/business permit lands. The webhook handler should call the same
 service method Phase 4's manual-renew flow calls (see Phase 4 above) —
 don't build a second parallel implementation.
+
+---
+
+# Backlog — agreed with the user, NOT started (recorded 2026-11-12)
+
+The user asked for these to be kept on record and to be **reminded** of them
+if they don't come back to them. Raise them when the related phase starts
+(or if asked "what's pending").
+
+## A. File storage: move from Vercel Blob to S3-compatible storage + Cloudflare
+**For now nothing changes** — demo videos (`services.demoVideoUrl`, e.g.
+the chatbot template videos) and customer documents (`documents` module)
+stay on Vercel Blob and display exactly as today.
+
+Planned shape (user's description):
+- One backend `FileUploadService` that owns the S3 client/connection; an
+  upload API (user called it `/upload-document`, final route TBD) calls it.
+- The service chooses the bucket / key prefix from what the file belongs to
+  (chatbot assets, service brochures/videos, customer documents, contracts…).
+- Cloudflare in front for delivery.
+- Today's only call sites to swap: `DocumentsService.uploadDocument()`
+  (`put()`) and `deleteDocument()` (`del()`) — put them behind the new
+  service rather than calling an SDK from feature code. Existing Blob URLs in
+  the DB need a one-time copy + URL rewrite (confirm the field list first —
+  rules.md #13). `BLOB_READ_WRITE_TOKEN` can go once nothing uses Blob.
+- **Open question for the user:** plain AWS S3 bills storage and especially
+  egress (downloads). "No extra usage cost" matches **Cloudflare R2**
+  (S3-compatible API, zero egress fees) or S3 behind Cloudflare's CDN cache.
+  User said they'll paste their full explanation — decide then.
+
+## B. Onboarding contract after the first payment
+User's idea: as soon as the first payment is confirmed (Phase 4's
+renew → billing → invoice → email flow), generate a contract ("<customer>
+is using <services> via LogicMate", price, start date, terms), email it with
+the invoice receipt; the customer signs and uploads it under Documents;
+it's stored as the record of the agreement between both parties. Digital
+signature explicitly skipped for now.
+
+Suggestions given (user to decide):
+- Generate the PDF from a template server-side in the same reusable method
+  as invoice creation, and store it in `documents` (documentType `contract`,
+  with a status: sent / signed / uploaded) so admin can see who hasn't signed.
+- Consider click-to-accept in the dashboard (record who, when, IP, contract
+  version) as an alternative to print-sign-upload — generally recognised for
+  electronic transactions in the UAE (Federal Decree-Law 46/2021) and Kenya;
+  confirm with a lawyer. Keep upload as a fallback.
+- Automatic reminder if unsigned after N days; decide whether the service
+  keeps running while unsigned.
+- Reuse the `ProfileCompletionBanner` nudge (same decision as the ID-document
+  upload nudge, see architecture.md `documents`).
+- Depends on Phase 4 (`billing` + `invoices`) existing.
+
+## C. Rollout order after the architecture is in place
+Once `userservices` (+ billing/invoices) lands, implement every service in
+the admin panel quickly, in this order:
+1. **All chatbot templates**, one vertical at a time, until each can be
+   onboarded end to end from the admin panel the way the restaurant chatbot
+   can today (gym, real estate, salon & spa, clinic, hotel, e-commerce,
+   education, auto dealership…).
+2. **Agents.**
+3. **Automations.**
+
+**Lead sourcing runs in parallel, per service:** as each service becomes
+onboardable, run lead sourcing for that vertical (the scheduled lead-sourcing
+tasks, no longer limited to restaurants and gyms). Speed of implementation
+is the stated priority.

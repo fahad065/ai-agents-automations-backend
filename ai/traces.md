@@ -844,3 +844,14 @@ Collections the user will drop by hand: `modules`, `industries`,
 `industry-subscriptions` (plus Phase 0's `niches`, `subscriptions`,
 `trends`, `content_ideas`). Next: Phase 2 `userservices`, then delete the
 `usermodules` code.
+
+## 2026-11-12 — Backlog recorded (no code)
+
+User asked to record, not build: (A) move file storage from Vercel Blob to
+S3-compatible storage + Cloudflare behind one backend FileUploadService
+(videos keep displaying from Blob until then); (B) generate and email an
+onboarding contract after the first payment, signed + uploaded to
+Documents; (C) rollout order — all chatbot templates in the admin panel,
+then agents, then automations, with lead sourcing per service in parallel.
+Full notes + suggestions: implementation-guide.md "Backlog". User asked to
+be reminded of these.

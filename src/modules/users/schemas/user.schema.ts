@@ -77,7 +77,13 @@ export class User {
   @Prop()
   company?: string;
 
-  @Prop({ type: Object, default: () => ({}) })
+  // Real values, not `{}` — Mongoose's default `minimize` strips empty
+  // objects on save, so a `{}` default meant brand-new signups were stored
+  // with no notifyPreferences field at all.
+  @Prop({
+    type: Object,
+    default: () => ({ onComplete: true, onFail: true, trialExpiry: true, billing: true, emailUpdates: false }),
+  })
   notifyPreferences: NotifyPreferences;
 
   @Prop({ select: false })

@@ -9,7 +9,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { BillingModule } from '../billing/billing.module';
 import { EmailModule } from '../email/email.module';
-import { ModulesModule } from '../modules/modules.module';
+import { ServicesModule } from '../services/services.module';
 import { ChatbotBillingCron } from './chatbot-billing.cron';
 
 @Module({
@@ -23,7 +23,7 @@ import { ChatbotBillingCron } from './chatbot-billing.cron';
     ApiKeysModule,
     BillingModule,
     EmailModule,
-    ModulesModule,
+    ServicesModule,
   ],
   controllers: [ChatbotsController],
   providers: [ChatbotsService, ChatbotBillingCron],

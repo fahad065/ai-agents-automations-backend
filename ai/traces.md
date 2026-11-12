@@ -782,3 +782,32 @@ Module" grid has been coming up empty. Fixed: niche filter pills are now
 derived from the loaded modules' own `nicheSlug`. Dead
 `discoverTrend`/`generateIdea`/`getIdeas`/`runPipeline` helpers removed
 from `dashboard-api.ts`.
+
+## 2026-11-12 — Phase 1: `services` catalog (agents/automations/chatbots)
+
+New `services` module replaces `modules` end to end — see architecture.md's
+`services` implementation notes for the full detail. Highlights:
+- Boot-time migration `modules` → `services`, insert-only, keyed on and
+  preserving each doc's original `_id` so every existing reference keeps
+  resolving. User asked whether it runs once or every deploy: every boot,
+  but it only ever inserts, so after the first run it changes nothing.
+- One mapper for migration + seed (`moduleType`→`type`,
+  `features`→`featureCards`, `isActive`/`isComingSoon`→`status`).
+- `ChatbotsService` now reads pricing/tiers from `ServicesService`.
+- `ModulesModule` deleted.
+- New `services.service.spec.ts` (11 tests: mapper rules, seed integrity —
+  22 entries, 9 chatbots with Basic/Pro tiers — `_id` preservation,
+  insert-only, undefined-stripping, slug-collision skip, no-op after
+  `modules` is dropped). Suite now 42/42.
+- Could not run the migration against a real MongoDB here: the in-memory
+  server's binary download is blocked by the sandbox egress policy, and
+  installing an alternative server was declined by the permission policy.
+  Covered by the spec above plus a DI boot check instead. **First real run
+  is the next Railway deploy** — check its log for "Migrated N module(s) ->
+  services" (expect 22) before dropping `modules` in Compass.
+
+Also fixed the same day, separately: `users.notifyPreferences` had a `{}`
+default, which Mongoose's `minimize` strips on save — so new signups were
+stored with no `notifyPreferences` at all (user spotted it on a real
+production signup). Default is now the real values; the existing
+`UsersService.onModuleInit()` backfill heals any user already missing it.

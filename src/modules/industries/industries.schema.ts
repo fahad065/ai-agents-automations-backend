@@ -28,7 +28,7 @@ export class Industry {
 
   // Default modules (agents/automations) included in this industry bundle
   // Admin sets these — users get all of them when they subscribe
-  @Prop({ type: [Types.ObjectId], ref: 'ModuleTemplate', default: [] })
+  @Prop({ type: [Types.ObjectId], ref: 'Service', default: [] })
   defaultModuleIds: Types.ObjectId[];
 
   @Prop({ type: [String], default: ['UAE', 'Kenya'] })

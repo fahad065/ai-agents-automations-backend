@@ -48,8 +48,8 @@ export class IndustrySubscriptionsService {
     return this.subModel
       .find({ userId: new Types.ObjectId(userId), isDeleted: false })
       .populate('industryId', 'name name_ar slug icon color description description_ar')
-      .populate('defaultModuleIds', 'name name_ar slug icon color moduleType tagline tagline_ar requiredApiKeys')
-      .populate('addedModuleIds', 'name name_ar slug icon color moduleType tagline tagline_ar requiredApiKeys pricing')
+      .populate('defaultModuleIds', 'name name_ar slug icon color type tagline tagline_ar requiredApiKeys')
+      .populate('addedModuleIds', 'name name_ar slug icon color type tagline tagline_ar requiredApiKeys pricing')
       .lean();
   }
 
@@ -58,8 +58,8 @@ export class IndustrySubscriptionsService {
     const sub = await this.subModel
       .findOne({ userId: new Types.ObjectId(userId), industrySlug, isDeleted: false })
       .populate('industryId', 'name name_ar slug icon color description description_ar')
-      .populate('defaultModuleIds', 'name name_ar slug icon color moduleType tagline tagline_ar requiredApiKeys defaultConfig')
-      .populate('addedModuleIds', 'name name_ar slug icon color moduleType tagline tagline_ar requiredApiKeys pricing defaultConfig')
+      .populate('defaultModuleIds', 'name name_ar slug icon color type tagline tagline_ar requiredApiKeys defaultConfig')
+      .populate('addedModuleIds', 'name name_ar slug icon color type tagline tagline_ar requiredApiKeys pricing defaultConfig')
       .lean();
     if (!sub) throw new NotFoundException('Subscription not found');
     return sub;

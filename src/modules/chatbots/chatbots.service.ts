@@ -11,7 +11,7 @@ import { getEmbeddingVector } from '../api-keys/ai-provider.util';
 import { BillingService } from '../billing/billing.service';
 import { BillingStatus, BillingType } from '../billing/schemas/billing.schema';
 import { EmailService } from '../email/email.service';
-import { ModulesService } from '../modules/modules.service';
+import { ServicesService } from '../services/services.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
@@ -53,7 +53,7 @@ function pickCustomerEditable(dto: any): any {
   return out;
 }
 
-// Chatbot.template -> the ModuleTemplate slug that carries this template's
+// Chatbot.template -> the services slug that carries this template's
 // pricingTiers, so a Basic->Pro upgrade request can look up the real Pro
 // price instead of the admin having to type it in by hand every time. Same
 // 9 slugs as SEED_MODULES's chatbot section (see backend CLAUDE.md).
@@ -81,11 +81,11 @@ export class ChatbotsService implements OnModuleInit {
     private apiKeysService: ApiKeysService,
     private billingService: BillingService,
     private emailService: EmailService,
-    private modulesService: ModulesService,
+    private servicesService: ServicesService,
     private activityLogsService: ActivityLogsService,
   ) {}
 
-  // Self-healing backfill (same pattern as ModulesService's) for the
+  // Self-healing backfill (same pattern as ServicesService's) for the
   // billing.tier field added alongside tiered chatbot pricing (see backend
   // CLAUDE.md). Every existing chatbot doc reads tier: 'basic' by default
   // (the schema default), which is correct for the vast majority — but a
@@ -132,7 +132,7 @@ export class ChatbotsService implements OnModuleInit {
 
     if (moduleSlug) {
       try {
-        const module = await this.modulesService.findOne(moduleSlug);
+        const module = await this.servicesService.findOne(moduleSlug);
         const tierPricing = module.pricingTiers?.find((t: any) => t.key === tier);
         billing.setupFee = 0;
         billing.monthlyFee = tierPricing?.monthly ?? module.pricing?.monthly ?? 0;
@@ -633,7 +633,7 @@ export class ChatbotsService implements OnModuleInit {
   }
 
   // Best-effort lookup of this chatbot's template's Pro-tier monthly price,
-  // via its ModuleTemplate.pricingTiers (see backend CLAUDE.md's "Tiered
+  // via its services doc's pricingTiers (see backend CLAUDE.md's "Tiered
   // chatbot pricing" section). Returns null if the template has no known
   // module mapping (e.g. 'custom') or the module/pricingTiers can't be
   // found — callers fall back to leaving monthlyFee untouched rather than
@@ -642,7 +642,7 @@ export class ChatbotsService implements OnModuleInit {
     const slug = chatbot.template ? TEMPLATE_TO_MODULE_SLUG[chatbot.template] : undefined;
     if (!slug) return null;
     try {
-      const module = await this.modulesService.findOne(slug);
+      const module = await this.servicesService.findOne(slug);
       const proTier = module.pricingTiers?.find((t: any) => t.key === 'pro');
       return proTier?.monthly ?? null;
     } catch (err) {

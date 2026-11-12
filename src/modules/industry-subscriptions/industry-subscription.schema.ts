@@ -37,11 +37,11 @@ export class IndustrySubscription {
 
   // Modules included in this subscription
   // defaultModuleIds = what admin set on the industry at subscribe time (snapshot)
-  @Prop({ type: [Types.ObjectId], ref: 'ModuleTemplate', default: [] })
+  @Prop({ type: [Types.ObjectId], ref: 'Service', default: [] })
   defaultModuleIds: Types.ObjectId[];
 
   // Extra modules the user added on top of the default bundle
-  @Prop({ type: [Types.ObjectId], ref: 'ModuleTemplate', default: [] })
+  @Prop({ type: [Types.ObjectId], ref: 'Service', default: [] })
   addedModuleIds: Types.ObjectId[];
 
   // ── Pricing ───────────────────────────────────────────────

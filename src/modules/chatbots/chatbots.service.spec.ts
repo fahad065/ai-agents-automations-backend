@@ -44,7 +44,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
   };
   const billingService: any = {};
   const emailService: any = {};
-  const modulesService: any = {};
+  const servicesService: any = {};
   const activityLogsService: any = { record: jest.fn().mockResolvedValue(undefined) };
 
   return new ChatbotsService(
@@ -55,7 +55,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
     apiKeysService,
     billingService,
     emailService,
-    modulesService,
+    servicesService,
     activityLogsService,
   );
 }

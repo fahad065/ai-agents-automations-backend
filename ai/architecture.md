@@ -381,7 +381,7 @@ application layer, not via Mongoose discriminators) — matches how
 was a deliberate choice over stronger per-type schema validation, given the
 project's stated priority is simplicity and reliability over strictness.
 
-### `services` — CORE. The catalog — everything sellable, including bundles.
+### `services` — CORE. The catalog — everything sellable, including bundles. — DONE (agents/automations/chatbots), 2026-11-12; bundles pending (see notes)
 ```
 _id, type: agent | automation | chatbot | bundle
 name(_ar), slug                              -- slug has NO _ar twin, see rules.md
@@ -404,6 +404,54 @@ status: active | inactive | coming_soon
 isDeleted
 stripePriceId?                               -- catalog-level, one per sellable thing. Not wired to Stripe yet — see rules.md.
 ```
+
+**Implementation notes:**
+- `src/modules/services/` (schema/service/controller/module), API at
+  `/services` — same route shapes the old `/modules` had (`GET /`,
+  `GET /admin/all`, `GET /:idOrSlug`, admin `POST`/`PATCH`/`DELETE`), with
+  `?type=` replacing `?moduleType=`. Public list returns `status` in
+  `active|coming_soon`; inactive is admin-only. Admin routes now return a
+  real 403 instead of the old `{message:'Forbidden'}` with a 200.
+- **Migration** (`ServicesService.migrateFromModules()`, runs every boot,
+  insert-only): reads the raw `modules` collection and upserts each doc
+  into `services` **keyed on, and keeping, its original `_id`**. That's
+  the whole trick — `usermodules.moduleId`, `industries.defaultModuleIds`
+  and `industry-subscriptions` keep resolving with zero data rewrite (their
+  Mongoose `ref` just changed `'ModuleTemplate'` → `'Service'`). A slug
+  collision under a different `_id` is logged and skipped, never guessed
+  at. No-op once `modules` is dropped; delete the method then.
+- **One mapper** (`legacy-module.mapper.ts`) for both the migration and the
+  seed: `moduleType`→`type`, `features`→`featureCards`,
+  `isActive`+`isComingSoon`→`status`. The seed (`seed-services.ts`) is the
+  old `SEED_MODULES` moved verbatim, still in legacy shape, run through the
+  same mapper — so seeded and migrated docs can't diverge.
+- **Kept beyond the field list above** (all confirmed live): `pipelineType`
+  (what `pipeline_runs` snapshots, and `usermodules` uses), `category`
+  (agents-list filter), `availableIn` (marketplace `?country=` filter),
+  `estimatedCostPerRun` (shown in the marketplace). `nicheSlug`/`category`/
+  `pipelineType` are plain strings now, not enums — the old enums had
+  drifted from the stored values (`tiktok`, `whatsapp`, `arabic`...).
+- **Dropped** (zero readers): `outputType`, `totalUsersCount`/
+  `totalRunsCount`/`avgCostPerRun` and `GET /modules/public/stats`.
+- The old `ModulesService` backfills (chatbot pricing/tiers/Arabic copy,
+  global-market copy, restaurant demo URL) were not ported: they ran on
+  every boot for months against `modules`, so the migrated data already
+  carries their results, and the seed carries the current copy.
+- `ModulesModule` deleted. `modules/schemas/user-module.schema.ts` stays
+  (it's the `usermodules` schema, retired in Phase 2).
+- **Pre-existing bugs fixed in passing:** `/pricing` and the admin
+  `/dashboard/cms-modules` list both silently showed only the first 20 of
+  22 catalog entries (default `limit=20`, never overridden); the AR
+  localizer wrote a literal top-level `'pricing.features'` key instead of
+  the nested field.
+- **Flagged, not changed:** the admin editor's Testimonials tab has never
+  persisted anything — `testimonials` wasn't on `ModuleTemplate` and isn't
+  on `services`, so Mongoose strict mode drops it on save. Needs a decision
+  (add the field, or remove the tab).
+- **Bundles not done yet.** `industries` (`defaultModuleIds` = the bundle
+  contents) still live in their own collection; next step converts each to
+  a `type: 'bundle'` service with `include[]`, and moves the `/industries`
+  pages + admin editor onto it.
 
 ### `billing` — the manual payment ledger (append-only; never mutate a historical record's amount/status after the fact — a refund is its own new row, not an edit to the original)
 ```

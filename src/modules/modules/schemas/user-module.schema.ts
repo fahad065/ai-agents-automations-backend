@@ -29,7 +29,7 @@ export class UserModule {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'ModuleTemplate', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'Service', required: true })
   moduleId: Types.ObjectId;
 
   // ── Module info (denormalized for quick access) ───────────

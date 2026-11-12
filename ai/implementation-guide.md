@@ -28,6 +28,8 @@ replacement to wait for — there's nothing to migrate data *into*, so there's
 no reason to defer this phase at all.
 
 ## Phase 1 — `services` (the catalog)
+**Status, 2026-11-12: agents/automations/chatbots ✅ migrated and every catalog reader switched to `/services` (both repos). Remaining: industries → `type: 'bundle'` services. Phase 0 code removal ✅ done the same day (industries/industry-subscriptions deliberately kept until bundles land). See architecture.md's `services` notes and traces.md.**
+
 Everything downstream references it. Build the schema (see
 `architecture.md`), write a one-time migration script that reads every
 `ModuleTemplate` document and writes a `services` document — **agents,

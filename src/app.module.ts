@@ -14,7 +14,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PipelineRunsModule } from './modules/pipeline-runs/pipeline-runs.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
-import { ModulesModule } from './modules/modules/modules.module';
+import { ServicesModule } from './modules/services/services.module';
 import { UserModulesModule } from './modules/usermodules/usermodules.module';
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -82,7 +82,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     PipelineRunsModule,
     BillingModule,
     FeedbackModule,
-    ModulesModule,
+    ServicesModule,
     UserModulesModule,
     EmailModule,
     AdminModule,

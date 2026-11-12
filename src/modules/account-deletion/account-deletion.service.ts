@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as ExcelJS from 'exceljs';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import { User, UserDocument, UserStatus } from '../users/schemas/user.schema';
 import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
 import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
 import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowledge-base.schema';
@@ -145,8 +145,10 @@ export class AccountDeletionService {
     ]);
 
     const keys = wb.addWorksheet('API Keys');
-    keys.addRow(['Provider', 'Label', 'Active', 'Created']);
-    apiKeys.forEach((k: any) => keys.addRow([k.provider, k.label, k.isActive, k.createdAt]));
+    keys.addRow(['Provider', 'Label', 'Status', 'Created']);
+    // Was k.isActive — a stale field name from before ApiKey migrated to a
+    // status enum (see api-key.schema.ts); every row was silently blank.
+    apiKeys.forEach((k: any) => keys.addRow([k.provider, k.label, k.status, k.createdAt]));
 
     const subs = wb.addWorksheet('Subscriptions');
     subs.addRow(['Module', 'Type', 'Status', 'Trial End', 'Created']);
@@ -286,10 +288,8 @@ export class AccountDeletionService {
     user.country = undefined;
     (user as any).company = undefined;
     user.googleId = undefined;
-    user.facebookId = undefined;
-    user.appleId = undefined;
     user.avatar = undefined;
-    user.isActive = false;
+    user.status = UserStatus.INACTIVE;
     user.isDeleted = true;
     user.pendingDeletionAt = undefined;
     user.deletionRequestedAt = undefined;

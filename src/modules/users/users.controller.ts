@@ -3,6 +3,7 @@ import { UsersService } from './users.service';
 import { EmailService } from '../email/email.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PlanType } from './schemas/user.schema';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -45,14 +46,14 @@ export class UsersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
-    @Query('isActive') isActive?: string,
+    @Query('status') status?: string,
     @Query('planType') planType?: string,
   ) {
     if (req.user.role !== 'admin') return { users: [], total: 0 };
     return this.usersService.findAll(
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
-      { search, isActive, planType },
+      { search, status, planType },
     );
   }
 
@@ -82,7 +83,10 @@ export class UsersController {
     if (req.user.role !== 'admin') return { message: 'Forbidden' };
     return this.usersService.adminUpdate(id, {
       isFreeForever: true,
-      planType: 'lifetime',
+      // Was 'lifetime' — not a real PlanType value (the enum is
+      // trial|paid|free_forever|expired), a pre-existing bug caught while
+      // aligning this module to the finalized schema in ai/architecture.md.
+      planType: PlanType.FREE_FOREVER,
     }, req.user._id.toString());
   }
   

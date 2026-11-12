@@ -4,6 +4,7 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { User, UserSchema } from './schemas/user.schema';
 import { UserModule, UserModuleSchema } from '../modules/schemas/user-module.schema';
+import { Chatbot, ChatbotSchema } from '../chatbots/schemas/chatbot.schema';
 import { EmailModule } from '../email/email.module';
 
 @Module({
@@ -11,6 +12,7 @@ import { EmailModule } from '../email/email.module';
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: UserModule.name, schema: UserModuleSchema },
+      { name: Chatbot.name, schema: ChatbotSchema },
     ]),
     EmailModule,
   ],

@@ -40,7 +40,7 @@ Thirteen collections. `(_ar)` after a field name means it has an `_ar` twin
 place bilingual content is marked; see `rules.md` for the one field that
 deliberately does **not** follow this pattern (`slug`).
 
-### `users` — the hub
+### `users` — the hub — DONE, 2026-11-12
 ```
 _id, name, email (unique)
 password?, provider (local|google — facebook/apple are DEAD, see rules.md), googleId?
@@ -65,6 +65,98 @@ Google is the only working social login), `totalAgents`/`totalAutomations`
 (premature denormalization — compute via `userservices.countDocuments()` on
 demand instead), and no per-service subscription dates live here — those
 belong once, on each `userservices` row, not duplicated onto the user.
+
+**Implementation notes:**
+- `UsersService.onModuleInit()` self-heals every pre-existing doc (old
+  `isActive: boolean` → `status` enum, old 5 flat `notifyOnComplete`/
+  `notifyOnFail`/`notifyTrialExpiry`/`notifyBilling`/`emailUpdates`
+  booleans → one nested `notifyPreferences: {}` object) via two
+  aggregation-pipeline `updateMany()` calls, same pattern as
+  `ApiKeysService.onModuleInit()` — no manual migration script, same
+  sandbox-has-no-Atlas-access reasoning as everywhere else in this file.
+  `facebookId`/`appleId`/`totalAgents`/`totalAutomations` are `$unset` in
+  the same pass.
+- `totalAgents`/`totalAutomations` aren't gone from the API response,
+  just gone as **stored** fields — `UsersService.findAll()` (the admin
+  list) now computes them fresh per request: one batched
+  `UserModule.aggregate()` grouped by `{userId, moduleType}` plus one
+  `Chatbot.aggregate()` grouped by `userId` (a `totalChatbots` field is
+  new, the frontend's "Modules" column now sums all three), 2 queries
+  total regardless of page size — same "batched, not N+1" rule
+  `ChatbotsService.findAllAdmin()`/`AdminService.getUsagePerTenant()`
+  already established elsewhere in this codebase. Once `userservices`
+  exists (Phase 2), this becomes one `userservices.countDocuments()`
+  grouped by `type` instead — flagged here so that migration doesn't
+  have to rediscover this.
+- `AuthService.facebookLogin()` deleted outright — confirmed dead first
+  (zero route in `auth.controller.ts` ever called it).
+- **Real pre-existing bugs found and fixed while tracing every `isActive`
+  reference, not introduced by this pass:**
+  - `AuthService`'s YouTube/Instagram OAuth token storage
+    (`handleYoutubeCallback`/`getYoutubeStatus`/`disconnectYoutube`/
+    `getYoutubeTokens`/`handleInstagramCallback`/`getInstagramStatus`/
+    `disconnectInstagram`/`getInstagramTokens`) writes/reads the raw
+    `ApiKey` model directly (`this.userModel.db.model('ApiKey')`,
+    bypassing `ApiKeysService`) and was still using the old field name
+    `isActive` — but `ApiKey` migrated to a `status` enum back on
+    2026-11-10 (see `apikeys` above) and that migration never touched
+    this file. Since Mongoose's default strict mode silently drops an
+    unknown field on write, every connect/create here was writing
+    nothing into `status` at all (leaving it at the schema default) while
+    every status *read* (`findOne({..., isActive: true})`) matched zero
+    documents — meaning `GET /auth/youtube/status` and
+    `GET /auth/instagram/status` have been reporting "not connected" even
+    immediately after a real, successful OAuth connect. Fixed by
+    switching all 13 call sites to `ApiKeyStatus.ACTIVE`/`INACTIVE`.
+  - `AccountDeletionService.exportUserData()`'s API Keys sheet read
+    `k.isActive` for the same reason — every exported row's "Active"
+    column has been blank since the same migration. Fixed to `k.status`.
+  - `UsersController.grantFree()` sent `planType: 'lifetime'` — not a
+    real `PlanType` enum value (the enum is
+    `trial|paid|free_forever|expired`). Fixed to `PlanType.FREE_FOREVER`.
+    (This route turned out to be unreachable from the current frontend
+    anyway — `users-page.tsx`'s "Grant Free Forever Access" button goes
+    through the generic `PATCH /users/:id` → `adminUpdate()`, not this
+    dedicated route — left as a correct, available API either way.)
+  - Frontend `types/index.ts`/`auth.store.ts`'s `User.planType` type was
+    `"trial" | "lifetime" | "pro" | "free"` — none of those last three
+    match the real backend enum. Fixed to the real values.
+- `notifyPreferences` has no backend-side enforcement today (nothing
+  gates an email send on `notifyPreferences.trialExpiry`/`.billing`/etc.)
+  — confirmed via grep before restructuring: this was already true of
+  the old 5 flat booleans too (pure UI-settable preference data with no
+  reader), so the redesign doesn't newly introduce that gap, just
+  reshapes the storage. Wiring real enforcement is a separate, future
+  feature, not part of this schema alignment.
+- `UsersService.updateProfile()`'s `$set` now flattens `notifyPreferences`
+  into dotted paths (`notifyPreferences.billing`, etc.) rather than
+  replacing the whole nested object, so a partial update never silently
+  resets preferences the caller didn't send — defensive, even though the
+  one real caller (`settings-page.tsx`) always sends all 5 keys together.
+- Frontend: `users-page.tsx` (`status` field, Switch, status filter,
+  computed `totalAgents`/`totalAutomations`/`totalChatbots`),
+  `settings-page.tsx` (notification toggles read/write
+  `notifyPreferences.*`), `usage-page.tsx`/`types/index.ts`/
+  `auth.store.ts` (type-only fixes) all updated to match.
+
+**Verified**: `tsc --noEmit` clean, `nest build` clean, existing Jest
+suite still 31/31 (untouched by this change — no spec covers
+`UsersService`/`AuthService` yet). Booted the compiled app
+(`node dist/main.js`) against a deliberately unreachable Mongo URI to
+confirm the `UsersModule` → `ChatbotModule`-schema DI wiring resolves
+cleanly (gets through `AppModule`/`JwtModule` init, fails only at the
+expected `MongooseServerSelectionError` point) — same verification
+pattern used for the Sentry wiring earlier in this file. No live MongoDB
+Atlas in this sandbox to run the `onModuleInit()` backfill against real
+pre-existing documents — traced against
+`ApiKeysService.onModuleInit()`'s already-proven identical pattern
+instead. Frontend verified via `tsc --noEmit`, `npm run build` (44
+routes), and a Playwright pass against mocked `GET /users`/
+`PATCH /users/profile` confirming: the Modules column sums
+agents+automations+chatbots correctly, the Account Active switch
+reflects `status === "active"`, the status filter offers Active/Inactive,
+and the notification-preferences save sends the correct nested
+`{notifyPreferences: {...}}` body.
 
 ### `apikeys` — BYOK key storage -- DONE, 2026-11-10 — see implementation notes below
 ```

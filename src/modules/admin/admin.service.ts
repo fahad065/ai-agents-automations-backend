@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import { User, UserDocument, UserStatus } from '../users/schemas/user.schema';
 import { PipelineRun, PipelineRunDocument } from '../pipeline-runs/schemas/pipeline-run.schema';
 import { UserModule as UserModuleModel, UserModuleDocument } from '../modules/schemas/user-module.schema';
 import { EmailService } from '../email/email.service';
@@ -28,7 +28,7 @@ export class AdminService {
       totalCostResult, videosByDay, usersByDay,
     ] = await Promise.all([
       this.userModel.countDocuments({ isDeleted: { $ne: true } }),
-      this.userModel.countDocuments({ isDeleted: { $ne: true }, isActive: true }),
+      this.userModel.countDocuments({ isDeleted: { $ne: true }, status: UserStatus.ACTIVE }),
       this.userModel.countDocuments({ createdAt: { $gte: startOfMonth } }),
       this.userModel.countDocuments({ planType: 'trial', isFreeForever: { $ne: true } }),
       this.userModel.countDocuments({ isFreeForever: true }),
@@ -105,7 +105,7 @@ export class AdminService {
       ]),
       this.userModel
         .find({ isDeleted: { $ne: true } })
-        .select('_id name email planType trialEndDate isActive')
+        .select('_id name email planType trialEndDate status')
         .sort({ createdAt: -1 })
         .lean(),
     ]);
@@ -130,7 +130,7 @@ export class AdminService {
         email: (u as any).email,
         planType: (u as any).planType,
         trialEndDate: (u as any).trialEndDate,
-        isActive: (u as any).isActive,
+        status: (u as any).status,
         modulesByStatus: moduleStatusByUser.get(uid) || {},
         pipelines: {
           totalRuns: p?.totalRuns || 0,

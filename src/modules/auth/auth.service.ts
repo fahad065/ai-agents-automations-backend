@@ -12,7 +12,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import * as CryptoJS from 'crypto-js';
-import { User, UserDocument, AuthProvider, PlanType } from '../users/schemas/user.schema';
+import { User, UserDocument, AuthProvider, PlanType, UserStatus } from '../users/schemas/user.schema';
+import { ApiKeyStatus } from '../api-keys/schemas/api-key.schema';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
@@ -63,7 +64,6 @@ export class AuthService {
       name: dto.name,
       email: dto.email.toLowerCase(),
       password: hashed,
-      isActive: true,
       isEmailVerified: false,          // ← not verified yet
       emailVerificationToken,
       emailVerificationExpires,
@@ -203,7 +203,7 @@ export class AuthService {
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
     if (!passwordMatch) throw new UnauthorizedException('Invalid credentials');
 
-    if (!user.isActive) throw new UnauthorizedException('Account deactivated');
+    if (user.status === UserStatus.INACTIVE) throw new UnauthorizedException('Account deactivated');
 
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
@@ -242,39 +242,6 @@ export class AuthService {
     const tokens = await this.generateTokens(user);
     await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
 
-    return { user: this.sanitize(user), ...tokens };
-  }
-
-  async facebookLogin(fbUser: {
-    facebookId: string;
-    email: string;
-    name: string;
-    avatar?: string;
-  }) {
-    let user = await this.userModel.findOne({
-      $or: [
-        { facebookId: fbUser.facebookId },
-        { email: fbUser.email },
-      ],
-    });
- 
-    if (!user) {
-      user = await this.userModel.create({
-        name: fbUser.name,
-        email: fbUser.email,
-        facebookId: fbUser.facebookId,
-        avatar: fbUser.avatar,
-        provider: AuthProvider.FACEBOOK,
-      });
-    } else if (!user.facebookId) {
-      user.facebookId = fbUser.facebookId;
-      user.provider = AuthProvider.FACEBOOK;
-      if (!user.avatar && fbUser.avatar) user.avatar = fbUser.avatar;
-      await user.save();
-    }
- 
-    const tokens = await this.generateTokens(user);
-    await this.saveRefreshToken(user._id.toString(), tokens.refreshToken);
     return { user: this.sanitize(user), ...tokens };
   }
 
@@ -394,7 +361,7 @@ export class AuthService {
     if (existing) {
       existing.encryptedKey = encrypted;
       existing.label = label;
-      existing.isActive = true;
+      existing.status = ApiKeyStatus.ACTIVE;
       existing.lastUsedAt = new Date();
       await existing.save();
     } else {
@@ -403,7 +370,7 @@ export class AuthService {
         provider: 'youtube_oauth',
         label,
         encryptedKey: encrypted,
-        isActive: true,
+        status: ApiKeyStatus.ACTIVE,
         lastUsedAt: new Date(),
       });
     }
@@ -421,7 +388,7 @@ export class AuthService {
       const key = await ApiKeyModel.findOne({
         userId: new Types.ObjectId(userId),
         provider: 'youtube_oauth',
-        isActive: true,
+        status: ApiKeyStatus.ACTIVE,
       }).select('+encryptedKey');
 
       if (!key) return { connected: false };
@@ -447,7 +414,7 @@ export class AuthService {
     const ApiKeyModel = this.userModel.db.model('ApiKey');
     await ApiKeyModel.findOneAndUpdate(
       { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
-      { isActive: false }
+      { status: ApiKeyStatus.INACTIVE }
     );
     return { message: 'YouTube disconnected' };
   }
@@ -463,7 +430,7 @@ export class AuthService {
     const key = await ApiKeyModel.findOne({
       userId: new Types.ObjectId(userId),
       provider: 'youtube_oauth',
-      isActive: true,
+      status: ApiKeyStatus.ACTIVE,
     }).select('+encryptedKey');
 
     if (!key) {
@@ -479,7 +446,7 @@ export class AuthService {
         // Mark as inactive — user must reconnect
         await ApiKeyModel.findOneAndUpdate(
           { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
-          { isActive: false }
+          { status: ApiKeyStatus.INACTIVE }
         );
         throw new UnauthorizedException(
           'YouTube token expired and no refresh token available. Please reconnect your channel.'
@@ -518,7 +485,7 @@ export class AuthService {
         // Refresh failed — mark as expired, user must reconnect
         await ApiKeyModel.findOneAndUpdate(
           { userId: new Types.ObjectId(userId), provider: 'youtube_oauth' },
-          { isActive: false }
+          { status: ApiKeyStatus.INACTIVE }
         );
         throw new UnauthorizedException(
           'YouTube token expired. Please reconnect your channel from the Agents page.'
@@ -641,7 +608,7 @@ export class AuthService {
     if (existing) {
       existing.encryptedKey = encrypted;
       existing.label = label;
-      existing.isActive = true;
+      existing.status = ApiKeyStatus.ACTIVE;
       existing.lastUsedAt = new Date();
       await existing.save();
     } else {
@@ -650,7 +617,7 @@ export class AuthService {
         provider: 'instagram_oauth',
         label,
         encryptedKey: encrypted,
-        isActive: true,
+        status: ApiKeyStatus.ACTIVE,
         lastUsedAt: new Date(),
       });
     }
@@ -667,7 +634,7 @@ export class AuthService {
       const key = await ApiKeyModel.findOne({
         userId: new Types.ObjectId(userId),
         provider: 'instagram_oauth',
-        isActive: true,
+        status: ApiKeyStatus.ACTIVE,
       }).select('+encryptedKey');
 
       if (!key) return { connected: false };
@@ -692,7 +659,7 @@ export class AuthService {
     const ApiKeyModel = this.userModel.db.model('ApiKey');
     await ApiKeyModel.findOneAndUpdate(
       { userId: new Types.ObjectId(userId), provider: 'instagram_oauth' },
-      { isActive: false },
+      { status: ApiKeyStatus.INACTIVE },
     );
     return { message: 'Instagram disconnected' };
   }
@@ -702,7 +669,7 @@ export class AuthService {
     const key = await ApiKeyModel.findOne({
       userId: new Types.ObjectId(userId),
       provider: 'instagram_oauth',
-      isActive: true,
+      status: ApiKeyStatus.ACTIVE,
     }).select('+encryptedKey');
 
     if (!key) {
@@ -747,7 +714,7 @@ export class AuthService {
     if (tokenData.expiry_date < Date.now()) {
       await ApiKeyModel.findOneAndUpdate(
         { userId: new Types.ObjectId(userId), provider: 'instagram_oauth' },
-        { isActive: false },
+        { status: ApiKeyStatus.INACTIVE },
       );
       throw new UnauthorizedException(
         'Instagram token expired. Please reconnect your account from the Modules page.',

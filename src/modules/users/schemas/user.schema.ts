@@ -3,11 +3,13 @@ import { Document, Types } from 'mongoose';
 
 export type UserDocument = User & Document;
 
+// facebook/apple were never real — AuthService.facebookLogin() had no
+// controller route wired to it (dead code, unreachable) and there's no
+// Apple integration at all. Google is the only live social-auth path.
+// See ai/architecture.md's "users" section.
 export enum AuthProvider {
   LOCAL = 'local',
   GOOGLE = 'google',
-  FACEBOOK = 'facebook',
-  APPLE = 'apple',
 }
 
 export enum UserRole {
@@ -22,6 +24,15 @@ export enum PlanType {
   EXPIRED = 'expired',
 }
 
+// Status enum instead of a boolean — matches the convention applied
+// across every collection in this redesign (users/services/cms/apikeys/
+// userservices/billing all get `status`, not an `isActive` flag). Old
+// `isActive: boolean` docs are migrated by UsersService.onModuleInit().
+export enum UserStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+}
+
 @Schema({ _id: false })
 class OnboardingData {
   @Prop() role?: string;
@@ -31,6 +42,19 @@ class OnboardingData {
   @Prop() teamSize?: string;
   @Prop() monthlyBudget?: string;
   @Prop() heardAboutUs?: string;
+}
+
+// Replaces 5 separate top-level booleans (notifyOnComplete/notifyOnFail/
+// notifyTrialExpiry/notifyBilling/emailUpdates) with one nested object,
+// per ai/architecture.md's finalized `users` shape. Old flat-boolean docs
+// are migrated by UsersService.onModuleInit().
+@Schema({ _id: false })
+class NotifyPreferences {
+  @Prop({ default: true }) onComplete: boolean;
+  @Prop({ default: true }) onFail: boolean;
+  @Prop({ default: true }) trialExpiry: boolean;
+  @Prop({ default: true }) billing: boolean;
+  @Prop({ default: false }) emailUpdates: boolean;
 }
 
 @Schema({ timestamps: true })
@@ -52,22 +76,9 @@ export class User {
  
   @Prop()
   company?: string;
- 
-  // Notification preferences
-  @Prop({ default: true })
-  notifyOnComplete: boolean;
- 
-  @Prop({ default: true })
-  notifyOnFail: boolean;
- 
-  @Prop({ default: true })
-  notifyTrialExpiry: boolean;
- 
-  @Prop({ default: true })
-  notifyBilling: boolean;
- 
-  @Prop({ default: false })
-  emailUpdates: boolean;
+
+  @Prop({ type: Object, default: () => ({}) })
+  notifyPreferences: NotifyPreferences;
 
   @Prop({ select: false })
   password?: string;
@@ -79,19 +90,13 @@ export class User {
   googleId?: string;
 
   @Prop()
-  facebookId?: string;
-
-  @Prop()
-  appleId?: string;
-
-  @Prop()
   avatar?: string;
 
   @Prop({ enum: UserRole, default: UserRole.USER })
   role: UserRole;
 
-  @Prop({ default: true })
-  isActive: boolean;
+  @Prop({ enum: UserStatus, default: UserStatus.ACTIVE })
+  status: UserStatus;
 
   @Prop({ default: false })
   isDeleted: boolean;
@@ -175,12 +180,10 @@ export class User {
   // ── Billing summary (denormalized for quick access) ─────────
   @Prop({ default: 0 })
   totalBilled: number;
-
-  @Prop({ default: 0 })
-  totalAgents: number;
-
-  @Prop({ default: 0 })
-  totalAutomations: number;
+  // totalAgents/totalAutomations deliberately dropped — premature
+  // denormalization that nothing ever actually read as a stored field.
+  // UsersService.findAll() now computes these fresh per request (agent/
+  // automation count from UserModule, chatbot count from Chatbot) instead.
 
   // ── Account deletion ─────────────────────────────────────────
   // Two paths: instant (deleted synchronously, no fields below ever get
@@ -209,4 +212,5 @@ UserSchema.index({ googleId: 1 }, { sparse: true });
 UserSchema.index({ planType: 1 });
 UserSchema.index({ trialEndDate: 1 });
 UserSchema.index({ isDeleted: 1 });
+UserSchema.index({ status: 1 });
 UserSchema.index({ pendingDeletionAt: 1 }, { sparse: true });

@@ -714,3 +714,40 @@ answered) or ask.
 **Not started:** no schema code written yet, no migration scripts written
 yet, no frontend "My Services" work started, Stripe untouched (correctly —
 not needed yet).
+
+## 2026-11-12 — `users` schema finalized per architecture.md
+
+Closes the `users` collection section of the redesign — user asked to
+"implement complete users module both frontend and backend structure as
+per new UML diagram," following straight on from the `documents` module
+(see the entry above and the frontend's matching traces.md entry for that
+one). See `ai/architecture.md`'s `users` section for the full before/after
+and the implementation notes — summary here:
+
+- `isActive: boolean` → `status: 'active'|'inactive'` enum (the
+  convention this redesign already applies to every other collection).
+- 5 flat notify booleans → one nested `notifyPreferences: {}` object.
+- `facebookId`/`appleId`/`AuthProvider.FACEBOOK`/`AuthProvider.APPLE`
+  deleted outright (dead — `AuthService.facebookLogin()` had no route,
+  Apple never existed).
+- `totalAgents`/`totalAutomations` dropped as stored fields — now computed
+  fresh per admin-list request (batched aggregates, not N+1), with a new
+  `totalChatbots` added alongside them.
+- `UsersService.onModuleInit()` self-heals every pre-existing doc, same
+  pattern as `ApiKeysService.onModuleInit()`.
+- **Found and fixed while tracing every `isActive` call site (real,
+  pre-existing bugs, not introduced here)**: `AuthService`'s YouTube/
+  Instagram OAuth token storage was still writing/reading the old
+  `ApiKey.isActive` field name after that collection migrated to `status`
+  on 2026-11-10 — meaning OAuth connection-status checks have been
+  silently broken (always "not connected") since that migration.
+  `AccountDeletionService.exportUserData()`'s API Keys export sheet had
+  the same stale-field bug. `UsersController.grantFree()` was sending a
+  `planType` value (`'lifetime'`) that isn't in the real enum. All three
+  fixed alongside this pass since they're the same class of bug this
+  exercise was already hunting for.
+
+Verified: `tsc --noEmit` + `nest build` clean, Jest 31/31, and a direct
+boot against an unreachable Mongo URI to confirm the new
+`UsersModule`→`ChatbotModule` DI wiring resolves (no live Atlas in this
+sandbox to run the backfill against real documents).

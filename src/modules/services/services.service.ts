@@ -25,6 +25,21 @@ export class ServicesService implements OnModuleInit {
   async onModuleInit() {
     await this.migrateFromModules();
     await this.seed();
+    await this.dropRetiredFields();
+  }
+
+  // The first services release carried category/availableIn/
+  // estimatedCostPerRun over from `modules`; they were then removed to match
+  // architecture.md. Goes through the raw collection because Mongoose strict
+  // mode silently drops $unset of paths that aren't on the schema anymore.
+  // Matches nothing once cleaned, so it's free on every later boot.
+  private async dropRetiredFields() {
+    const retired = ['category', 'availableIn', 'estimatedCostPerRun'];
+    const result = await this.serviceModel.collection.updateMany(
+      { $or: retired.map((f) => ({ [f]: { $exists: true } })) },
+      { $unset: Object.fromEntries(retired.map((f) => [f, ''])) },
+    );
+    if (result.modifiedCount) this.logger.log(`Removed retired fields from ${result.modifiedCount} service(s)`);
   }
 
   // One-time data move from the old `modules` collection. Runs on every boot
@@ -76,28 +91,24 @@ export class ServicesService implements OnModuleInit {
 
   async findAll(options: {
     type?: string;
-    category?: string;
     publicOnly?: boolean;
     search?: string;
     page?: number;
     limit?: number;
-    country?: string;
     nicheSlug?: string;
     pipelineCategory?: string;
     lang?: string;
   } = {}) {
     const {
-      type, category, publicOnly, search,
-      page = 1, limit = 20, country, nicheSlug, pipelineCategory, lang = 'en',
+      type, publicOnly, search,
+      page = 1, limit = 20, nicheSlug, pipelineCategory, lang = 'en',
     } = options;
 
     const filter: any = { isDeleted: false };
     if (type) filter.type = type;
-    if (category) filter.category = category;
     // Public catalog = active + coming soon (coming-soon cards render with an
     // overlay on /pricing); inactive is admin-only.
     if (publicOnly) filter.status = { $in: [ServiceStatus.ACTIVE, ServiceStatus.COMING_SOON] };
-    if (country) filter.availableIn = country;
     if (nicheSlug) filter.nicheSlug = nicheSlug;
     if (pipelineCategory) filter.pipelineCategory = pipelineCategory;
     if (search) filter.$or = [

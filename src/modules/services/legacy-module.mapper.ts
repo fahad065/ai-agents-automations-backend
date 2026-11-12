@@ -6,11 +6,10 @@ import { ServiceStatus, ServiceType } from './schemas/service.schema';
 //
 // Renamed: moduleType -> type, features -> featureCards,
 //          isActive + isComingSoon -> status.
-// Dropped (confirmed unread anywhere before removing): outputType,
-//          totalUsersCount/totalRunsCount/avgCostPerRun (only ever written by
-//          incrementStats()/incrementUserCount(), which had zero callers, and
-//          read only by GET /modules/public/stats, which the frontend never
-//          called).
+// Dropped: outputType and totalUsersCount/totalRunsCount/avgCostPerRun
+//          (zero readers), plus category, availableIn and
+//          estimatedCostPerRun (not in the architecture.md services shape;
+//          their readers were moved to nicheSlug or removed).
 export function legacyModuleToService(m: Record<string, any>): Record<string, any> {
   let status = ServiceStatus.ACTIVE;
   if (m.isComingSoon) status = ServiceStatus.COMING_SOON;
@@ -26,7 +25,6 @@ export function legacyModuleToService(m: Record<string, any>): Record<string, an
     tagline: m.tagline,
     tagline_ar: m.tagline_ar,
     nicheSlug: m.nicheSlug,
-    category: m.category,
     pipelineType: m.pipelineType,
     pipelineCategory: m.pipelineCategory || 'standalone',
     components: m.components || [],
@@ -34,8 +32,6 @@ export function legacyModuleToService(m: Record<string, any>): Record<string, an
     capabilities: m.capabilities || [],
     capabilities_ar: m.capabilities_ar || [],
     platforms: m.platforms || [],
-    availableIn: m.availableIn || ['UAE', 'Kenya'],
-    estimatedCostPerRun: m.estimatedCostPerRun,
     icon: m.icon ?? '🤖',
     color: m.color ?? '#7c3aed',
     badge: m.badge ?? 'New',

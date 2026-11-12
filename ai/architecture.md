@@ -45,6 +45,7 @@ deliberately does **not** follow this pattern (`slug`).
 _id, name, email (unique)
 password?, provider (local|google — facebook/apple are DEAD, see rules.md), googleId?
 phoneNumber?, country?, avatar?
+timezone?, company?                                  -- added 2026-11-12: live (Profile page edits both)
 role: user | admin
 status: active | inactive
 isDeleted
@@ -60,6 +61,17 @@ onboarding: {}
 notifyPreferences: {}
 deletionRequestedAt?, pendingDeletionAt?, deletionReminderSent -- DONE, 2026-11-10 — account-deletion flow, see below
 ```
+**Follow-up, 2026-11-12** (user reviewed a real production signup and
+asked for the schema to match this list): `notifyPreferences` and
+`onboarding` were missing from new signups because Mongoose's default
+`minimize` strips empty objects on save — fixed with real defaults for
+`notifyPreferences` and `minimize: false` on the schema, plus a backfill.
+Seven more fields outside this list were confirmed dead and removed with
+the user's sign-off: `totalVideosGenerated`, `totalCreditsUsed`,
+`onboardingCompleted`, `trialReminderSent`, `freeForeverGrantedBy`,
+`trialExtendedUntil`, `trialExtendedBy` (unset from existing docs on
+boot). `timezone`/`company` were kept and added to the list above.
+
 Dropped from today's real `User` schema: `facebookId`/`appleId` (dead —
 Google is the only working social login), `totalAgents`/`totalAutomations`
 (premature denormalization — compute via `userservices.countDocuments()` on
@@ -388,6 +400,7 @@ name(_ar), slug                              -- slug has NO _ar twin, see rules.
 description(_ar), tagline(_ar)
 metaTitle(_ar), metaDescription(_ar)
 nicheSlug, pipelineCategory: standalone | niche_pipeline
+pipelineType                                 -- added 2026-11-12: which pipeline the Python service runs; what pipeline_runs snapshots
 components: []                               -- niche_pipeline only
 requiredApiKeys: []
 capabilities(_ar): []
@@ -425,12 +438,19 @@ stripePriceId?                               -- catalog-level, one per sellable 
   `isActive`+`isComingSoon`→`status`. The seed (`seed-services.ts`) is the
   old `SEED_MODULES` moved verbatim, still in legacy shape, run through the
   same mapper — so seeded and migrated docs can't diverge.
-- **Kept beyond the field list above** (all confirmed live): `pipelineType`
-  (what `pipeline_runs` snapshots, and `usermodules` uses), `category`
-  (agents-list filter), `availableIn` (marketplace `?country=` filter),
-  `estimatedCostPerRun` (shown in the marketplace). `nicheSlug`/`category`/
-  `pipelineType` are plain strings now, not enums — the old enums had
-  drifted from the stored values (`tiktok`, `whatsapp`, `arabic`...).
+- **Strictly the field list above** (user direction, 2026-11-12: "follow
+  the new UML, not the old production fields"). The first release had also
+  carried over `category`, `availableIn` and `estimatedCostPerRun`; the
+  user chose to keep only `pipelineType` (now added to the list above,
+  since `pipeline_runs` already depended on it) and drop the other three.
+  Readers moved: `/agents` and `/automations` filter by `nicheSlug`
+  instead of `category`; the marketplace's country filter and
+  per-run-cost line were removed (country is being phased out anyway).
+  `ServicesService.dropRetiredFields()` unsets them from docs the first
+  release already wrote (raw collection — Mongoose strict mode would drop
+  an `$unset` of paths no longer on the schema).
+- `nicheSlug`/`pipelineType` are plain strings, not enums — the old enums
+  had drifted from the stored values (`tiktok`, `whatsapp`, `arabic`...).
 - **Dropped** (zero readers): `outputType`, `totalUsersCount`/
   `totalRunsCount`/`avgCostPerRun` and `GET /modules/public/stats`.
 - The old `ModulesService` backfills (chatbot pricing/tiers/Arabic copy,

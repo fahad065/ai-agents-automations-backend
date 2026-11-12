@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document } from 'mongoose';
 
 export type UserDocument = User & Document;
 
@@ -57,7 +57,10 @@ class NotifyPreferences {
   @Prop({ default: false }) emailUpdates: boolean;
 }
 
-@Schema({ timestamps: true })
+// minimize: false so `onboarding: {}` is actually stored on signup, as the
+// architecture.md shape lists it. Mongoose's default (minimize: true) strips
+// empty objects on save — which is also why notifyPreferences went missing.
+@Schema({ timestamps: true, minimize: false })
 export class User {
   @Prop({ required: true, trim: true })
   name: string;
@@ -139,16 +142,7 @@ export class User {
   @Prop()
   refreshToken?: string;
 
-  @Prop({ default: 0 })
-  totalVideosGenerated: number;
-
-  @Prop({ default: 0 })
-  totalCreditsUsed: number;
-
   // ── Onboarding ──────────────────────────────────────────────
-  @Prop({ default: false })
-  onboardingCompleted: boolean;
-
   @Prop({ type: Object, default: {} })
   onboarding: OnboardingData;
 
@@ -169,19 +163,7 @@ export class User {
   trialEndDate: Date;
 
   @Prop({ default: false })
-  trialReminderSent: boolean;
-
-  @Prop({ default: false })
   isFreeForever: boolean;
-
-  @Prop({ type: Types.ObjectId })
-  freeForeverGrantedBy?: Types.ObjectId;
-
-  @Prop()
-  trialExtendedUntil?: Date;
-
-  @Prop({ type: Types.ObjectId })
-  trialExtendedBy?: Types.ObjectId;
 
   // ── Billing summary (denormalized for quick access) ─────────
   @Prop({ default: 0 })

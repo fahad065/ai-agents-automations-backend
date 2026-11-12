@@ -74,6 +74,27 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       if (notifyResult.modifiedCount) {
         this.logger.log(`Backfilled notifyPreferences on ${notifyResult.modifiedCount} user(s)`);
       }
+
+      // Fields confirmed dead (never read anywhere) and removed from the
+      // schema, plus `onboarding: {}` for users created while the schema
+      // still minimized it away. Raw collection: Mongoose strict mode would
+      // drop an $unset of paths no longer on the schema. Matches nothing
+      // once cleaned, so it's free on later boots.
+      const retired = [
+        'totalVideosGenerated', 'totalCreditsUsed', 'onboardingCompleted', 'trialReminderSent',
+        'freeForeverGrantedBy', 'trialExtendedUntil', 'trialExtendedBy',
+      ];
+      const retiredResult = await this.userModel.collection.updateMany(
+        { $or: retired.map((f) => ({ [f]: { $exists: true } })) },
+        { $unset: Object.fromEntries(retired.map((f) => [f, ''])) },
+      );
+      if (retiredResult.modifiedCount) {
+        this.logger.log(`Removed retired fields from ${retiredResult.modifiedCount} user(s)`);
+      }
+      await this.userModel.collection.updateMany(
+        { onboarding: { $exists: false } },
+        { $set: { onboarding: {} } },
+      );
     }
 
     async findById(id: string) {
@@ -302,8 +323,6 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
      
       await this.userModel.findByIdAndUpdate(userId, {
         trialEndDate: newEnd,
-        trialExtendedUntil: newEnd,
-        trialExtendedBy: adminId,
         // Reactivate if was expired
         planType: 'trial',
       });

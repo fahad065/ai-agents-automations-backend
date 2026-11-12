@@ -811,3 +811,19 @@ default, which Mongoose's `minimize` strips on save — so new signups were
 stored with no `notifyPreferences` at all (user spotted it on a real
 production signup). Default is now the real values; the existing
 `UsersService.onModuleInit()` backfill heals any user already missing it.
+
+## 2026-11-12 — Schemas trimmed to the UML + confirm-before-migrating rule
+
+User pushed back that `services` had copied old production fields instead
+of following the UML. Owned it: every UML field was present, but I'd kept
+4 extras (`pipelineType`, `category`, `availableIn`, `estimatedCostPerRun`)
+without asking. User chose: keep `pipelineType` (added to the UML — the
+`pipeline_runs` section already depended on it), drop the other three. On
+boot, `ServicesService.dropRetiredFields()` unsets them from the docs the
+first release already wrote to production.
+
+Same review on `users`, confirmed with the user before changing anything
+(new rules.md #13): `minimize: false` so `onboarding: {}` and
+`notifyPreferences` actually save; 7 dead fields removed and unset on boot;
+`timezone`/`company` kept and added to the UML. New
+`users.service.spec.ts` covers the cleanup. Suite 47/47.

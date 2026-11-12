@@ -15,17 +15,15 @@ export class ServicesController {
   @Get()
   findAll(
     @Query('type') type?: string,
-    @Query('category') category?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('country') country?: string,
     @Query('nicheSlug') nicheSlug?: string,
     @Query('pipelineCategory') pipelineCategory?: string,
     @Query('lang') lang = 'en',
   ) {
     return this.service.findAll({
-      type, category, search, country, nicheSlug, pipelineCategory, lang,
+      type, search, nicheSlug, pipelineCategory, lang,
       publicOnly: true,
       page: toInt(page),
       limit: toInt(limit, 20),
@@ -38,14 +36,13 @@ export class ServicesController {
   findAllAdmin(
     @Req() req: any,
     @Query('type') type?: string,
-    @Query('category') category?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.service.findAll({
-      type, category, search,
+      type, search,
       page: toInt(page),
       limit: toInt(limit, 20),
     });

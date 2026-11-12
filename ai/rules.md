@@ -89,6 +89,15 @@ of these.
     read after real customers exist, that assumption needs to be
     re-examined before touching anything below.
 
+13. **Confirm the field list with the user before any migration or seed
+    writes data.** (User direction, 2026-11-12, after the first `services`
+    release carried four old `modules` fields that aren't in this file's
+    schema.) Before shipping anything that writes documents — a boot-time
+    migration, a seed, a backfill — list exactly which fields it will write,
+    and call out any field not in `architecture.md` with what reads it.
+    Ship only after the user confirms. A field being "still used by old
+    code" is a reason to ask, not a reason to keep it silently.
+
 ## Naming conventions
 
 - snake_case for Mongo field names shown in `architecture.md` matches the

@@ -108,10 +108,11 @@ export class Service {
 
   // Plain strings, not enums — the old ModuleTemplate enums had drifted out
   // of sync with the values actually stored (seed data uses 'tiktok',
-  // 'whatsapp', 'arabic'... none of which were in the enum). pipelineType is
-  // what pipeline_runs snapshots at run time (architecture.md).
+  // 'whatsapp', 'arabic'... none of which were in the enum).
   @Prop() nicheSlug?: string;
-  @Prop() category?: string;
+
+  // Which pipeline the Python service runs for this service (sent on
+  // subscribe, and what pipeline_runs snapshots at run time).
   @Prop() pipelineType?: string;
 
   @Prop({ enum: PipelineCategory, default: PipelineCategory.STANDALONE })
@@ -135,13 +136,6 @@ export class Service {
   // Descriptive/marketing only (e.g. ['WhatsApp']) — never a customer's
   // channel credentials; those live on userservices.config.
   @Prop({ type: [String], default: [] }) platforms: string[];
-
-  // Still used for the ?country= filter on the dashboard marketplace. Country
-  // is being phased out as a concept (frontend CLAUDE.md), but removing it is
-  // a separate decision — carried over as-is.
-  @Prop({ type: [String], default: ['UAE', 'Kenya'] }) availableIn: string[];
-
-  @Prop() estimatedCostPerRun?: string;
 
   // Flat display fields — never nested under a key called `config`
   // (rules.md #5; that name means something else on userservices).
@@ -184,4 +178,3 @@ export const ServiceSchema = SchemaFactory.createForClass(Service);
 
 ServiceSchema.index({ type: 1, status: 1, isDeleted: 1, sortOrder: 1 });
 ServiceSchema.index({ nicheSlug: 1 });
-ServiceSchema.index({ availableIn: 1 });

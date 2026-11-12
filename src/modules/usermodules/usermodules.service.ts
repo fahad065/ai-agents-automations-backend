@@ -117,7 +117,7 @@ export class UserModulesService {
     const [data, total] = await Promise.all([
       this.userModuleModel
         .find(filter)
-        .populate('moduleId', 'name icon color category pipelineType capabilities pricing estimatedCostPerRun platforms')
+        .populate('moduleId', 'name icon color pipelineType capabilities pricing platforms')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

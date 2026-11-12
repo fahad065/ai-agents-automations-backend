@@ -31,6 +31,14 @@ describe('legacyModuleToService', () => {
     expect(out).not.toHaveProperty('outputType');
   });
 
+  it('drops fields that are not in the architecture.md services shape', () => {
+    const out = legacyModuleToService({
+      ...base, pipelineType: 'youtube', category: 'youtube', availableIn: ['UAE'], estimatedCostPerRun: '$3',
+    });
+    expect(out.pipelineType).toBe('youtube');
+    for (const f of ['category', 'availableIn', 'estimatedCostPerRun']) expect(out).not.toHaveProperty(f);
+  });
+
   it('carries isDeleted through so soft-deleted modules stay soft-deleted', () => {
     expect(legacyModuleToService({ ...base, isDeleted: true }).isDeleted).toBe(true);
   });
@@ -117,5 +125,16 @@ describe('ServicesService migration', () => {
     const { service, serviceModel } = build([]);
     await (service as any).migrateFromModules();
     expect(serviceModel.updateOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('ServicesService.dropRetiredFields', () => {
+  it('unsets the retired fields through the raw collection (bypassing strict mode)', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 22 });
+    const svc = new ServicesService({ collection: { updateMany } } as any, {} as any);
+    await (svc as any).dropRetiredFields();
+    const [filter, update] = updateMany.mock.calls[0];
+    expect(filter.$or).toHaveLength(3);
+    expect(Object.keys(update.$unset).sort()).toEqual(['availableIn', 'category', 'estimatedCostPerRun']);
   });
 });

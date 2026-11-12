@@ -28,7 +28,7 @@ replacement to wait for — there's nothing to migrate data *into*, so there's
 no reason to defer this phase at all.
 
 ## Phase 1 — `services` (the catalog)
-**Status, 2026-11-12: agents/automations/chatbots ✅ migrated and every catalog reader switched to `/services` (both repos). Remaining: industries → `type: 'bundle'` services. Phase 0 code removal ✅ done the same day (industries/industry-subscriptions deliberately kept until bundles land). See architecture.md's `services` notes and traces.md.**
+**Status, 2026-11-12: ✅ DONE.** Agents/automations/chatbots migrated, every catalog reader on `/services`, migration code removed. `industries` + `industry-subscriptions` code deleted at the user's direction (not converted to bundles). Collections left for the user to drop by hand: `modules`, `industries`, `industry-subscriptions` (plus Phase 0's `niches`, `subscriptions`, `trends`, `content_ideas`). **Next: Phase 2 (`userservices`)**; once that's verified, the `usermodules` code is deleted and the user drops that collection.
 
 Everything downstream references it. Build the schema (see
 `architecture.md`), write a one-time migration script that reads every

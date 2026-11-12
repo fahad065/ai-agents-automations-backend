@@ -827,3 +827,20 @@ Same review on `users`, confirmed with the user before changing anything
 `notifyPreferences` actually save; 7 dead fields removed and unset on boot;
 `timezone`/`company` kept and added to the UML. New
 `users.service.spec.ts` covers the cleanup. Suite 47/47.
+
+## 2026-11-12 — industries removed; modules migration removed
+
+User: "we don't need industries … we are dealing directly with services."
+Deleted `src/modules/industries/` and `src/modules/industry-subscriptions/`
+(+ `app.module.ts` registrations); nothing else in the backend or the Python
+service referenced them. Industries were NOT converted into bundle services.
+
+Also removed `ServicesService.migrateFromModules()` (and its 5 tests — suite
+now 42/42): it already ran in production, the user confirmed the services
+data, and they're dropping `modules` by hand. `dropRetiredFields()` and the
+seed stay.
+
+Collections the user will drop by hand: `modules`, `industries`,
+`industry-subscriptions` (plus Phase 0's `niches`, `subscriptions`,
+`trends`, `content_ideas`). Next: Phase 2 `userservices`, then delete the
+`usermodules` code.

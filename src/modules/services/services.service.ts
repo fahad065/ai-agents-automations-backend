@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { Service, ServiceDocument, ServiceStatus } from './schemas/service.schema';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
@@ -19,11 +19,9 @@ export class ServicesService implements OnModuleInit {
 
   constructor(
     @InjectModel(Service.name) private serviceModel: Model<ServiceDocument>,
-    @InjectConnection() private connection: Connection,
   ) {}
 
   async onModuleInit() {
-    await this.migrateFromModules();
     await this.seed();
     await this.dropRetiredFields();
   }
@@ -40,36 +38,6 @@ export class ServicesService implements OnModuleInit {
       { $unset: Object.fromEntries(retired.map((f) => [f, ''])) },
     );
     if (result.modifiedCount) this.logger.log(`Removed retired fields from ${result.modifiedCount} service(s)`);
-  }
-
-  // One-time data move from the old `modules` collection. Runs on every boot
-  // but only ever inserts: keyed on _id, so once a service exists it's never
-  // touched again (admin edits made in `services` are safe). Each service
-  // KEEPS its old module's _id — that's what lets every existing reference
-  // (usermodules.moduleId, industries.defaultModuleIds,
-  // industry-subscriptions) keep resolving with no data rewrite. Becomes a
-  // no-op once `modules` is dropped by hand after verification.
-  private async migrateFromModules() {
-    const legacy = await this.connection.db!.collection('modules').find({}).toArray();
-    if (!legacy.length) return;
-
-    let migrated = 0;
-    for (const doc of legacy) {
-      try {
-        const result = await this.serviceModel.updateOne(
-          { _id: doc._id },
-          { $setOnInsert: compact({ _id: doc._id, ...legacyModuleToService(doc) }) },
-          { upsert: true },
-        );
-        if (result.upsertedCount) migrated++;
-      } catch (err: any) {
-        // Duplicate slug under a different _id — a services doc with this
-        // slug already exists (e.g. created by hand). Leave both alone and
-        // say so rather than guessing which one is right.
-        this.logger.warn(`Skipped migrating module "${doc.slug}" (${doc._id}): ${err?.message}`);
-      }
-    }
-    if (migrated) this.logger.log(`Migrated ${migrated} module(s) -> services`);
   }
 
   // Same insert-only, upsert-by-slug seeding the old ModulesService did —

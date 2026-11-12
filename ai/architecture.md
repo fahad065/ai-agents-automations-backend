@@ -468,10 +468,13 @@ stripePriceId?                               -- catalog-level, one per sellable 
   persisted anything — `testimonials` wasn't on `ModuleTemplate` and isn't
   on `services`, so Mongoose strict mode drops it on save. Needs a decision
   (add the field, or remove the tab).
-- **Bundles not done yet.** `industries` (`defaultModuleIds` = the bundle
-  contents) still live in their own collection; next step converts each to
-  a `type: 'bundle'` service with `include[]`, and moves the `/industries`
-  pages + admin editor onto it.
+- **Bundles:** the schema supports `type: 'bundle'` + `include[]`, but no
+  bundle exists yet. `industries` was NOT converted into bundles — the user
+  retired industries outright (2026-11-12). A bundle, when wanted, is
+  created as a new service.
+- **The `modules` -> `services` migration has been removed** (2026-11-12):
+  it ran in production, the user confirmed the services data, and
+  `modules` is being dropped by hand.
 
 ### `billing` — the manual payment ledger (append-only; never mutate a historical record's amount/status after the fact — a refund is its own new row, not an edit to the original)
 ```
@@ -696,9 +699,9 @@ output), so it stays paused rather than deleted.
 |---|---|---|
 | `niches` | **DELETE** — confirmed zero real callers anywhere in the codebase | n/a, dead code |
 | `subscriptions` | **DELETE** — confirmed zero real callers | `userservices` was always the real mechanism |
-| `industries` | **DELETE** (confirm where, if anywhere, `/industries/:slug` marketing content goes first — `nicheSlug` on `services` already covers the filtering need) | n/a |
-| `industry-subscriptions` | **DELETE** — live in the UI but `subscribe()` never actually creates a `usermodules`/`userservices` row; a bundle bought through it can take a payment and run nothing | `userservices` fan-out (see the bundle-flow design) |
-| `modules` (ModuleTemplate) | Replaced once migrated | `services` |
+| `industries` | **CODE DELETED 2026-11-12** (user: "we don't need industries") — collection to be dropped by hand. Not migrated into bundles. `/industries` URLs 308 to `/services` / `/services?niche=<slug>`; the industry filter on `/services` (by `nicheSlug`) replaces the pages | `services.nicheSlug` |
+| `industry-subscriptions` | **CODE DELETED 2026-11-12** — collection to be dropped by hand | `userservices` |
+| `modules` (ModuleTemplate) | **Migrated + code deleted 2026-11-12** (incl. the boot-time migration) — collection to be dropped by hand | `services` |
 | `usermodules` (UserModule) | Replaced once migrated | `userservices` (type: agent\|automation) |
 | `chatbots` (ownership fields only) | Replaced once migrated | `userservices` (type: chatbot) |
 | `chatbots.billing` subdocument | Replaced once migrated | `userservices` (current state) + `billing` (transaction history) |

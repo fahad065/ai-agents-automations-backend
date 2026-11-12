@@ -1,4 +1,3 @@
-import { Types } from 'mongoose';
 import { ServicesService } from './services.service';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
@@ -68,70 +67,10 @@ describe('LEGACY_SEED_MODULES', () => {
   });
 });
 
-describe('ServicesService migration', () => {
-  function build(legacyDocs: any[]) {
-    const serviceModel: any = {
-      updateOne: jest.fn().mockResolvedValue({ upsertedCount: 1 }),
-    };
-    const connection: any = {
-      db: { collection: jest.fn(() => ({ find: () => ({ toArray: async () => legacyDocs }) })) },
-    };
-    return { service: new ServicesService(serviceModel, connection), serviceModel, connection };
-  }
-
-  it('reads the raw `modules` collection and upserts each doc keyed on its ORIGINAL _id', async () => {
-    const id = new Types.ObjectId();
-    const { service, serviceModel, connection } = build([
-      { _id: id, slug: 'youtube-agent', name: 'YouTube Agent', moduleType: 'agent', features: [] },
-    ]);
-    await (service as any).migrateFromModules();
-
-    expect(connection.db.collection).toHaveBeenCalledWith('modules');
-    const [filter, update, opts] = serviceModel.updateOne.mock.calls[0];
-    expect(filter).toEqual({ _id: id });
-    expect(update.$setOnInsert._id).toBe(id);
-    expect(update.$setOnInsert.slug).toBe('youtube-agent');
-    expect(opts).toEqual({ upsert: true });
-  });
-
-  it('is insert-only ($setOnInsert, never $set) so admin edits in services survive every boot', async () => {
-    const { service, serviceModel } = build([{ _id: new Types.ObjectId(), slug: 'a', name: 'A', moduleType: 'agent' }]);
-    await (service as any).migrateFromModules();
-    const update = serviceModel.updateOne.mock.calls[0][1];
-    expect(Object.keys(update)).toEqual(['$setOnInsert']);
-  });
-
-  it('never writes undefined fields (they would land as null)', async () => {
-    const { service, serviceModel } = build([{ _id: new Types.ObjectId(), slug: 'a', name: 'A', moduleType: 'agent' }]);
-    await (service as any).migrateFromModules();
-    const doc = serviceModel.updateOne.mock.calls[0][1].$setOnInsert;
-    expect(Object.values(doc).some((v) => v === undefined)).toBe(false);
-    expect(doc).not.toHaveProperty('demoVideoUrl');
-  });
-
-  it('skips (does not throw on) a slug collision and continues with the rest', async () => {
-    const { service, serviceModel } = build([
-      { _id: new Types.ObjectId(), slug: 'dup', name: 'Dup', moduleType: 'agent' },
-      { _id: new Types.ObjectId(), slug: 'ok', name: 'Ok', moduleType: 'agent' },
-    ]);
-    serviceModel.updateOne
-      .mockRejectedValueOnce(new Error('E11000 duplicate key error'))
-      .mockResolvedValueOnce({ upsertedCount: 1 });
-    await expect((service as any).migrateFromModules()).resolves.toBeUndefined();
-    expect(serviceModel.updateOne).toHaveBeenCalledTimes(2);
-  });
-
-  it('is a no-op once `modules` has been dropped', async () => {
-    const { service, serviceModel } = build([]);
-    await (service as any).migrateFromModules();
-    expect(serviceModel.updateOne).not.toHaveBeenCalled();
-  });
-});
-
 describe('ServicesService.dropRetiredFields', () => {
   it('unsets the retired fields through the raw collection (bypassing strict mode)', async () => {
     const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 22 });
-    const svc = new ServicesService({ collection: { updateMany } } as any, {} as any);
+    const svc = new ServicesService({ collection: { updateMany } } as any);
     await (svc as any).dropRetiredFields();
     const [filter, update] = updateMany.mock.calls[0];
     expect(filter.$or).toHaveLength(3);

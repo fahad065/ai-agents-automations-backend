@@ -18,8 +18,6 @@ import { ServicesModule } from './modules/services/services.module';
 import { UserModulesModule } from './modules/usermodules/usermodules.module';
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
-import { IndustriesModule } from './modules/industries/industries.module';
-import { IndustrySubscriptionsModule } from './modules/industry-subscriptions/industry-subscriptions.module';
 import { ChatbotsModule } from './modules/chatbots/chatbots.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
@@ -86,8 +84,6 @@ import { DocumentsModule } from './modules/documents/documents.module';
     UserModulesModule,
     EmailModule,
     AdminModule,
-    IndustriesModule,
-    IndustrySubscriptionsModule,
     ChatbotsModule,
     ChatModule,
     ActivityLogsModule,

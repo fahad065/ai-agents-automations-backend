@@ -9,12 +9,9 @@ import { TenantSentryInterceptor } from './tenant-sentry.interceptor';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
-import { TrendsModule } from './modules/trends/trends.module';
-import { ContentIdeasModule } from './modules/content-ideas/content-ideas.module';
 import { CmsModule } from './modules/cms/cms.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PipelineRunsModule } from './modules/pipeline-runs/pipeline-runs.module';
-import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { ModulesModule } from './modules/modules/modules.module';
@@ -80,12 +77,9 @@ import { DocumentsModule } from './modules/documents/documents.module';
     AuthModule,
     UsersModule,
     ApiKeysModule,
-    TrendsModule,
-    ContentIdeasModule,
     CmsModule,
     NotificationsModule,
     PipelineRunsModule,
-    SubscriptionsModule,
     BillingModule,
     FeedbackModule,
     ModulesModule,

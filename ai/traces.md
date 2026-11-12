@@ -751,3 +751,34 @@ Verified: `tsc --noEmit` + `nest build` clean, Jest 31/31, and a direct
 boot against an unreachable Mongo URI to confirm the new
 `UsersModule`→`ChatbotModule` DI wiring resolves (no live Atlas in this
 sandbox to run the backfill against real documents).
+
+## 2026-11-12 — Phase 0: dead-collection code removed (industries deferred)
+
+User will drop the collections from MongoDB Compass manually; this pass
+removes the code. Deleted outright: `src/modules/niches/`,
+`subscriptions/`, `trends/`, `content-ideas/` (+ their `app.module.ts`
+registrations). Confirmed zero cross-references first (grep across all
+three repos — the Python service never called any of them). `NichesModule`
+was never even registered in `app.module.ts`.
+
+**Deliberately NOT removed yet: `industries` + `industry-subscriptions`.**
+Both are still live: `/industries` + `/industries/:slug` are public
+marketing pages (navbar, footer, hero, CTA, niches section all link
+there), `/dashboard/industries` is the admin editor, and the dashboard
+overview reads `/industry-subscriptions`. architecture.md already flagged
+industries as "confirm where the marketing content goes first." Plan:
+industry bundles become `services` docs with `type: 'bundle'` +
+`include[]` in Phase 1 (that's exactly what a bundle is in the new
+schema), and `industry-subscriptions` is replaced by the `userservices`
+bundle fan-out in Phase 2 — delete both modules' code at that point, then
+drop the collections.
+
+Note `/dashboard/subscriptions` (frontend) is NOT tied to the dead
+`subscriptions` collection — it reads `/usermodules`. Kept.
+
+Frontend: `modules-page.tsx`'s marketplace called `GET /niches`, which
+404'd (never registered) and rejected the whole `Promise.all` — the "+ Add
+Module" grid has been coming up empty. Fixed: niche filter pills are now
+derived from the loaded modules' own `nicheSlug`. Dead
+`discoverTrend`/`generateIdea`/`getIdeas`/`runPipeline` helpers removed
+from `dashboard-api.ts`.

@@ -13,6 +13,7 @@ import { Billing, BillingDocument } from '../billing/schemas/billing.schema';
 import { ActivityLog, ActivityLogDocument, ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 import { EmailService } from '../email/email.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { DocumentsService } from '../documents/documents.service';
 
 export type DeletionMode = 'instant' | 'scheduled';
 
@@ -37,6 +38,7 @@ export class AccountDeletionService {
     @InjectModel(ActivityLog.name) private activityLogModel: Model<ActivityLogDocument>,
     private emailService: EmailService,
     private activityLogsService: ActivityLogsService,
+    private documentsService: DocumentsService,
   ) {}
 
   // ─── Request / cancel ──────────────────────────────────────
@@ -174,6 +176,11 @@ export class AccountDeletionService {
     bill.addRow(['Module', 'Type', 'Amount', 'Currency', 'Status', 'Description', 'Date']);
     billing.forEach((b: any) => bill.addRow([b.moduleName, b.type, b.amount, b.currency, b.status, b.description, b.billingDate]));
 
+    const documents = await this.documentsService.listDocuments(userId);
+    const docs = wb.addWorksheet('Documents');
+    docs.addRow(['Document type', 'File type', 'Size (bytes)', 'Uploaded', 'File link']);
+    documents.forEach((d: any) => docs.addRow([d.documentType, d.fileType, d.fileSize, d.uploadedAt, d.fileUrl]));
+
     const logs = wb.addWorksheet('Activity Log');
     logs.addRow(['Action', 'Module', 'Description', 'Date']);
     activityLogs.forEach((l: any) => logs.addRow([l.action, l.entityType, l.description, l.createdAt]));
@@ -276,6 +283,8 @@ export class AccountDeletionService {
       this.apiKeyModel.deleteMany({ userId: uid }),
       this.userModuleModel.deleteMany({ userId: uid }),
       this.notificationModel.deleteMany({ userId: uid }),
+      // Uploaded identity/business documents (and their stored files).
+      this.documentsService.purgeAllForUser(uid.toString()),
     ]);
 
     // Anonymize, don't delete — stable _id keeps Billing/ActivityLog

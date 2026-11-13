@@ -855,3 +855,19 @@ Documents; (C) rollout order — all chatbot templates in the admin panel,
 then agents, then automations, with lead sourcing per service in parallel.
 Full notes + suggestions: implementation-guide.md "Backlog". User asked to
 be reminded of these.
+
+## 2026-11-13 — Account deletion now removes uploaded documents (bug fix)
+
+Found while reviewing the production Privacy Policy/Terms text: deleting an
+account removed chatbots, knowledge base, conversations, API keys,
+subscriptions and notifications — but NOT the `documents` collection (which
+can hold identity documents such as an Emirates ID) or their stored files,
+because the documents module was added after account deletion was built.
+The data export also left documents out.
+
+`DocumentsService.purgeAllForUser()` hard-deletes every document row for the
+user (including already-soft-deleted rows, which still hold ID metadata) and
+best-effort deletes each stored file (a failed file delete never blocks the
+account deletion). Called from `AccountDeletionService.deleteUserData()`
+(both Instant and 8-day paths). Export gained a "Documents" sheet. New
+`documents.service.spec.ts`; suite 44/44.

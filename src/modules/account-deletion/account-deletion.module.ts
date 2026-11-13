@@ -12,6 +12,7 @@ import { ApiKey, ApiKeySchema } from '../api-keys/schemas/api-key.schema';
 import { Notification, NotificationSchema } from '../notifications/schemas/notification.schema';
 import { Billing, BillingSchema } from '../billing/schemas/billing.schema';
 import { ActivityLog, ActivityLogSchema } from '../activity-logs/schemas/activity-log.schema';
+import { DocumentsModule } from '../documents/documents.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { ActivityLog, ActivityLogSchema } from '../activity-logs/schemas/activit
       { name: Billing.name, schema: BillingSchema },
       { name: ActivityLog.name, schema: ActivityLogSchema },
     ]),
+    DocumentsModule,
   ],
   controllers: [AccountDeletionController],
   providers: [AccountDeletionService, AccountDeletionCron],

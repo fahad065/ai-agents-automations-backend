@@ -89,6 +89,25 @@ export class DocumentsService {
       .sort({ uploadedAt: -1 });
   }
 
+  // Account deletion: hard-delete every document row for this user —
+  // including ones already soft-deleted, since those rows still hold
+  // identity-document metadata — and best-effort remove each stored file.
+  // A failed file delete never blocks the account deletion (same rule as
+  // deleteDocument() below).
+  async purgeAllForUser(userId: string): Promise<number> {
+    const uid = new Types.ObjectId(userId);
+    const docs = await this.documentModel.find({ userId: uid }).select('fileUrl').lean();
+    for (const doc of docs) {
+      try {
+        await del(doc.fileUrl, { token: this.blobToken });
+      } catch (err: any) {
+        this.logger.warn(`Account deletion: failed to delete blob for document=${doc._id}: ${err?.message}`);
+      }
+    }
+    const result = await this.documentModel.deleteMany({ userId: uid });
+    return result.deletedCount ?? 0;
+  }
+
   async hasAnyDocument(userId: string): Promise<boolean> {
     const count = await this.documentModel.countDocuments({
       userId: new Types.ObjectId(userId),

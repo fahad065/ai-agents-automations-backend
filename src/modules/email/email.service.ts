@@ -10,6 +10,17 @@ export class EmailService {
   private readonly from = process.env.SMTP_FROM || 'noreply@logicmate.io';
   private readonly adminEmail = process.env.ADMIN_NOTIFY_EMAIL || 'hello@logicmate.io';
 
+  // Mail goes out from noreply@ (send-only, no inbox), so every email sets a
+  // real Reply-To — many templates say "reply to this email", and without
+  // this those replies (e.g. payment receipts) never reached anyone.
+  // Mailbox roles: hello@ general, billing@ payments, privacy@ data requests,
+  // support@ technical help, legal@ terms/contracts.
+  private readonly replyTo = {
+    general: process.env.REPLY_TO_EMAIL || 'hello@logicmate.io',
+    billing: 'billing@logicmate.io',
+    privacy: 'privacy@logicmate.io',
+  };
+
   // ── Core send via Resend HTTP API ─────────────────────────
   private async send(
     to: string | string[],
@@ -17,6 +28,7 @@ export class EmailService {
     html: string,
     cc?: string,
     attachments?: { filename: string; content: string }[],
+    replyTo: string = this.replyTo.general,
   ): Promise<boolean> {
     try {
       const body: any = {
@@ -26,6 +38,7 @@ export class EmailService {
         html,
       };
       if (cc) body.cc = [cc];
+      if (replyTo) body.reply_to = replyTo;
       if (attachments?.length) body.attachments = attachments;
 
       const res = await fetch('https://api.resend.com/emails', {
@@ -257,7 +270,7 @@ export class EmailService {
         </div>
       </div>
     `);
-    await this.send(user.email, `⏰ Your trial expires in ${data.daysLeft} days — ${data.moduleName}`, html);
+    await this.send(user.email, `⏰ Your trial expires in ${data.daysLeft} days — ${data.moduleName}`, html, undefined, undefined, this.replyTo.billing);
   }
 
   // ── 6. Trial Expired ──────────────────────────────────────
@@ -284,11 +297,11 @@ export class EmailService {
           View Payment Instructions →
         </a>
         <p style="color:#525252;font-size:12px;margin:20px 0 0;">
-          Questions? Reply to this email or contact hello@logicmate.io
+          Questions? Reply to this email or contact billing@logicmate.io
         </p>
       </div>
     `);
-    await this.send(user.email, `Your trial has ended — continue with ${data.moduleName}`, html);
+    await this.send(user.email, `Your trial has ended — continue with ${data.moduleName}`, html, undefined, undefined, this.replyTo.billing);
   }
 
   // ── Day 1 — API Keys reminder ─────────────────────────────
@@ -723,10 +736,10 @@ export class EmailService {
         <div style="text-align:center;">
           <a href="${billingUrl}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">Go to Billing →</a>
         </div>
-        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">Questions? Reply to this email or write to hello@logicmate.io</p>
+        <p style="color:#525252;font-size:12px;margin:24px 0 0;text-align:center;">Questions? Reply to this email or write to billing@logicmate.io</p>
       </div>
     `);
-    await this.send(user.email, `⏰ "${data.chatbotName}" trial expires in ${data.daysLeft} days`, html);
+    await this.send(user.email, `⏰ "${data.chatbotName}" trial expires in ${data.daysLeft} days`, html, undefined, undefined, this.replyTo.billing);
   }
 
   async sendChatbotTrialExpiredEmail(
@@ -758,11 +771,11 @@ export class EmailService {
           Go to Billing →
         </a>
         <p style="color:#525252;font-size:12px;margin:20px 0 0;">
-          Questions? Reply to this email or contact hello@logicmate.io
+          Questions? Reply to this email or contact billing@logicmate.io
         </p>
       </div>
     `);
-    await this.send(user.email, `"${data.chatbotName}" is paused — payment needed to resume`, html);
+    await this.send(user.email, `"${data.chatbotName}" is paused — payment needed to resume`, html, undefined, undefined, this.replyTo.billing);
   }
 
   // ── Account deletion requested (sent immediately, day 0) ───
@@ -792,11 +805,11 @@ export class EmailService {
         </a>
         <p style="color:#525252;font-size:12px;margin:24px 0 0;">
           Changed your mind? You can cancel this request from the same Settings page any time before ${deadline}.
-          Questions? Reply to this email or contact hello@logicmate.io
+          Questions? Reply to this email or contact privacy@logicmate.io
         </p>
       </div>
     `);
-    await this.send(user.email, '⚠️ Account deletion requested — action needed', html);
+    await this.send(user.email, '⚠️ Account deletion requested — action needed', html, undefined, undefined, this.replyTo.privacy);
   }
 
   // ── Account deletion reminder (sent once, the day before) ──
@@ -823,11 +836,11 @@ export class EmailService {
           Go to Settings →
         </a>
         <p style="color:#525252;font-size:12px;margin:24px 0 0;">
-          Questions? Reply to this email or contact hello@logicmate.io
+          Questions? Reply to this email or contact privacy@logicmate.io
         </p>
       </div>
     `);
-    await this.send(user.email, '⏰ Last chance — your LogicMate account is deleted tomorrow', html);
+    await this.send(user.email, '⏰ Last chance — your LogicMate account is deleted tomorrow', html, undefined, undefined, this.replyTo.privacy);
   }
 
   // ── Account deletion completed ──────────────────────────────
@@ -843,10 +856,10 @@ export class EmailService {
           Billing and invoice records are retained in anonymized form only, for our own accounting and legal obligations — they no longer carry your name or contact details.
         </p>
         <p style="color:#525252;font-size:12px;margin:24px 0 0;">
-          This is the last email you'll receive from us. If this wasn't you, contact hello@logicmate.io immediately.
+          This is the last email you'll receive from us. If this wasn't you, contact privacy@logicmate.io immediately.
         </p>
       </div>
     `);
-    await this.send(user.email, 'Your LogicMate account has been deleted', html);
+    await this.send(user.email, 'Your LogicMate account has been deleted', html, undefined, undefined, this.replyTo.privacy);
   }
 }

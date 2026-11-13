@@ -871,3 +871,14 @@ best-effort deletes each stored file (a failed file delete never blocks the
 account deletion). Called from `AccountDeletionService.deleteUserData()`
 (both Instant and 8-day paths). Export gained a "Documents" sheet. New
 `documents.service.spec.ts`; suite 44/44.
+
+## 2026-11-13 — Email addresses: real Reply-To + role-based mailboxes
+Mail is sent from `noreply@logicmate.io` (send-only, no inbox) with no
+Reply-To, while several templates say "reply to this email" — so replies
+(e.g. payment receipts) were lost. `EmailService.send()` gained a `replyTo`
+param, sent as Resend `reply_to`, default `REPLY_TO_EMAIL || hello@logicmate.io`.
+Trial/chatbot-trial emails reply to `billing@`, account-deletion emails to
+`privacy@`; their in-body contact addresses changed to match. Mailbox roles:
+hello@ general/admin alerts, support@ technical, billing@ payments/refunds,
+privacy@ data/cookies/deletion, legal@ terms/contracts. No `.ai` addresses.
+tsc (build config) clean, jest 44/44, nest build OK.

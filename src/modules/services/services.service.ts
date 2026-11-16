@@ -156,7 +156,9 @@ export class ServicesService implements OnModuleInit {
     if (data.slug && await this.serviceModel.exists({ slug: data.slug })) {
       throw new BadRequestException(`Slug "${data.slug}" already exists`);
     }
-    return this.serviceModel.create(data);
+    // strict 'throw': an unknown field is a 400, never silently dropped
+    // (see update()).
+    return new this.serviceModel(data, null, { strict: 'throw' }).save().catch(rejectUnknownField);
   }
 
   async update(idOrSlug: string, data: Record<string, any>): Promise<ServiceDocument> {
@@ -164,8 +166,12 @@ export class ServicesService implements OnModuleInit {
     const service = await this.serviceModel.findOneAndUpdate(
       { ...this.keyFilter(idOrSlug), isDeleted: false },
       rest,
-      { new: true },
-    );
+      // An unknown field (e.g. the old flat `description` sent by a page
+      // loaded before the 2026-11-16 regroup) used to be silently stripped
+      // while the save returned 200 — content looked saved but wasn't.
+      // Now it's a 400, so the admin sees "Failed to save" instead.
+      { new: true, strict: 'throw', runValidators: true },
+    ).catch(rejectUnknownField);
     if (!service) throw new NotFoundException('Service not found');
     return service;
   }
@@ -201,4 +207,16 @@ export class ServicesService implements OnModuleInit {
       },
     };
   }
+}
+
+// Mongoose's StrictModeError would otherwise surface as a 500.
+function rejectUnknownField(err: any): never {
+  if (err?.name === 'StrictModeError' || err?.name === 'ValidationError') {
+    throw new BadRequestException(
+      err.name === 'StrictModeError'
+        ? `Unknown field "${err.path}". Reload the page and save again.`
+        : err.message,
+    );
+  }
+  throw err;
 }

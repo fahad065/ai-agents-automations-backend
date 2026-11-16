@@ -977,3 +977,15 @@ code changes only keep fresh installs and docs in line:
   ($setOnInsert only — never touches an existing document).
 - test/e2e/restaurant-e2e.cjs: Basic fee 79, Pro fee 120. Full run 63/63.
 - docs/brochures/restaurant-chatbot.html + README table updated, PDF re-rendered.
+
+## 2026-11-16 — Service saves: unknown fields are now a 400, not silently dropped
+Owner's morning edit to the restaurant chatbot's content "came back" as old
+content. Checked: the seed is $setOnInsert-only and an edit survives a restart
+(tested on local Mongo). The real cause: a save sent in the old flat shape
+(`description`, `heroStats`… at the top level — a page loaded before the 04:15
+regroup deploy) returned 200 while Mongoose strict mode stripped every field,
+so nothing was stored. ServicesService.create/update now use strict 'throw'
+(+ runValidators) and map StrictModeError/ValidationError to a 400
+("Unknown field … Reload the page and save again."). The admin form's
+`testimonials` (never on the schema, never stored) is no longer sent and its
+tab is hidden. Also typed keyword-rank.spec.ts's knowledge-base fixture.

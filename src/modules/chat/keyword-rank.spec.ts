@@ -2,10 +2,11 @@ import { rankByKeywords, tokenize } from './keyword-rank';
 
 // A realistic restaurant knowledge base, longer than the old "first 8"
 // cut-off, with the entries guests ask about placed near the end.
-const filler = Array.from({ length: 24 }, (_, i) => ({
+type Entry = { type: string; question?: string; answer?: string; content?: string };
+const filler: Entry[] = Array.from({ length: 24 }, (_, i) => ({
   type: 'faq', question: `General question number ${i}`, answer: `Standard answer text ${i}`,
 }));
-const kb = [
+const kb: Entry[] = [
   ...filler,
   { type: 'faq', question: 'Do you have vegan options?', answer: 'Yes, our vegan menu has 6 dishes including the vegan burger.' },
   { type: 'faq', question: 'Is the food halal?', answer: 'All our meat is certified halal.' },

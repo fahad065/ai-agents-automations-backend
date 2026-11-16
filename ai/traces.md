@@ -923,3 +923,16 @@ list confirmed before migrating (rules.md #13).
 - Not run against a real MongoDB (no network path from this sandbox) — the
   pipeline relies on `$mergeObjects` omitting missing fields, documented
   MongoDB behaviour. Check the boot log lines "Grouped …" on the next deploy.
+
+## 2026-11-16 — Knowledge-base word-matching search (Claude-only bots)
+Anthropic has no embeddings API, so a chatbot running on a Claude key alone
+(chatModelConfig.provider = anthropic, no OpenAI/Gemini key for embeddings)
+fell to `allKnowledge.slice(0, 8)` in ChatService.chat() — only the first 8
+entries were ever visible to the model; entry #9+ produced fallback replies.
+Same `slice(0, 4)` in the "embedding call failed" and "entries saved without
+embeddings" branches. New `chat/keyword-rank.ts` `rankByKeywords()`: small
+BM25-style scorer (idf-weighted, FAQ question matches ×2, Unicode tokens so
+Arabic works, crude plural folding, stopwords dropped); top 6; if nothing
+matches (e.g. "hi") it keeps the old first-N behaviour. Used in all three
+non-embedding paths. Semantic search path unchanged. Spec: 7 cases incl. a
+30-entry restaurant KB with the answer past the old cut-off. 60/60.

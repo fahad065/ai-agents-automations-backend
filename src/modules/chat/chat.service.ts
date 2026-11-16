@@ -8,6 +8,11 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { callChatCompletion, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
+import { rankByKeywords } from './keyword-rank';
+
+// Entries given to the model when ranking by word matching. A few more than
+// the 4 used with semantic search, since word matching is less precise.
+const KEYWORD_TOP_N = 6;
 import { isChatbotBillingActive } from '../chatbots/billing-status.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType, NotificationPriority } from '../notifications/schemas/notification.schema';
@@ -373,21 +378,24 @@ ${knowledgeSection}`;
               return k.content || '';
             });
           } catch {
-            // Embedding failed — fall back to all knowledge (no ranking)
-            knowledgeSnippets = allKnowledge.slice(0, 4).map((k) => {
+            // Embedding failed — fall back to word matching
+            knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
               if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
               return k.content || '';
             });
           }
         } else {
-          // Knowledge exists but no embeddings
-          knowledgeSnippets = allKnowledge.slice(0, 4).map((k) => {
+          // Knowledge exists but no embeddings — word matching
+          knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
             if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
             return k.content || '';
           });
         }
       } else {
-        knowledgeSnippets = allKnowledge.slice(0, 8).map((k) => {
+        // No embedding key (e.g. a Claude-only bot — Anthropic has no
+        // embeddings API): pick entries by word matching instead of just
+        // taking the first few, so entry #30 is as reachable as entry #1.
+        knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
           if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
           return k.content || '';
         });

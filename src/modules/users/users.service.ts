@@ -127,8 +127,9 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       }
 
       // Indexes on the old flat paths are dead weight now; the schema
-      // creates auth.googleId / plan.planType instead.
-      for (const name of ['googleId_1', 'planType_1']) {
+      // creates auth.googleId / plan.planType / plan.trialEndDate /
+      // deletion.pendingAt instead.
+      for (const name of ['googleId_1', 'planType_1', 'trialEndDate_1', 'pendingDeletionAt_1']) {
         await this.userModel.collection.dropIndex(name).catch(() => undefined);
       }
     }

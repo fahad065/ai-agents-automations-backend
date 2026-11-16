@@ -350,6 +350,12 @@ export class ChatbotsService implements OnModuleInit {
     }
 
     Object.assign(chatbot, changes);
+    // Every bot gets its own random webhook verify token per Meta channel,
+    // so the handshake can't be completed by anyone who just guesses a URL.
+    for (const ch of ['whatsapp', 'instagram'] as const) {
+      const cfg: any = chatbot.channels?.[ch];
+      if (cfg && !cfg.verifyToken) cfg.verifyToken = crypto.randomBytes(16).toString('hex');
+    }
     const saved = await chatbot.save();
 
     // `changes` can include `channels` (plaintext WhatsApp/Instagram access

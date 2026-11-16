@@ -8,6 +8,9 @@ import compression from 'compression';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
+    // Keeps the exact request bytes on req.rawBody — Meta webhook
+    // signatures (X-Hub-Signature-256) are an HMAC of the raw body.
+    rawBody: true,
   });
 
   // Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT
@@ -29,11 +32,24 @@ async function bootstrap() {
       ]
     : [process.env.FRONTEND_URL as string];
 
-  app.enableCors({
-    origin: allowedOrigins,
-    credentials: true,
+  // The chat widget runs on CUSTOMERS' websites (any domain) and calls the
+  // public, unauthenticated /chat/:embedKey routes — those must accept any
+  // origin, or the browser blocks every widget message in production (it
+  // did: until 2026-11-16 the widget only worked on our own domain). They
+  // use no cookies/credentials, so `credentials: false` there. Everything
+  // else keeps the strict allow-list.
+  const PUBLIC_CHAT_PATH = /^\/api\/v1\/chat\//;
+  const baseCors = {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+  };
+  app.enableCors((req: any, callback: (err: Error | null, options?: any) => void) => {
+    const path = req.originalUrl || req.url || '';
+    if (PUBLIC_CHAT_PATH.test(path)) {
+      callback(null, { ...baseCors, origin: true, credentials: false, methods: ['GET', 'POST', 'OPTIONS'] });
+    } else {
+      callback(null, { ...baseCors, origin: allowedOrigins, credentials: true });
+    }
   });
 
   // Security headers

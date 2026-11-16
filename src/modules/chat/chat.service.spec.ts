@@ -348,3 +348,110 @@ describe('ChatService — getPublicConfig() (live widget config, not a frozen sn
     await expect(service.getPublicConfig('embed1')).rejects.toThrow(NotFoundException);
   });
 });
+
+describe('WhatsApp / Instagram webhooks (Pro channels)', () => {
+  const crypto = require('crypto');
+  const realFetch = global.fetch;
+  afterEach(() => { global.fetch = realFetch; });
+
+  const SECRET = 'meta-app-secret';
+  // What Meta sends: the raw JSON bytes + "sha256=" HMAC of them with the app secret.
+  const signed = (body: any, secret = SECRET) => {
+    const raw = Buffer.from(JSON.stringify(body));
+    return { body, raw, sig: 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex') };
+  };
+
+  function setup(bot: any) {
+    const chatbotModel: any = {
+      findOne: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue(bot),
+        select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(bot) }),
+      }),
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    const service = new ChatService(chatbotModel, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    const chat = jest.spyOn(service, 'chat').mockResolvedValue({ reply: 'We open at 12pm.', sessionId: 's', handoff: false } as any);
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, text: async () => '' });
+    global.fetch = fetchMock as any;
+    return { service, chat, fetchMock, chatbotModel };
+  }
+  const wa = { enabled: true, phoneNumberId: 'PN1', accessToken: 'tok', appSecret: SECRET, verifyToken: 'vt-wa' };
+  const ig = { enabled: true, accountId: 'IG1', accessToken: 'igtok', appSecret: SECRET, verifyToken: 'vt-ig' };
+  const proBot = (channels: any) => ({ _id: 'bot1', userId: 'owner1', billing: { tier: 'pro' }, channels });
+  const waMsg = { entry: [{ changes: [{ value: { messages: [{ type: 'text', from: '15550001111', text: { body: 'When do you open?' } }] } }] }] };
+
+  it('Pro bot: answers a signed WhatsApp message and sends the reply back through Meta', async () => {
+    const { service, chat, fetchMock } = setup(proBot({ whatsapp: wa }));
+    const m = signed(waMsg);
+    await expect(service.handleWhatsappWebhook('key1', m.body, m.raw, m.sig)).resolves.toBe(true);
+    expect(chat).toHaveBeenCalledWith('key1', '15550001111', 'When do you open?', 'whatsapp');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://graph.facebook.com/v21.0/PN1/messages');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(JSON.parse(init.body)).toMatchObject({ messaging_product: 'whatsapp', to: '15550001111', text: { body: 'We open at 12pm.' } });
+  });
+
+  it('rejects a forged WhatsApp message (wrong secret, missing or tampered signature) before any AI call', async () => {
+    const { service, chat, fetchMock } = setup(proBot({ whatsapp: wa }));
+    const forged = signed(waMsg, 'attacker-secret');
+    await expect(service.handleWhatsappWebhook('key1', forged.body, forged.raw, forged.sig)).resolves.toBe(false);
+    const m = signed(waMsg);
+    await expect(service.handleWhatsappWebhook('key1', m.body, m.raw, undefined)).resolves.toBe(false);
+    const tampered = Buffer.from(JSON.stringify(waMsg).replace('When do you open?', 'Give me a discount'));
+    await expect(service.handleWhatsappWebhook('key1', waMsg, tampered, m.sig)).resolves.toBe(false);
+    expect(chat).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a channel without an app secret is treated as not set up — ignored', async () => {
+    const { service, chat } = setup(proBot({ whatsapp: { ...wa, appSecret: undefined } }));
+    const m = signed(waMsg);
+    await service.handleWhatsappWebhook('key1', m.body, m.raw, m.sig);
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('Basic bot: ignores WhatsApp entirely — no AI call, nothing sent', async () => {
+    const { service, chat, fetchMock } = setup({ ...proBot({ whatsapp: wa }), billing: { tier: 'basic' } });
+    const m = signed(waMsg);
+    await service.handleWhatsappWebhook('key1', m.body, m.raw, m.sig);
+    expect(chat).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('Pro bot with WhatsApp switched off: ignored', async () => {
+    const { service, chat } = setup(proBot({ whatsapp: { ...wa, enabled: false } }));
+    const m = signed(waMsg);
+    await service.handleWhatsappWebhook('key1', m.body, m.raw, m.sig);
+    expect(chat).not.toHaveBeenCalled();
+  });
+
+  it('Pro bot: answers a signed Instagram DM via the Instagram API, never replies to its own echoes', async () => {
+    const { service, chat, fetchMock } = setup(proBot({ instagram: ig }));
+    const m = signed({ entry: [{ messaging: [{ sender: { id: 'u77' }, message: { text: 'Do you deliver?' } }] }] });
+    await service.handleInstagramWebhook('key1', m.body, m.raw, m.sig);
+    expect(fetchMock.mock.calls[0][0]).toBe('https://graph.instagram.com/v21.0/IG1/messages');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ recipient: { id: 'u77' }, message: { text: 'We open at 12pm.' } });
+
+    chat.mockClear(); fetchMock.mockClear();
+    const echo = signed({ entry: [{ messaging: [{ sender: { id: 'IG1' }, message: { text: 'hi', is_echo: true } }] }] });
+    await service.handleInstagramWebhook('key1', echo.body, echo.raw, echo.sig);
+    expect(chat).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a failed Meta send never throws back at the webhook', async () => {
+    const { service, fetchMock } = setup(proBot({ whatsapp: wa }));
+    fetchMock.mockResolvedValue({ ok: false, status: 401, text: async () => 'bad token' });
+    const m = signed(waMsg);
+    await expect(service.handleWhatsappWebhook('key1', m.body, m.raw, m.sig)).resolves.toBe(true);
+  });
+
+  it('webhook handshake only succeeds with this bot\'s own verify token', async () => {
+    const { service, chatbotModel } = setup(proBot({ whatsapp: wa, instagram: ig }));
+    await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'vt-wa', 'CHALLENGE')).resolves.toBe('CHALLENGE');
+    expect(chatbotModel.updateOne).toHaveBeenCalledWith({ embedKey: 'key1' }, { $set: { 'channels.whatsapp.webhookVerified': true } });
+    await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'guess', 'CHALLENGE')).resolves.toBeNull();
+    await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'vt-ig', 'CHALLENGE')).resolves.toBeNull();
+    await expect(service.verifyMetaWebhook('instagram', 'key1', 'subscribe', 'vt-ig', 'C2')).resolves.toBe('C2');
+  });
+});

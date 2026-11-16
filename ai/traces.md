@@ -936,3 +936,35 @@ Arabic works, crude plural folding, stopwords dropped); top 6; if nothing
 matches (e.g. "hi") it keeps the old first-N behaviour. Used in all three
 non-embedding paths. Semantic search path unchanged. Spec: 7 cases incl. a
 30-entry restaurant KB with the answer past the old cut-off. 60/60.
+
+## 2026-11-16 — Restaurant chatbot end-to-end run (63/63) + 4 production bugs fixed
+First full Basic → Pro run against the REAL backend (dist/, NODE_ENV=production),
+REAL frontend build and REAL MongoDB 7 (Docker, `mirror.gcr.io/library/mongo:7`
+— Docker Hub rate-limits; Atlas is unreachable from the sandbox: Mongo needs a
+direct TCP connection, only HTTPS goes through the proxy). Only OpenAI/Resend/
+Meta are answered locally by `test/e2e/fake-net.cjs`. Harness + docs:
+`test/e2e/` (README, run.sh) and `docs/test-cases/restaurant-chatbot.md`
+(every case with input → expected output). Same real Mongo also ran the
+users/services grouping migrations on old-shape docs: 18/18 checks + idempotent.
+
+Bugs found and fixed:
+1. **Website widget blocked in production.** CORS allowed only FRONTEND_URL,
+   but the widget calls /api/v1/chat/* from customers' own sites. main.ts now
+   uses a CORS delegate: /api/v1/chat/* = any origin, no credentials; all
+   else unchanged. Reproduced with a preflight from a foreign origin first.
+2. **WhatsApp/Instagram never replied.** Webhooks computed a reply and dropped
+   it. ChatService.sendMetaReply() posts to graph.facebook.com/v21.0/{phoneNumberId}/messages
+   and graph.instagram.com/v21.0/{accountId}/messages with the bot's token.
+3. **Webhooks accepted anyone.** Verify handshake accepted any token; POSTs had
+   no signature check. Now: per-bot random `verifyToken` per channel (generated
+   on save), handshake must match it (marks webhookVerified); every POST must
+   carry X-Hub-Signature-256 = HMAC-SHA256(channel.appSecret, raw body)
+   (NestFactory rawBody: true), else 403 before any AI call. A channel without
+   appSecret counts as not set up. Echoes ignored. Basic bots / disabled
+   channels ignored with 200 (no AI call — protects BYOK credits).
+4. **Public /chat trusted the caller's `channel`** — now always 'website'.
+Also: two user indexes still pointed at old flat paths (trialEndDate,
+pendingDeletionAt) → plan.trialEndDate / deletion.pendingAt, old ones dropped.
+
+Schema: WhatsappChannel + InstagramChannel gained `appSecret`; Instagram
+gained `verifyToken` (WhatsApp already had it, unused). Unit tests 68/68.

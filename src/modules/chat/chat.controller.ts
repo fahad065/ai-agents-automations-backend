@@ -8,6 +8,8 @@ import {
   Res,
   HttpCode,
   UseGuards,
+  Req,
+  Headers,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/decorators/public.decorator';
@@ -31,8 +33,9 @@ export class ChatController {
     @Param('embedKey') embedKey: string,
     @Body() body: { sessionId: string; message: string; channel?: string },
   ) {
-    const channel = (body.channel as any) || 'website';
-    return this.chatService.chat(embedKey, body.sessionId, body.message, channel);
+    // Always 'website': WhatsApp/Instagram only arrive via their signed
+    // webhooks, so a caller can't claim another channel to skip the Pro gate.
+    return this.chatService.chat(embedKey, body.sessionId, body.message, 'website');
   }
 
   // Public widget config — chatbot-widget.js fetches this on load so a
@@ -47,57 +50,52 @@ export class ChatController {
     return this.chatService.getPublicConfig(embedKey);
   }
 
-  // WhatsApp webhook verification
+  // Meta webhook handshakes — succeed only with this bot's own verifyToken.
   @Get('webhooks/whatsapp/:embedKey')
   @Public()
-  verifyWhatsapp(
-    @Param('embedKey') embedKey: string,
-    @Query('hub.mode') mode: string,
-    @Query('hub.verify_token') token: string,
-    @Query('hub.challenge') challenge: string,
-    @Res() res: any,
-  ) {
-    const result = this.chatService.verifyWhatsappWebhook(mode, token, challenge, embedKey);
-    if (result !== null) {
-      res.status(200).send(result);
-    } else {
-      res.status(403).send('Forbidden');
-    }
+  verifyWhatsapp(@Param('embedKey') embedKey: string, @Query() q: any, @Res() res: any) {
+    return this.verifyMeta('whatsapp', embedKey, q, res);
   }
 
-  // WhatsApp webhook handler
-  @Post('webhooks/whatsapp/:embedKey')
-  @Public()
-  @HttpCode(200)
-  async handleWhatsapp(@Param('embedKey') embedKey: string, @Body() body: any) {
-    await this.chatService.handleWhatsappWebhook(embedKey, body);
-    return { status: 'ok' };
-  }
-
-  // Instagram webhook verification
   @Get('webhooks/instagram/:embedKey')
   @Public()
-  verifyInstagram(
-    @Param('embedKey') embedKey: string,
-    @Query('hub.mode') mode: string,
-    @Query('hub.verify_token') token: string,
-    @Query('hub.challenge') challenge: string,
-    @Res() res: any,
-  ) {
-    const result = this.chatService.verifyInstagramWebhook(mode, token, challenge, embedKey);
-    if (result !== null) {
-      res.status(200).send(result);
-    } else {
-      res.status(403).send('Forbidden');
-    }
+  verifyInstagram(@Param('embedKey') embedKey: string, @Query() q: any, @Res() res: any) {
+    return this.verifyMeta('instagram', embedKey, q, res);
   }
 
-  // Instagram webhook handler
+  private async verifyMeta(channel: 'whatsapp' | 'instagram', embedKey: string, q: any, res: any) {
+    const result = await this.chatService.verifyMetaWebhook(
+      channel, embedKey, q['hub.mode'], q['hub.verify_token'], q['hub.challenge'],
+    );
+    if (result !== null) res.status(200).type('text/plain').send(result);
+    else res.status(403).send('Forbidden');
+  }
+
+  // Incoming WhatsApp messages. 403 unless signed by the client's Meta app.
+  @Post('webhooks/whatsapp/:embedKey')
+  @Public()
+  async handleWhatsapp(
+    @Param('embedKey') embedKey: string,
+    @Body() body: any,
+    @Req() req: any,
+    @Headers('x-hub-signature-256') signature: string,
+    @Res() res: any,
+  ) {
+    const ok = await this.chatService.handleWhatsappWebhook(embedKey, body, req.rawBody, signature);
+    res.status(ok ? 200 : 403).json(ok ? { status: 'ok' } : { status: 'forbidden' });
+  }
+
+  // Incoming Instagram DMs. 403 unless signed by the client's Meta app.
   @Post('webhooks/instagram/:embedKey')
   @Public()
-  @HttpCode(200)
-  async handleInstagram(@Param('embedKey') embedKey: string, @Body() body: any) {
-    await this.chatService.handleInstagramWebhook(embedKey, body);
-    return { status: 'ok' };
+  async handleInstagram(
+    @Param('embedKey') embedKey: string,
+    @Body() body: any,
+    @Req() req: any,
+    @Headers('x-hub-signature-256') signature: string,
+    @Res() res: any,
+  ) {
+    const ok = await this.chatService.handleInstagramWebhook(embedKey, body, req.rawBody, signature);
+    res.status(ok ? 200 : 403).json(ok ? { status: 'ok' } : { status: 'forbidden' });
   }
 }

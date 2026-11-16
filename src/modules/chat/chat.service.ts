@@ -18,6 +18,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType, NotificationPriority } from '../notifications/schemas/notification.schema';
 import { EmailService } from '../email/email.service';
 import * as Sentry from '@sentry/nestjs';
+import * as crypto from 'crypto';
+
+// Constant-time string comparison (different lengths never match).
+function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
 
 function cosineSim(a: number[], b: number[]): number {
   if (!a.length || !b.length) return 0;
@@ -511,70 +519,126 @@ ${knowledgeSection}`;
     }
   }
 
-  // WhatsApp webhook verification
-  verifyWhatsappWebhook(
+  // Meta's webhook handshake (GET ?hub.mode=subscribe&hub.verify_token=…&
+  // hub.challenge=…). Only succeeds when the token matches this bot's own
+  // random verifyToken for that channel; marks the channel verified.
+  async verifyMetaWebhook(
+    channel: 'whatsapp' | 'instagram',
+    embedKey: string,
     mode: string,
     token: string,
     challenge: string,
-    embedKey: string,
-  ): string | null {
-    // Find the chatbot's verifyToken from DB asynchronously is not possible here
-    // For now verify by confirming mode === 'subscribe' and return challenge
-    if (mode === 'subscribe') {
-      return challenge;
-    }
-    return null;
+  ): Promise<string | null> {
+    if (mode !== 'subscribe' || !token) return null;
+    const chatbot = await this.chatbotModel.findOne({ embedKey }).select('channels').lean();
+    const expected = (chatbot?.channels as any)?.[channel]?.verifyToken;
+    if (!expected || !safeEqual(token, expected)) return null;
+    await this.chatbotModel.updateOne({ embedKey }, { $set: { [`channels.${channel}.webhookVerified`]: true } });
+    return challenge;
   }
 
-  async handleWhatsappWebhook(embedKey: string, body: any): Promise<void> {
-    try {
-      // Extract message from WhatsApp webhook payload
-      const entry = body?.entry?.[0];
-      const change = entry?.changes?.[0];
-      const value = change?.value;
-      const messages = value?.messages;
+  // X-Hub-Signature-256 = "sha256=" + HMAC-SHA256(appSecret, raw body).
+  private verifyMetaSignature(appSecret: string, rawBody: Buffer | undefined, header: string | undefined): boolean {
+    if (!rawBody || !header?.startsWith('sha256=')) return false;
+    const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+    return safeEqual(header, expected);
+  }
 
-      if (!messages || !messages.length) return;
+  // WhatsApp/Instagram are Pro-and-up channels. A message for a bot that
+  // isn't on Pro, or whose channel isn't switched on and configured, is
+  // ignored outright — no AI call (it would spend the owner's BYOK credits),
+  // no conversation, no lead.
+  private async loadMetaChannel(embedKey: string, channel: 'whatsapp' | 'instagram') {
+    const chatbot = await this.chatbotModel.findOne({ embedKey }).lean();
+    const cfg: any = chatbot?.channels?.[channel];
+    const idField = channel === 'whatsapp' ? 'phoneNumberId' : 'accountId';
+    if (!chatbot || chatbot.billing?.tier === 'basic' || !cfg?.enabled || !cfg[idField] || !cfg.accessToken || !cfg.appSecret) {
+      this.logger.warn(`Ignoring ${channel} message for embedKey=${embedKey}: channel not available on this chatbot`);
+      return null;
+    }
+    return { chatbot, id: cfg[idField] as string, accessToken: cfg.accessToken as string, appSecret: cfg.appSecret as string };
+  }
+
+  // Sends the bot's reply back through Meta. Before this existed the
+  // webhooks computed a reply and dropped it — guests never got an answer.
+  private async sendMetaReply(
+    channel: 'whatsapp' | 'instagram',
+    target: { chatbot: any; id: string; accessToken: string; appSecret: string },
+    to: string,
+    text: string,
+  ) {
+    const url = channel === 'whatsapp'
+      ? `https://graph.facebook.com/v21.0/${target.id}/messages`
+      : `https://graph.instagram.com/v21.0/${target.id}/messages`;
+    const body = channel === 'whatsapp'
+      ? { messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'text', text: { preview_url: false, body: text } }
+      : { recipient: { id: to }, message: { text } };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${target.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Meta ${channel} send failed: ${res.status} ${await res.text()}`);
+    } catch (err) {
+      this.logger.error(`Could not send ${channel} reply for chatbot ${target.chatbot._id}: ${(err as Error).message}`);
+      Sentry.captureException(err, {
+        tags: { chatbotId: String(target.chatbot._id), tenantUserId: String(target.chatbot.userId), channel },
+      });
+    }
+  }
+
+  // Returns false when the request is not genuinely from Meta (bad or
+  // missing signature) — the controller answers 403. Everything else,
+  // including channels that aren't available, is a quiet 200 so Meta
+  // doesn't keep retrying.
+  async handleWhatsappWebhook(embedKey: string, body: any, rawBody?: Buffer, signature?: string): Promise<boolean> {
+    try {
+      const target = await this.loadMetaChannel(embedKey, 'whatsapp');
+      if (!target) return true;
+      if (!this.verifyMetaSignature(target.appSecret, rawBody, signature)) {
+        this.logger.warn(`Rejected WhatsApp webhook for embedKey=${embedKey}: invalid signature`);
+        return false;
+      }
+
+      const messages = body?.entry?.[0]?.changes?.[0]?.value?.messages;
+      if (!messages?.length) return true; // status updates (delivered/read) carry no messages
 
       for (const msg of messages) {
         if (msg.type !== 'text') continue;
-        const from = msg.from; // WhatsApp phone number as sessionId
+        const from = msg.from; // the guest's WhatsApp number — also the sessionId
         const text = msg.text?.body || '';
-        if (!text) continue;
-        await this.chat(embedKey, from, text, 'whatsapp');
+        if (!from || !text) continue;
+        const { reply } = await this.chat(embedKey, from, text, 'whatsapp');
+        if (reply) await this.sendMetaReply('whatsapp', target, from, reply);
       }
-    } catch {
-      // Silently handle webhook errors
+    } catch (err) {
+      // Meta retries non-200s, so never throw back at the webhook.
+      this.logger.error(`WhatsApp webhook error for embedKey=${embedKey}: ${(err as Error).message}`);
     }
+    return true;
   }
 
-  // Instagram webhook verification
-  verifyInstagramWebhook(
-    mode: string,
-    token: string,
-    challenge: string,
-    embedKey: string,
-  ): string | null {
-    if (mode === 'subscribe') {
-      return challenge;
-    }
-    return null;
-  }
-
-  async handleInstagramWebhook(embedKey: string, body: any): Promise<void> {
+  async handleInstagramWebhook(embedKey: string, body: any, rawBody?: Buffer, signature?: string): Promise<boolean> {
     try {
-      // Extract DM from Instagram webhook payload
-      const entry = body?.entry?.[0];
-      const messaging = entry?.messaging?.[0];
-      if (!messaging) return;
+      const target = await this.loadMetaChannel(embedKey, 'instagram');
+      if (!target) return true;
+      if (!this.verifyMetaSignature(target.appSecret, rawBody, signature)) {
+        this.logger.warn(`Rejected Instagram webhook for embedKey=${embedKey}: invalid signature`);
+        return false;
+      }
 
+      const messaging = body?.entry?.[0]?.messaging?.[0];
       const senderId = messaging?.sender?.id;
       const text = messaging?.message?.text;
-      if (!senderId || !text) return;
+      // is_echo = a message the business account itself sent; never reply to it
+      if (!senderId || !text || messaging?.message?.is_echo) return true;
 
-      await this.chat(embedKey, senderId, text, 'instagram');
-    } catch {
-      // Silently handle webhook errors
+      const { reply } = await this.chat(embedKey, senderId, text, 'instagram');
+      if (reply) await this.sendMetaReply('instagram', target, senderId, reply);
+    } catch (err) {
+      this.logger.error(`Instagram webhook error for embedKey=${embedKey}: ${(err as Error).message}`);
     }
+    return true;
   }
 }

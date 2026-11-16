@@ -169,10 +169,10 @@ export const UserSchema = SchemaFactory.createForClass(User);
 // UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ 'auth.googleId': 1 }, { sparse: true });
 UserSchema.index({ 'plan.planType': 1 });
-UserSchema.index({ trialEndDate: 1 });
+UserSchema.index({ 'plan.trialEndDate': 1 });
 UserSchema.index({ isDeleted: 1 });
 UserSchema.index({ status: 1 });
-UserSchema.index({ pendingDeletionAt: 1 }, { sparse: true });
+UserSchema.index({ 'deletion.pendingAt': 1 }, { sparse: true });
 // Strips secrets before a user leaves the API: the password hash and every
 // auth token (refresh, email-verification, password-reset). Everything else
 // in `auth` (provider, googleId, isEmailVerified) is safe to return.

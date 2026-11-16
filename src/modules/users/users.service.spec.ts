@@ -86,7 +86,7 @@ describe('UsersService.onModuleInit (schema self-heal)', () => {
       const { service, dropIndex } = build();
       dropIndex.mockRejectedValueOnce(new Error('index not found'));
       await expect(service.onModuleInit()).resolves.toBeUndefined();
-      expect(dropIndex.mock.calls.map(([n]) => n)).toEqual(['googleId_1', 'planType_1']);
+      expect(dropIndex.mock.calls.map(([n]) => n)).toEqual(['googleId_1', 'planType_1', 'trialEndDate_1', 'pendingDeletionAt_1']);
     });
   });
 });

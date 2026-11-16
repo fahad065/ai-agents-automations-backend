@@ -705,15 +705,15 @@ export const LEGACY_SEED_MODULES: Record<string, any>[] = [
     capabilities: ['Membership plan Q&A', 'Free trial booking', 'Class schedule Q&A', 'WhatsApp enquiries'],
     capabilities_ar: ['أسئلة باقات العضوية', 'حجز تجربة مجانية', 'أسئلة جدول الحصص', 'استفسارات عبر واتساب'],
     pricing: {
-      monthly: 39, annual: 31,
+      monthly: 79, annual: 49,
       features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
       features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it across multiple gym locations or a custom membership-system integration?',
       customLabel_ar: 'تحتاجه لعدة فروع نادي أو ربط مخصص مع نظام العضويات؟',
     },
     pricingTiers: [
-      { key: 'basic', monthly: 39, annual: 31, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
-      { key: 'pro', monthly: 79, annual: 63, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+      { key: 'basic', monthly: 79, annual: 49, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 120, annual: 99, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
     ],
     heroStats: [
       { label: 'Availability', label_ar: 'التوفر', value: '24/7' },

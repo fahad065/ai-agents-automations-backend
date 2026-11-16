@@ -989,3 +989,10 @@ so nothing was stored. ServicesService.create/update now use strict 'throw'
 ("Unknown field … Reload the page and save again."). The admin form's
 `testimonials` (never on the schema, never stored) is no longer sent and its
 tab is hidden. Also typed keyword-rank.spec.ts's knowledge-base fixture.
+
+## 2026-11-16 — Gym chatbot: content, brochure, prices
+Owner confirmed the gym uses the restaurant's prices (Basic $79/mo or $49/mo
+annually; Pro $120/mo or $99/mo annually). Seed for gym-chatbot updated to
+match (insert-only, no live data touched); brochure source added at
+docs/brochures/gym-chatbot.html. Admin content handed over as a .md file
+(owner pastes it into Services → Gym Membership Bot).

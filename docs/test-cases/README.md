@@ -8,6 +8,7 @@ each file lives in `test/e2e/<service>-e2e.cjs` (how to run it:
 | Service | File | Automated | Last full run |
 |---|---|---|---|
 | Restaurant chatbot | [restaurant-chatbot.md](restaurant-chatbot.md) | `test/e2e/restaurant-e2e.cjs` | 2026-11-16 — 63/63 |
+| Gym chatbot | [gym-chatbot.md](gym-chatbot.md) | `test/e2e/gym-e2e.cjs` | 2026-11-16 — 64/64 |
 | Gym chatbot | _next_ | — | — |
 
 ## Template for a new service

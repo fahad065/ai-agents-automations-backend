@@ -996,3 +996,10 @@ annually; Pro $120/mo or $99/mo annually). Seed for gym-chatbot updated to
 match (insert-only, no live data touched); brochure source added at
 docs/brochures/gym-chatbot.html. Admin content handed over as a .md file
 (owner pastes it into Services → Gym Membership Bot).
+
+## 2026-11-16 — Gym chatbot e2e suite + test cases
+test/e2e/gym-e2e.cjs (same flow as the restaurant suite, gym data: pool,
+women-only hours, membership price edit, trial + class booking link, two
+branches) and docs/test-cases/gym-chatbot.md. Extra case: asking to book a
+specific class only shares the booking link, never confirms a spot. First run
+on a fresh database: 64/64.

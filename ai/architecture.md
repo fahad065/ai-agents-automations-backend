@@ -42,24 +42,27 @@ deliberately does **not** follow this pattern (`slug`).
 
 ### `users` — the hub — DONE, 2026-11-12
 ```
-_id, name, email (unique)
-password?, provider (local|google — facebook/apple are DEAD, see rules.md), googleId?
-phoneNumber?, country?, avatar?
-timezone?, company?                                  -- added 2026-11-12: live (Profile page edits both)
+-- Grouped 2026-11-16 (user-approved). Migrated by UsersService.groupFlatFields().
+_id, name, email (unique), password?          -- name/password stay top level (user's call)
 role: user | admin
 status: active | inactive
 isDeleted
-isEmailVerified, emailVerificationToken?, emailVerificationExpires?
-passwordResetToken?, passwordResetExpires?
-refreshToken?
-planType: trial | paid | free_forever | expired
-trialStartDate, trialEndDate
-isFreeForever
-welcomeDay1Sent, welcomeDay3Sent, welcomeDay7Sent   -- multi-replica cron guards, keep these
-totalBilled                                          -- denormalized, keep (dashboard reads it often)
+profile: { phoneNumber?, country?, avatar?, timezone?, company? }
+auth: {
+  provider (local|google — facebook/apple are DEAD, see rules.md), googleId?
+  isEmailVerified, emailVerificationToken?, emailVerificationExpires?
+  passwordResetToken?, passwordResetExpires?
+  refreshToken?
+}                                             -- the API never returns password or any auth token: sanitizeUser() / USER_PUBLIC_PROJECTION in user.schema.ts
+plan: {
+  planType: trial | paid | free_forever | expired
+  trialStartDate, trialEndDate, isFreeForever
+  totalBilled                                 -- denormalized, keep (dashboard reads it often)
+}
+welcomeEmails: { day1Sent, day3Sent, day7Sent }      -- multi-replica cron guards, keep these
+deletion: { requestedAt?, pendingAt?, reminderSent } -- account-deletion flow, see below
 onboarding: {}
 notifyPreferences: {}
-deletionRequestedAt?, pendingDeletionAt?, deletionReminderSent -- DONE, 2026-11-10 — account-deletion flow, see below
 ```
 **Follow-up, 2026-11-12** (user reviewed a real production signup and
 asked for the schema to match this list): `notifyPreferences` and
@@ -395,27 +398,32 @@ project's stated priority is simplicity and reliability over strictness.
 
 ### `services` — CORE. The catalog — everything sellable, including bundles. — DONE (agents/automations/chatbots), 2026-11-12; bundles pending (see notes)
 ```
+-- Grouped 2026-11-16 (user-approved). Migrated by ServicesService.groupFlatFields().
 _id, type: agent | automation | chatbot | bundle
 name(_ar), slug                              -- slug has NO _ar twin, see rules.md
-description(_ar), tagline(_ar)
-metaTitle(_ar), metaDescription(_ar)
-nicheSlug, pipelineCategory: standalone | niche_pipeline
-pipelineType                                 -- added 2026-11-12: which pipeline the Python service runs; what pipeline_runs snapshots
-components: []                               -- niche_pipeline only
-requiredApiKeys: []
-capabilities(_ar): []
-platforms: []                                -- DESCRIPTIVE/marketing only (e.g. ['WhatsApp']) — NEVER a customer's actual channel credentials, those live on userservices.config
-icon, color, badge, sortOrder                -- flat fields, NOT nested under a key called "config" (that name is already used, differently, on userservices)
-pricing: { monthly, annual, features(_ar): [], hasCustomPlan, customLabel(_ar) }
-pricingTiers: []                             -- generic now, any type may use it, not just chatbots: [{key, monthly, annual, features(_ar): []}]
-heroStats: [], featureCards: [], howItWorks: [], faq: []   -- each item carries optional _ar siblings (heroStats: label_ar, value_ar [added 2026-11-16]; featureCards/howItWorks: title_ar, description_ar; faq: question_ar, answer_ar)   -- "featureCards" deliberately NOT named "features" — pricing.features[] (plan bullets) and this (marketing cards with icon/title/description) are different shapes that collided under one name in the real schema
-demoVideoUrl?
-brochureUrl?                                 -- a downloadable PDF one-pager for this service (hosted the same way demo videos are, e.g. Vercel Blob). Generic across types, not chatbot-specific, same reasoning as demoVideoUrl. First real use: the restaurant chatbot's PDF overview, generated in a separate "LogicMate — General Q&A" session.
-defaultConfig: {}                            -- seeds a new userservices.config with sensible starting values
-include: [service_id]                        -- BUNDLE ONLY. Read once at subscribe time to fan out into N userservices rows. Never duplicated anywhere else, never read again after that.
-status: active | inactive | coming_soon
+status: active | inactive | coming_soon      -- ALSO drives the public pill: active = "Live", coming_soon = "Coming Soon". `badge` was DROPPED 2026-11-16 (it duplicated status)
 isDeleted
-stripePriceId?                               -- catalog-level, one per sellable thing. Not wired to Stripe yet — see rules.md.
+nicheSlug
+include: [service_id]                        -- BUNDLE ONLY. Read once at subscribe time to fan out into N userservices rows. Never duplicated anywhere else, never read again after that.
+content: {
+  tagline(_ar), description(_ar), capabilities(_ar): []
+  heroStats: [], featureCards: [], howItWorks: [], faq: []   -- each item carries optional _ar siblings (heroStats: label_ar, value_ar; featureCards/howItWorks: title_ar, description_ar; faq: question_ar, answer_ar). "featureCards" deliberately NOT named "features" — pricing.features[] (plan bullets) is a different shape
+  demoVideoUrl?, brochureUrl?                -- brochureUrl: downloadable PDF one-pager (hosted like demo videos)
+}
+seo: { metaTitle(_ar), metaDescription(_ar) }
+display: { icon, color, sortOrder, platforms: [] }   -- NOT named "config" (that name is used, differently, on userservices). platforms is DESCRIPTIVE only — never a customer's channel credentials (those live on userservices.config)
+pipeline: {
+  pipelineType                               -- which pipeline the Python service runs; what pipeline_runs snapshots
+  pipelineCategory: standalone | niche_pipeline
+  components: []                             -- niche_pipeline only
+  requiredApiKeys: []
+  defaultConfig: {}                          -- seeds a new userservices.config with sensible starting values
+}
+pricing: {
+  monthly, annual, features(_ar): [], hasCustomPlan, customLabel(_ar)
+  tiers: []                                  -- was top-level pricingTiers. Generic, any type may use it: [{key, monthly, annual, features(_ar): []}]
+  stripePriceId?                             -- catalog-level, one per sellable thing. Not wired to Stripe yet — see rules.md.
+}
 ```
 
 **Implementation notes:**
@@ -571,7 +579,7 @@ buttons, three different mechanisms:
    to remind about). Frontend requires typing `DELETE` before the button
    activates, given there's no cooling-off period at all once confirmed.
 3. **Delete Account Permanently → 8 days** — `requestDeletion(userId,
-   'scheduled')` sets `pendingDeletionAt = now + 8 calendar days` (plain
+   'scheduled')` sets `deletion.pendingAt = now + 8 calendar days` (plain
    days, not working days — revised from the original "7 working days"
    design the same day, once the user clarified they meant calendar
    days). The account stays fully usable the entire time — this was
@@ -581,7 +589,7 @@ buttons, three different mechanisms:
    `sendAccountDeletionRequestedEmail` fires immediately (day 0,
    confirms the exact date), `sendAccountDeletionReminderEmail` fires
    once on day 7 — exactly `REMINDER_DAYS_BEFORE` (1) ahead of
-   `pendingDeletionAt`, claimed atomically via a new `deletionReminderSent`
+   `deletion.pendingAt`, claimed atomically via `deletion.reminderSent`
    flag on `users` (same multi-replica pattern as every other reminder
    flag in this codebase) so it can never double-send. Can be cancelled
    from Settings any time before day 8.

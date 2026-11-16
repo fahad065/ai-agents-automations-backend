@@ -73,7 +73,7 @@ export class TrialExpiryCron {
       const now = new Date();
 
       // Day 1 — 24 hours after signup. Claims each user atomically
-      // (welcomeDay1Sent false→true via findOneAndUpdate) before sending —
+      // (welcomeEmails.dayNSent false→true via findOneAndUpdate) before sending —
       // without this, running 2+ replicas would send every welcome email
       // to every matching user TWICE, once per instance, every single
       // day (this cron has no built-in cross-instance coordination and,
@@ -85,13 +85,13 @@ export class TrialExpiryCron {
           $lt: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000),
         },
         isDeleted: { $ne: true },
-        welcomeDay1Sent: { $ne: true },
+        'welcomeEmails.day1Sent': { $ne: true },
       }).select('_id name email').lean();
       let day1Sent = 0;
       for (const user of day1Candidates) {
         const claimed = await this.userModel.findOneAndUpdate(
-          { _id: (user as any)._id, welcomeDay1Sent: { $ne: true } },
-          { $set: { welcomeDay1Sent: true } },
+          { _id: (user as any)._id, 'welcomeEmails.day1Sent': { $ne: true } },
+          { $set: { 'welcomeEmails.day1Sent': true } },
         );
         if (!claimed) continue;
         await this.emailService.sendDay1Email({ name: (user as any).name, email: (user as any).email });
@@ -106,13 +106,13 @@ export class TrialExpiryCron {
           $lt: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000),
         },
         isDeleted: { $ne: true },
-        welcomeDay3Sent: { $ne: true },
+        'welcomeEmails.day3Sent': { $ne: true },
       }).select('_id name email').lean();
       let day3Sent = 0;
       for (const user of day3Candidates) {
         const claimed = await this.userModel.findOneAndUpdate(
-          { _id: (user as any)._id, welcomeDay3Sent: { $ne: true } },
-          { $set: { welcomeDay3Sent: true } },
+          { _id: (user as any)._id, 'welcomeEmails.day3Sent': { $ne: true } },
+          { $set: { 'welcomeEmails.day3Sent': true } },
         );
         if (!claimed) continue;
         await this.emailService.sendDay3Email({ name: (user as any).name, email: (user as any).email });
@@ -127,13 +127,13 @@ export class TrialExpiryCron {
           $lt: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
         },
         isDeleted: { $ne: true },
-        welcomeDay7Sent: { $ne: true },
+        'welcomeEmails.day7Sent': { $ne: true },
       }).select('_id name email').lean();
       let day7Sent = 0;
       for (const user of day7Candidates) {
         const claimed = await this.userModel.findOneAndUpdate(
-          { _id: (user as any)._id, welcomeDay7Sent: { $ne: true } },
-          { $set: { welcomeDay7Sent: true } },
+          { _id: (user as any)._id, 'welcomeEmails.day7Sent': { $ne: true } },
+          { $set: { 'welcomeEmails.day7Sent': true } },
         );
         if (!claimed) continue;
         await this.emailService.sendDay7Email({ name: (user as any).name, email: (user as any).email });

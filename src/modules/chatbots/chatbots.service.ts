@@ -133,7 +133,7 @@ export class ChatbotsService implements OnModuleInit {
     if (moduleSlug) {
       try {
         const module = await this.servicesService.findOne(moduleSlug);
-        const tierPricing = module.pricingTiers?.find((t: any) => t.key === tier);
+        const tierPricing = module.pricing?.tiers?.find((t: any) => t.key === tier);
         billing.setupFee = 0;
         billing.monthlyFee = tierPricing?.monthly ?? module.pricing?.monthly ?? 0;
         billing.currency = 'USD';
@@ -325,8 +325,8 @@ export class ChatbotsService implements OnModuleInit {
     // AuthService.register()) with a one-click resend, so there's already
     // a natural forcing function without adding a second one here.
     if (changes.status === 'active' && chatbot.status !== 'active') {
-      const owner = await this.userModel.findById(chatbot.userId).select('isEmailVerified').lean();
-      if (!owner || !(owner as any).isEmailVerified) {
+      const owner = await this.userModel.findById(chatbot.userId).select('auth.isEmailVerified').lean();
+      if (!owner || !(owner as any).auth?.isEmailVerified) {
         throw new BadRequestException(
           isAdmin
             ? 'This chatbot\'s owner needs to verify their email before it can go live.'
@@ -643,7 +643,7 @@ export class ChatbotsService implements OnModuleInit {
     if (!slug) return null;
     try {
       const module = await this.servicesService.findOne(slug);
-      const proTier = module.pricingTiers?.find((t: any) => t.key === 'pro');
+      const proTier = module.pricing?.tiers?.find((t: any) => t.key === 'pro');
       return proTier?.monthly ?? null;
     } catch (err) {
       this.logger.warn(`resolveProMonthlyPrice() couldn't load module "${slug}": ${err?.message}`);

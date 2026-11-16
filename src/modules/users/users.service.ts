@@ -8,7 +8,7 @@ import {
   import { InjectModel } from '@nestjs/mongoose';
   import { Model, Types } from 'mongoose';
   import * as bcrypt from 'bcryptjs';
-  import { User, UserDocument, UserStatus } from './schemas/user.schema';
+  import { User, UserDocument, UserStatus, USER_PUBLIC_PROJECTION, USER_FIELD_GROUPS } from './schemas/user.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
 import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
@@ -95,6 +95,42 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
         { onboarding: { $exists: false } },
         { $set: { onboarding: {} } },
       );
+
+      await this.groupFlatFields();
+    }
+
+    // One-time move of the old flat fields into profile/auth/plan/
+    // welcomeEmails/deletion (2026-11-16, user-approved). Only matches docs
+    // that still have at least one old flat field, so it's a no-op after the
+    // first boot. If a doc already has a grouped value (e.g. written by new
+    // code mid-deploy), that value wins over the old flat one.
+    private async groupFlatFields() {
+      const groups = USER_FIELD_GROUPS;
+      const oldFields = Object.values(groups).flatMap((g) => Object.values(g));
+
+      const setStage: Record<string, any> = {};
+      for (const [group, map] of Object.entries(groups)) {
+        // A field missing on the doc evaluates to "missing" and is simply
+        // left out of the object literal — no nulls get written.
+        const fromFlat = Object.fromEntries(Object.entries(map).map(([to, from]) => [to, '$' + from]));
+        setStage[group] = { $mergeObjects: [fromFlat, { $ifNull: ['$' + group, {}] }] };
+      }
+
+      // Raw collection: the old paths are no longer on the schema, so
+      // Mongoose strict mode would strip them from the filter and $unset.
+      const result = await this.userModel.collection.updateMany(
+        { $or: oldFields.map((f) => ({ [f]: { $exists: true } })) },
+        [{ $set: setStage }, { $unset: oldFields }],
+      );
+      if (result.modifiedCount) {
+        this.logger.log(`Grouped profile/auth/plan/welcomeEmails/deletion on ${result.modifiedCount} user(s)`);
+      }
+
+      // Indexes on the old flat paths are dead weight now; the schema
+      // creates auth.googleId / plan.planType instead.
+      for (const name of ['googleId_1', 'planType_1']) {
+        await this.userModel.collection.dropIndex(name).catch(() => undefined);
+      }
     }
 
     async findById(id: string) {
@@ -109,7 +145,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       }
       const user = await this.userModel
         .findById(userId)
-        .select('-password -refreshToken')
+        .select(USER_PUBLIC_PROJECTION)
         .lean();
       if (!user) throw new NotFoundException('User not found');
       return { user };
@@ -119,15 +155,15 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       if (!Types.ObjectId.isValid(userId)) {
         throw new NotFoundException('User not found');
       }
-      // notifyPreferences is a nested object on the schema — flatten it to
+      // profile/notifyPreferences are nested objects — flatten them to
       // dotted paths so a partial update (e.g. just {billing: false}) only
       // touches the sub-fields actually sent, instead of a whole-object
-      // $set wiping out every other preference not included in this call.
-      const { notifyPreferences, ...rest } = dto as any;
+      // $set wiping out every other value not included in this call.
+      const { notifyPreferences, profile, ...rest } = dto as any;
       const set: Record<string, any> = { ...rest };
-      if (notifyPreferences) {
-        for (const [key, value] of Object.entries(notifyPreferences)) {
-          if (value !== undefined) set[`notifyPreferences.${key}`] = value;
+      for (const [group, values] of Object.entries({ profile, notifyPreferences })) {
+        for (const [key, value] of Object.entries(values || {})) {
+          if (value !== undefined) set[`${group}.${key}`] = value;
         }
       }
 
@@ -135,7 +171,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
         userId,
         { $set: set },
         { new: true },
-      ).select('-password -refreshToken').lean();
+      ).select(USER_PUBLIC_PROJECTION).lean();
       if (!user) throw new NotFoundException('User not found');
 
       await this.activityLogsService.record({
@@ -199,13 +235,13 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
         filter.status = filters.status;
       }
       if (filters?.planType && filters?.planType !== 'all') {
-        filter.planType = filters.planType;
+        filter['plan.planType'] = filters.planType;
       }
 
       const [users, total] = await Promise.all([
         this.userModel
           .find(filter)
-          .select('-password -refreshToken')
+          .select(USER_PUBLIC_PROJECTION)
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
@@ -252,7 +288,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
     async findOne(id: string) {
       const user = await this.userModel
         .findById(id)
-        .select('-password -refreshToken')
+        .select(USER_PUBLIC_PROJECTION)
         .lean();
       if (!user) throw new NotFoundException('User not found');
       return user;
@@ -260,26 +296,29 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
    
     async adminUpdate(id: string, data: {
       name?: string;
-      phoneNumber?: string;
-      country?: string;
       status?: string;
-      planType?: string;
       role?: string;
-      trialEndDate?: string;
-      isFreeForever?: boolean;
+      profile?: { phoneNumber?: string; country?: string };
+      plan?: { planType?: string; trialEndDate?: string; isFreeForever?: boolean };
     }, adminId?: string) {
-      const allowed = [
-        'name', 'phoneNumber', 'country', 'status',
-        'planType', 'role', 'trialEndDate', 'isFreeForever',
-      ];
+      // Whitelisted, written as dotted paths so a partial nested update
+      // never wipes the rest of profile/plan.
+      const allowed: Record<string, string[] | true> = {
+        name: true, status: true, role: true,
+        profile: ['phoneNumber', 'country'],
+        plan: ['planType', 'trialEndDate', 'isFreeForever'],
+      };
       const update: any = {};
-      for (const key of allowed) {
-        if (data[key] !== undefined) update[key] = data[key];
+      for (const [key, sub] of Object.entries(allowed)) {
+        const value = (data as any)[key];
+        if (value === undefined) continue;
+        if (sub === true) update[key] = value;
+        else for (const k of sub) if (value?.[k] !== undefined) update[`${key}.${k}`] = value[k];
       }
 
       const user = await this.userModel.findByIdAndUpdate(
         id, update, { new: true }
-      ).select('-password -refreshToken');
+      ).select(USER_PUBLIC_PROJECTION);
 
       if (!user) throw new NotFoundException('User not found');
 
@@ -317,14 +356,14 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       const user = await this.userModel.findById(userId);
       if (!user) throw new NotFoundException('User not found');
      
-      const currentEnd = user.trialEndDate ? new Date(user.trialEndDate) : new Date();
+      const currentEnd = user.plan?.trialEndDate ? new Date(user.plan.trialEndDate) : new Date();
       const newEnd = new Date(currentEnd);
       newEnd.setDate(newEnd.getDate() + days);
      
       await this.userModel.findByIdAndUpdate(userId, {
-        trialEndDate: newEnd,
+        'plan.trialEndDate': newEnd,
         // Reactivate if was expired
-        planType: 'trial',
+        'plan.planType': 'trial',
       });
      
       // Reactivate paused modules if extending

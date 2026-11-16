@@ -19,12 +19,20 @@ class NotifyPreferencesDto {
   @IsOptional() @IsBoolean() emailUpdates?: boolean;
 }
 
-export class UpdateProfileDto {
-  @IsOptional() @IsString() name?: string;
+class ProfileDto {
   @IsOptional() @IsString() phoneNumber?: string;
   @IsOptional() @IsString() country?: string;
   @IsOptional() @IsString() timezone?: string;
   @IsOptional() @IsString() company?: string;
+}
+
+export class UpdateProfileDto {
+  @IsOptional() @IsString() name?: string;
+
+  // Personal details — see user.schema.ts's UserProfile. Partial updates
+  // merge (dotted $set per sub-field in UsersService.updateProfile()).
+  @IsOptional() @ValidateNested() @Type(() => ProfileDto)
+  profile?: ProfileDto;
 
   @IsOptional() @ValidateNested() @Type(() => OnboardingDto)
   onboarding?: OnboardingDto;

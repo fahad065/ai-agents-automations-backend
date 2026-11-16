@@ -30,8 +30,8 @@ export class AdminService {
       this.userModel.countDocuments({ isDeleted: { $ne: true } }),
       this.userModel.countDocuments({ isDeleted: { $ne: true }, status: UserStatus.ACTIVE }),
       this.userModel.countDocuments({ createdAt: { $gte: startOfMonth } }),
-      this.userModel.countDocuments({ planType: 'trial', isFreeForever: { $ne: true } }),
-      this.userModel.countDocuments({ isFreeForever: true }),
+      this.userModel.countDocuments({ 'plan.planType': 'trial', 'plan.isFreeForever': { $ne: true } }),
+      this.userModel.countDocuments({ 'plan.isFreeForever': true }),
       this.userModuleModel.countDocuments({}),
       this.userModuleModel.countDocuments({ isActive: true }),
       this.pipelineModel.countDocuments({}),
@@ -105,7 +105,7 @@ export class AdminService {
       ]),
       this.userModel
         .find({ isDeleted: { $ne: true } })
-        .select('_id name email planType trialEndDate status')
+        .select('_id name email plan.planType plan.trialEndDate status')
         .sort({ createdAt: -1 })
         .lean(),
     ]);
@@ -128,8 +128,8 @@ export class AdminService {
         userId: uid,
         name: (u as any).name,
         email: (u as any).email,
-        planType: (u as any).planType,
-        trialEndDate: (u as any).trialEndDate,
+        planType: (u as any).plan?.planType,
+        trialEndDate: (u as any).plan?.trialEndDate,
         status: (u as any).status,
         modulesByStatus: moduleStatusByUser.get(uid) || {},
         pipelines: {

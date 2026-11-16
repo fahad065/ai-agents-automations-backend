@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Service, ServiceDocument, ServiceStatus } from './schemas/service.schema';
+import { Service, ServiceDocument, ServiceStatus, SERVICE_FIELD_GROUPS } from './schemas/service.schema';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
 
@@ -22,8 +22,54 @@ export class ServicesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Regroup before seeding: the seed's upsert-by-slug must see the
+    // existing docs in their final shape.
+    await this.groupFlatFields();
     await this.seed();
     await this.dropRetiredFields();
+  }
+
+  // One-time move of the old flat fields into content/seo/display/
+  // pipeline/pricing (2026-11-16, user-approved), plus removal of `badge`.
+  // Only matches docs still carrying an old field, so it's a no-op after
+  // the first boot. An already-grouped value wins over the old flat one.
+  private async groupFlatFields() {
+    const groups = SERVICE_FIELD_GROUPS;
+    const oldFields = [...Object.values(groups).flatMap((g) => Object.values(g)), 'badge'];
+
+    // badge used to drive the pill and some buttons ("Live" vs anything
+    // else). Status now does — so a doc whose pill said "Coming Soon" while
+    // its status was active becomes coming_soon, keeping the site as is.
+    const comingSoon = await this.serviceModel.collection.updateMany(
+      { badge: 'Coming Soon', status: ServiceStatus.ACTIVE },
+      { $set: { status: ServiceStatus.COMING_SOON } },
+    );
+    if (comingSoon.modifiedCount) {
+      this.logger.log(`Set status coming_soon on ${comingSoon.modifiedCount} service(s) whose badge said Coming Soon`);
+    }
+
+    const setStage: Record<string, any> = {};
+    for (const [group, map] of Object.entries(groups)) {
+      // A field missing on the doc is "missing" and left out of the object
+      // literal — no nulls get written.
+      const fromFlat = Object.fromEntries(Object.entries(map).map(([to, from]) => [to, '$' + from]));
+      setStage[group] = { $mergeObjects: [fromFlat, { $ifNull: ['$' + group, {}] }] };
+    }
+
+    // Raw collection: the old paths are no longer on the schema, so
+    // Mongoose strict mode would strip them from the filter and $unset.
+    const result = await this.serviceModel.collection.updateMany(
+      { $or: oldFields.map((f) => ({ [f]: { $exists: true } })) },
+      [{ $set: setStage }, { $unset: oldFields }],
+    );
+    if (result.modifiedCount) {
+      this.logger.log(`Grouped content/seo/display/pipeline/pricing on ${result.modifiedCount} service(s)`);
+    }
+
+    // The old compound index sorted on the flat sortOrder.
+    await this.serviceModel.collection
+      .dropIndex('type_1_status_1_isDeleted_1_sortOrder_1')
+      .catch(() => undefined);
   }
 
   // The first services release carried category/availableIn/
@@ -78,16 +124,16 @@ export class ServicesService implements OnModuleInit {
     // overlay on /pricing); inactive is admin-only.
     if (publicOnly) filter.status = { $in: [ServiceStatus.ACTIVE, ServiceStatus.COMING_SOON] };
     if (nicheSlug) filter.nicheSlug = nicheSlug;
-    if (pipelineCategory) filter.pipelineCategory = pipelineCategory;
+    if (pipelineCategory) filter['pipeline.pipelineCategory'] = pipelineCategory;
     if (search) filter.$or = [
       { name: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } },
-      { tagline: { $regex: search, $options: 'i' } },
+      { 'content.description': { $regex: search, $options: 'i' } },
+      { 'content.tagline': { $regex: search, $options: 'i' } },
     ];
 
     const [data, total] = await Promise.all([
       this.serviceModel.find(filter)
-        .sort({ sortOrder: 1, createdAt: -1 })
+        .sort({ 'display.sortOrder': 1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
         .lean(),
@@ -139,12 +185,16 @@ export class ServicesService implements OnModuleInit {
   // always appends it). The old ModulesService version set a literal
   // 'pricing.features' top-level key instead of the nested field — fixed.
   private localize(doc: any): any {
+    const c = doc.content || {};
     return {
       ...doc,
       name: doc.name_ar || doc.name,
-      tagline: doc.tagline_ar || doc.tagline,
-      description: doc.description_ar || doc.description,
-      capabilities: doc.capabilities_ar?.length ? doc.capabilities_ar : doc.capabilities,
+      content: {
+        ...c,
+        tagline: c.tagline_ar || c.tagline,
+        description: c.description_ar || c.description,
+        capabilities: c.capabilities_ar?.length ? c.capabilities_ar : c.capabilities,
+      },
       pricing: doc.pricing && {
         ...doc.pricing,
         features: doc.pricing.features_ar?.length ? doc.pricing.features_ar : doc.pricing.features,

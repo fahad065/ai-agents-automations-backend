@@ -32,7 +32,7 @@ import {
       return this.service.create({
         userId: user._id.toString(),
         userName: user.name,
-        userAvatar: user.avatar,
+        userAvatar: user.profile?.avatar,
         ...body,
       });
     }

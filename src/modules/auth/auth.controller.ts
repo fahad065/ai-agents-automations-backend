@@ -1,3 +1,4 @@
+import { sanitizeUser } from '../users/schemas/user.schema';
 import {
   Controller,
   Post,
@@ -82,9 +83,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getMe(@Req() req: any) {
     const user = req.user.toObject ? req.user.toObject() : req.user;
-    delete user.password;
-    delete user.refreshToken;
-    return { user };
+    return { user: sanitizeUser(user) };
   }
 
   // ── Google OAuth — manual redirect to force account selection ──

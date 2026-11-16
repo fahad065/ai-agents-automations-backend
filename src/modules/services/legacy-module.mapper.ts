@@ -5,7 +5,9 @@ import { ServiceStatus, ServiceType } from './schemas/service.schema';
 // mapping lives — used by both the boot-time migration and the seed.
 //
 // Renamed: moduleType -> type, features -> featureCards,
-//          isActive + isComingSoon -> status.
+//          isActive + isComingSoon -> status, pricingTiers -> pricing.tiers.
+// Grouped (2026-11-16): content / display / pipeline / pricing — see
+//          service.schema.ts. `badge` dropped: the pill comes from status.
 // Dropped: outputType and totalUsersCount/totalRunsCount/avgCostPerRun
 //          (zero readers), plus category, availableIn and
 //          estimatedCostPerRun (not in the architecture.md services shape;
@@ -20,32 +22,39 @@ export function legacyModuleToService(m: Record<string, any>): Record<string, an
     name: m.name,
     name_ar: m.name_ar,
     slug: m.slug,
-    description: m.description,
-    description_ar: m.description_ar,
-    tagline: m.tagline,
-    tagline_ar: m.tagline_ar,
-    nicheSlug: m.nicheSlug,
-    pipelineType: m.pipelineType,
-    pipelineCategory: m.pipelineCategory || 'standalone',
-    components: m.components || [],
-    requiredApiKeys: m.requiredApiKeys || [],
-    capabilities: m.capabilities || [],
-    capabilities_ar: m.capabilities_ar || [],
-    platforms: m.platforms || [],
-    icon: m.icon ?? '🤖',
-    color: m.color ?? '#7c3aed',
-    badge: m.badge ?? 'New',
-    sortOrder: m.sortOrder ?? 0,
-    pricing: m.pricing || { monthly: 0, annual: 0, features: [] },
-    pricingTiers: m.pricingTiers || [],
-    heroStats: m.heroStats || [],
-    featureCards: m.features || [],
-    howItWorks: m.howItWorks || [],
-    faq: m.faq || [],
-    demoVideoUrl: m.demoVideoUrl,
-    defaultConfig: m.defaultConfig || {},
-    include: [],
     status,
     isDeleted: !!m.isDeleted,
+    nicheSlug: m.nicheSlug,
+    include: [],
+    content: {
+      tagline: m.tagline,
+      tagline_ar: m.tagline_ar,
+      description: m.description,
+      description_ar: m.description_ar,
+      capabilities: m.capabilities || [],
+      capabilities_ar: m.capabilities_ar || [],
+      heroStats: m.heroStats || [],
+      featureCards: m.features || [],
+      howItWorks: m.howItWorks || [],
+      faq: m.faq || [],
+      demoVideoUrl: m.demoVideoUrl,
+    },
+    display: {
+      icon: m.icon ?? '🤖',
+      color: m.color ?? '#7c3aed',
+      sortOrder: m.sortOrder ?? 0,
+      platforms: m.platforms || [],
+    },
+    pipeline: {
+      pipelineType: m.pipelineType,
+      pipelineCategory: m.pipelineCategory || 'standalone',
+      components: m.components || [],
+      requiredApiKeys: m.requiredApiKeys || [],
+      defaultConfig: m.defaultConfig || {},
+    },
+    pricing: {
+      ...(m.pricing || { monthly: 0, annual: 0, features: [] }),
+      tiers: m.pricingTiers || [],
+    },
   };
 }

@@ -1,7 +1,7 @@
 import { ServicesService } from './services.service';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
-import { ServiceStatus, ServiceType } from './schemas/service.schema';
+import { ServiceStatus, ServiceType, SERVICE_FIELD_GROUPS } from './schemas/service.schema';
 
 describe('legacyModuleToService', () => {
   const base = { slug: 'x', name: 'X', moduleType: 'agent' };
@@ -22,19 +22,20 @@ describe('legacyModuleToService', () => {
       pricing: { monthly: 39, annual: 31, features: ['Website widget'] },
     });
     expect(out.type).toBe(ServiceType.CHATBOT);
-    expect(out.featureCards).toEqual(cards);
+    expect(out.content.featureCards).toEqual(cards);
     expect(out.pricing.features).toEqual(['Website widget']);
     expect(out).not.toHaveProperty('features');
     expect(out).not.toHaveProperty('moduleType');
     expect(out).not.toHaveProperty('isActive');
     expect(out).not.toHaveProperty('outputType');
+    expect(out).not.toHaveProperty('badge');
   });
 
   it('drops fields that are not in the architecture.md services shape', () => {
     const out = legacyModuleToService({
       ...base, pipelineType: 'youtube', category: 'youtube', availableIn: ['UAE'], estimatedCostPerRun: '$3',
     });
-    expect(out.pipelineType).toBe('youtube');
+    expect(out.pipeline.pipelineType).toBe('youtube');
     for (const f of ['category', 'availableIn', 'estimatedCostPerRun']) expect(out).not.toHaveProperty(f);
   });
 
@@ -62,7 +63,7 @@ describe('LEGACY_SEED_MODULES', () => {
     const chatbots = mapped.filter((m) => m.type === ServiceType.CHATBOT);
     expect(chatbots).toHaveLength(9);
     for (const c of chatbots) {
-      expect(c.pricingTiers.map((t: any) => t.key)).toEqual(['basic', 'pro']);
+      expect(c.pricing.tiers.map((t: any) => t.key)).toEqual(['basic', 'pro']);
     }
   });
 });
@@ -75,5 +76,53 @@ describe('ServicesService.dropRetiredFields', () => {
     const [filter, update] = updateMany.mock.calls[0];
     expect(filter.$or).toHaveLength(3);
     expect(Object.keys(update.$unset).sort()).toEqual(['availableIn', 'category', 'estimatedCostPerRun']);
+  });
+});
+
+describe('ServicesService.groupFlatFields (2026-11-16)', () => {
+  function build() {
+    const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 0 });
+    const dropIndex = jest.fn().mockRejectedValue(new Error('index not found'));
+    const svc = new ServicesService({ collection: { updateMany, dropIndex } } as any);
+    return { svc, updateMany, dropIndex };
+  }
+  const allOld = [...Object.values(SERVICE_FIELD_GROUPS).flatMap((g) => Object.values(g)), 'badge'].sort();
+
+  it('first turns an active service whose badge said Coming Soon into coming_soon', async () => {
+    const { svc, updateMany } = build();
+    await (svc as any).groupFlatFields();
+    expect(updateMany.mock.calls[0]).toEqual([
+      { badge: 'Coming Soon', status: ServiceStatus.ACTIVE },
+      { $set: { status: ServiceStatus.COMING_SOON } },
+    ]);
+  });
+
+  it('only matches docs that still have an old flat field (or badge)', async () => {
+    const { svc, updateMany } = build();
+    await (svc as any).groupFlatFields();
+    const [filter] = updateMany.mock.calls[1];
+    expect(filter.$or.map((c: any) => Object.keys(c)[0]).sort()).toEqual(allOld);
+  });
+
+  it('moves fields into their groups, pricingTiers into pricing.tiers, existing values winning', async () => {
+    const { svc, updateMany } = build();
+    await (svc as any).groupFlatFields();
+    const [, pipeline] = updateMany.mock.calls[1];
+    const set = pipeline[0].$set;
+    expect(Object.keys(set).sort()).toEqual(['content', 'display', 'pipeline', 'pricing', 'seo']);
+    expect(set.pricing.$mergeObjects).toEqual([
+      { tiers: '$pricingTiers', stripePriceId: '$stripePriceId' },
+      { $ifNull: ['$pricing', {}] },
+    ]);
+    expect(set.display.$mergeObjects[0]).toEqual({
+      icon: '$icon', color: '$color', sortOrder: '$sortOrder', platforms: '$platforms',
+    });
+    expect([...pipeline[1].$unset].sort()).toEqual(allOld);
+  });
+
+  it('survives the old index already being gone', async () => {
+    const { svc, dropIndex } = build();
+    await expect((svc as any).groupFlatFields()).resolves.toBeUndefined();
+    expect(dropIndex).toHaveBeenCalledWith('type_1_status_1_isDeleted_1_sortOrder_1');
   });
 });

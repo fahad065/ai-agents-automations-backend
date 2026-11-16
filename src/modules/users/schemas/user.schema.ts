@@ -57,9 +57,67 @@ class NotifyPreferences {
   @Prop({ default: false }) emailUpdates: boolean;
 }
 
-// minimize: false so `onboarding: {}` is actually stored on signup, as the
-// architecture.md shape lists it. Mongoose's default (minimize: true) strips
-// empty objects on save — which is also why notifyPreferences went missing.
+// Grouped sub-documents (2026-11-16, user-approved): personal details,
+// auth state, plan/trial, welcome-email guards and the deletion flow each
+// live in their own object. name/email/password/role/status stay top level.
+// Old flat docs are migrated by UsersService.onModuleInit().
+@Schema({ _id: false })
+export class UserProfile {
+  @Prop() phoneNumber?: string;
+  @Prop() country?: string;
+  @Prop() avatar?: string;
+  @Prop() timezone?: string;
+  @Prop() company?: string;
+}
+export const UserProfileSchema = SchemaFactory.createForClass(UserProfile);
+
+@Schema({ _id: false })
+export class UserAuth {
+  @Prop({ enum: AuthProvider, default: AuthProvider.LOCAL }) provider: AuthProvider;
+  @Prop() googleId?: string;
+  @Prop({ default: false }) isEmailVerified: boolean;
+  @Prop() emailVerificationToken?: string;
+  @Prop() emailVerificationExpires?: Date;
+  @Prop() passwordResetToken?: string;
+  @Prop() passwordResetExpires?: Date;
+  @Prop() refreshToken?: string;
+}
+export const UserAuthSchema = SchemaFactory.createForClass(UserAuth);
+
+@Schema({ _id: false })
+export class UserPlan {
+  @Prop({ enum: PlanType, default: PlanType.TRIAL }) planType: PlanType;
+  @Prop({ default: () => new Date() }) trialStartDate: Date;
+  @Prop({ default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }) trialEndDate: Date;
+  @Prop({ default: false }) isFreeForever: boolean;
+  // Denormalized billing total — the dashboard reads it often.
+  @Prop({ default: 0 }) totalBilled: number;
+}
+export const UserPlanSchema = SchemaFactory.createForClass(UserPlan);
+
+// Welcome-sequence send guards. Claimed atomically by trial-expiry.cron.ts
+// so each email fires once even with several server replicas.
+@Schema({ _id: false })
+export class UserWelcomeEmails {
+  @Prop({ default: false }) day1Sent: boolean;
+  @Prop({ default: false }) day3Sent: boolean;
+  @Prop({ default: false }) day7Sent: boolean;
+}
+export const UserWelcomeEmailsSchema = SchemaFactory.createForClass(UserWelcomeEmails);
+
+// Scheduled (8-calendar-day) account deletion. Instant deletion never sets
+// these. pendingAt is the actual deletion date; reminderSent guards the
+// single day-7 reminder (claimed atomically by AccountDeletionCron).
+@Schema({ _id: false })
+export class UserDeletion {
+  @Prop() requestedAt?: Date;
+  @Prop() pendingAt?: Date;
+  @Prop({ default: false }) reminderSent: boolean;
+}
+export const UserDeletionSchema = SchemaFactory.createForClass(UserDeletion);
+
+// minimize: false so `onboarding: {}` is actually stored on signup.
+// Mongoose's default (minimize: true) strips empty objects on save.
 @Schema({ timestamps: true, minimize: false })
 export class User {
   @Prop({ required: true, trim: true })
@@ -68,38 +126,8 @@ export class User {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
-  @Prop()
-  phoneNumber?: string;
-
-  @Prop()
-  country?: string;
-
-  @Prop()
-  timezone?: string;
- 
-  @Prop()
-  company?: string;
-
-  // Real values, not `{}` — Mongoose's default `minimize` strips empty
-  // objects on save, so a `{}` default meant brand-new signups were stored
-  // with no notifyPreferences field at all.
-  @Prop({
-    type: Object,
-    default: () => ({ onComplete: true, onFail: true, trialExpiry: true, billing: true, emailUpdates: false }),
-  })
-  notifyPreferences: NotifyPreferences;
-
   @Prop({ select: false })
   password?: string;
-
-  @Prop({ enum: AuthProvider, default: AuthProvider.LOCAL })
-  provider: AuthProvider;
-
-  @Prop()
-  googleId?: string;
-
-  @Prop()
-  avatar?: string;
 
   @Prop({ enum: UserRole, default: UserRole.USER })
   role: UserRole;
@@ -110,95 +138,72 @@ export class User {
   @Prop({ default: false })
   isDeleted: boolean;
 
-  @Prop({ default: false })
-  isEmailVerified: boolean;
-  
-  @Prop()
-  emailVerificationToken?: string;
-  
-  @Prop()
-  emailVerificationExpires?: Date;
+  @Prop({ type: UserProfileSchema, default: () => ({}) })
+  profile: UserProfile;
 
-  @Prop()
-  passwordResetToken?: string;
+  @Prop({ type: UserAuthSchema, default: () => ({}) })
+  auth: UserAuth;
 
-  @Prop()
-  passwordResetExpires?: Date;
+  @Prop({ type: UserPlanSchema, default: () => ({}) })
+  plan: UserPlan;
 
-  // Welcome-sequence send guards — without these, the day1/3/7 emails
-  // in trial-expiry.cron.ts's @Cron('0 10 * * *') welcome job would fire
-  // once per user PER SERVER REPLICA (each instance independently scans
-  // the same "created N days ago" window with no shared state), sending
-  // duplicate onboarding emails once a second backend instance is added.
-  @Prop({ default: false })
-  welcomeDay1Sent: boolean;
+  @Prop({ type: UserWelcomeEmailsSchema, default: () => ({}) })
+  welcomeEmails: UserWelcomeEmails;
 
-  @Prop({ default: false })
-  welcomeDay3Sent: boolean;
+  @Prop({ type: UserDeletionSchema, default: () => ({}) })
+  deletion: UserDeletion;
 
-  @Prop({ default: false })
-  welcomeDay7Sent: boolean;
-
-  @Prop()
-  refreshToken?: string;
-
-  // ── Onboarding ──────────────────────────────────────────────
   @Prop({ type: Object, default: {} })
   onboarding: OnboardingData;
 
-  // ── Trial / Plan ────────────────────────────────────────────
-  @Prop({ enum: PlanType, default: PlanType.TRIAL })
-  planType: PlanType;
-
-  @Prop({ default: () => new Date() })
-  trialStartDate: Date;
-
+  // Real values, not `{}` — see minimize note above.
   @Prop({
-    default: () => {
-      const d = new Date();
-      d.setDate(d.getDate() + 30);
-      return d;
-    }
+    type: Object,
+    default: () => ({ onComplete: true, onFail: true, trialExpiry: true, billing: true, emailUpdates: false }),
   })
-  trialEndDate: Date;
-
-  @Prop({ default: false })
-  isFreeForever: boolean;
-
-  // ── Billing summary (denormalized for quick access) ─────────
-  @Prop({ default: 0 })
-  totalBilled: number;
-  // totalAgents/totalAutomations deliberately dropped — premature
-  // denormalization that nothing ever actually read as a stored field.
-  // UsersService.findAll() now computes these fresh per request (agent/
-  // automation count from UserModule, chatbot count from Chatbot) instead.
-
-  // ── Account deletion ─────────────────────────────────────────
-  // Two paths: instant (deleted synchronously, no fields below ever get
-  // set) or scheduled — set the moment a user requests the 8-calendar-day
-  // path; cleared if they cancel. `pendingDeletionAt` is the actual
-  // deletion date (day 8), not the request date. AccountDeletionCron
-  // sweeps daily: sends one reminder on day 7 (pendingDeletionAt - 1 day,
-  // claimed via deletionReminderSent so it only ever fires once), then
-  // performs the real deletion once pendingDeletionAt <= now. The account
-  // stays fully usable the whole time so the user can actually get to
-  // Settings to export their backup.
-  @Prop()
-  deletionRequestedAt?: Date;
-
-  @Prop()
-  pendingDeletionAt?: Date;
-
-  @Prop({ default: false })
-  deletionReminderSent: boolean;
+  notifyPreferences: NotifyPreferences;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
 // UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ googleId: 1 }, { sparse: true });
-UserSchema.index({ planType: 1 });
+UserSchema.index({ 'auth.googleId': 1 }, { sparse: true });
+UserSchema.index({ 'plan.planType': 1 });
 UserSchema.index({ trialEndDate: 1 });
 UserSchema.index({ isDeleted: 1 });
 UserSchema.index({ status: 1 });
 UserSchema.index({ pendingDeletionAt: 1 }, { sparse: true });
+// Strips secrets before a user leaves the API: the password hash and every
+// auth token (refresh, email-verification, password-reset). Everything else
+// in `auth` (provider, googleId, isEmailVerified) is safe to return.
+export function sanitizeUser<T extends Record<string, any>>(obj: T): T {
+  const { password, ...rest } = obj as any;
+  if (rest.auth) {
+    const { refreshToken, emailVerificationToken, emailVerificationExpires,
+      passwordResetToken, passwordResetExpires, ...safeAuth } = rest.auth;
+    rest.auth = safeAuth;
+  }
+  return rest;
+}
+
+// Mongoose projection that leaves out the same secrets as sanitizeUser().
+export const USER_PUBLIC_PROJECTION =
+  '-password -auth.refreshToken -auth.emailVerificationToken -auth.emailVerificationExpires -auth.passwordResetToken -auth.passwordResetExpires';
+
+// Old flat field → grouped location, used by UsersService.groupFlatFields()
+// (the one-time 2026-11-16 migration). group → { newKey: oldFlatField }.
+export const USER_FIELD_GROUPS: Record<string, Record<string, string>> = {
+  profile: { phoneNumber: 'phoneNumber', country: 'country', avatar: 'avatar', timezone: 'timezone', company: 'company' },
+  auth: {
+    provider: 'provider', googleId: 'googleId', isEmailVerified: 'isEmailVerified',
+    emailVerificationToken: 'emailVerificationToken', emailVerificationExpires: 'emailVerificationExpires',
+    passwordResetToken: 'passwordResetToken', passwordResetExpires: 'passwordResetExpires',
+    refreshToken: 'refreshToken',
+  },
+  plan: {
+    planType: 'planType', trialStartDate: 'trialStartDate', trialEndDate: 'trialEndDate',
+    isFreeForever: 'isFreeForever', totalBilled: 'totalBilled',
+  },
+  welcomeEmails: { day1Sent: 'welcomeDay1Sent', day3Sent: 'welcomeDay3Sent', day7Sent: 'welcomeDay7Sent' },
+  deletion: { requestedAt: 'deletionRequestedAt', pendingAt: 'pendingDeletionAt', reminderSent: 'deletionReminderSent' },
+};

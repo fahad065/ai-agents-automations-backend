@@ -36,6 +36,10 @@ class ServicePricing {
   @Prop({ default: false }) hasCustomPlan: boolean;
   @Prop({ default: 'Contact us for custom pricing' }) customLabel: string;
   @Prop() customLabel_ar?: string;
+  // Chatbot-only Basic/Pro tiers (moved here from top-level pricingTiers).
+  @Prop({ type: [Object], default: [] }) tiers?: PricingTier[];
+  // Not wired to Stripe yet (rules.md #11).
+  @Prop() stripePriceId?: string;
 }
 
 // Generic now — any type may use tiers, not just chatbots (today only the
@@ -86,6 +90,69 @@ class ServiceFaq {
   @Prop() answer_ar?: string;
 }
 
+// Grouped sub-documents (2026-11-16, user-approved): marketing copy under
+// `content`, SEO under `seo`, card styling under `display`, how the Python
+// service runs it under `pipeline`, and all pricing (incl. chatbot tiers)
+// under `pricing`. Old flat docs are migrated by
+// ServicesService.groupFlatFields(). `badge` was dropped the same day —
+// the "Live" / "Coming Soon" pill is derived from `status`.
+@Schema({ _id: false })
+export class ServiceContent {
+  @Prop() tagline?: string;
+  @Prop() tagline_ar?: string;
+  @Prop() description?: string;
+  @Prop() description_ar?: string;
+  @Prop({ type: [String], default: [] }) capabilities: string[];
+  @Prop({ type: [String], default: [] }) capabilities_ar: string[];
+  @Prop({ type: [Object], default: [] }) heroStats: HeroStat[];
+  // Marketing cards. Deliberately NOT named `features` — that name is
+  // pricing.features[] (plan bullet strings), a different shape (rules.md #6).
+  @Prop({ type: [Object], default: [] }) featureCards: FeatureCard[];
+  @Prop({ type: [Object], default: [] }) howItWorks: HowItWorksStep[];
+  @Prop({ type: [Object], default: [] }) faq: ServiceFaq[];
+  @Prop() demoVideoUrl?: string;
+  @Prop() brochureUrl?: string;
+}
+export const ServiceContentSchema = SchemaFactory.createForClass(ServiceContent);
+
+@Schema({ _id: false })
+export class ServiceSeo {
+  @Prop() metaTitle?: string;
+  @Prop() metaTitle_ar?: string;
+  @Prop() metaDescription?: string;
+  @Prop() metaDescription_ar?: string;
+}
+export const ServiceSeoSchema = SchemaFactory.createForClass(ServiceSeo);
+
+// Card styling. Never nested under a key called `config` (rules.md #5 —
+// that name means a customer's settings on userservices).
+@Schema({ _id: false })
+export class ServiceDisplay {
+  @Prop({ default: '🤖' }) icon: string;
+  @Prop({ default: '#7c3aed' }) color: string;
+  @Prop({ default: 0 }) sortOrder: number;
+  // Descriptive/marketing only (e.g. ['WhatsApp']) — never a customer's
+  // channel credentials; those live on userservices.config.
+  @Prop({ type: [String], default: [] }) platforms: string[];
+}
+export const ServiceDisplaySchema = SchemaFactory.createForClass(ServiceDisplay);
+
+@Schema({ _id: false })
+export class ServicePipeline {
+  // Which pipeline the Python service runs (sent on subscribe, and what
+  // pipeline_runs snapshots at run time).
+  @Prop() pipelineType?: string;
+  @Prop({ enum: PipelineCategory, default: PipelineCategory.STANDALONE })
+  pipelineCategory: PipelineCategory;
+  // niche_pipeline only
+  @Prop({ type: [Object], default: [] })
+  components: { key: string; name: string; description: string; icon: string; isRequired: boolean; sortOrder: number }[];
+  @Prop({ type: [String], default: [] }) requiredApiKeys: string[];
+  // Seeds a new userservices.config with sensible starting values.
+  @Prop({ type: Object, default: {} }) defaultConfig: Record<string, any>;
+}
+export const ServicePipelineSchema = SchemaFactory.createForClass(ServicePipeline);
+
 @Schema({ timestamps: true, collection: 'services' })
 export class Service {
   @Prop({ enum: ServiceType, required: true })
@@ -98,84 +165,54 @@ export class Service {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   slug: string;
 
-  @Prop() description?: string;
-  @Prop() description_ar?: string;
-  @Prop() tagline?: string;
-  @Prop() tagline_ar?: string;
-  @Prop() metaTitle?: string;
-  @Prop() metaTitle_ar?: string;
-  @Prop() metaDescription?: string;
-  @Prop() metaDescription_ar?: string;
+  // Drives visibility AND the public pill: active = "Live",
+  // coming_soon = "Coming Soon", inactive = hidden.
+  @Prop({ enum: ServiceStatus, default: ServiceStatus.ACTIVE })
+  status: ServiceStatus;
 
-  // Plain strings, not enums — the old ModuleTemplate enums had drifted out
-  // of sync with the values actually stored (seed data uses 'tiktok',
-  // 'whatsapp', 'arabic'... none of which were in the enum).
+  @Prop({ default: false }) isDeleted: boolean;
+
+  // Plain string, not an enum — the old ModuleTemplate enums had drifted
+  // out of sync with the values actually stored.
   @Prop() nicheSlug?: string;
-
-  // Which pipeline the Python service runs for this service (sent on
-  // subscribe, and what pipeline_runs snapshots at run time).
-  @Prop() pipelineType?: string;
-
-  @Prop({ enum: PipelineCategory, default: PipelineCategory.STANDALONE })
-  pipelineCategory: PipelineCategory;
-
-  // niche_pipeline only
-  @Prop({ type: [Object], default: [] })
-  components: {
-    key: string;
-    name: string;
-    description: string;
-    icon: string;
-    isRequired: boolean;
-    sortOrder: number;
-  }[];
-
-  @Prop({ type: [String], default: [] }) requiredApiKeys: string[];
-  @Prop({ type: [String], default: [] }) capabilities: string[];
-  @Prop({ type: [String], default: [] }) capabilities_ar: string[];
-
-  // Descriptive/marketing only (e.g. ['WhatsApp']) — never a customer's
-  // channel credentials; those live on userservices.config.
-  @Prop({ type: [String], default: [] }) platforms: string[];
-
-  // Flat display fields — never nested under a key called `config`
-  // (rules.md #5; that name means something else on userservices).
-  @Prop({ default: '🤖' }) icon: string;
-  @Prop({ default: '#7c3aed' }) color: string;
-  @Prop({ default: 'New' }) badge: string;
-  @Prop({ default: 0 }) sortOrder: number;
-
-  @Prop({ type: Object, default: { monthly: 0, annual: 0, features: [] } })
-  pricing: ServicePricing;
-
-  @Prop({ type: [Object], default: [] }) pricingTiers: PricingTier[];
-
-  @Prop({ type: [Object], default: [] }) heroStats: HeroStat[];
-  @Prop({ type: [Object], default: [] }) featureCards: FeatureCard[];
-  @Prop({ type: [Object], default: [] }) howItWorks: HowItWorksStep[];
-  @Prop({ type: [Object], default: [] }) faq: ServiceFaq[];
-
-  @Prop() demoVideoUrl?: string;
-  @Prop() brochureUrl?: string;
-
-  // Seeds a new userservices.config with sensible starting values.
-  @Prop({ type: Object, default: {} }) defaultConfig: Record<string, any>;
 
   // BUNDLE ONLY. Read once at subscribe time to fan out into N userservices
   // rows (rules.md #3) — never duplicated onto userservices.
   @Prop({ type: [Types.ObjectId], ref: 'Service', default: [] })
   include: Types.ObjectId[];
 
-  @Prop({ enum: ServiceStatus, default: ServiceStatus.ACTIVE })
-  status: ServiceStatus;
+  @Prop({ type: ServiceContentSchema, default: () => ({}) }) content: ServiceContent;
+  @Prop({ type: ServiceSeoSchema, default: () => ({}) }) seo: ServiceSeo;
+  @Prop({ type: ServiceDisplaySchema, default: () => ({}) }) display: ServiceDisplay;
+  @Prop({ type: ServicePipelineSchema, default: () => ({}) }) pipeline: ServicePipeline;
 
-  @Prop({ default: false }) isDeleted: boolean;
-
-  // Catalog-level, one per sellable thing. Not wired to Stripe yet (rules.md #11).
-  @Prop() stripePriceId?: string;
+  // Single plan (agents/automations) plus, for chatbots, Basic/Pro `tiers`.
+  @Prop({ type: Object, default: () => ({ monthly: 0, annual: 0, features: [], tiers: [] }) })
+  pricing: ServicePricing;
 }
 
 export const ServiceSchema = SchemaFactory.createForClass(Service);
 
-ServiceSchema.index({ type: 1, status: 1, isDeleted: 1, sortOrder: 1 });
+ServiceSchema.index({ type: 1, status: 1, isDeleted: 1, 'display.sortOrder': 1 });
 ServiceSchema.index({ nicheSlug: 1 });
+
+// Old flat field → grouped location, used by the one-time 2026-11-16
+// migration (ServicesService.groupFlatFields()). group → { newKey: oldField }.
+export const SERVICE_FIELD_GROUPS: Record<string, Record<string, string>> = {
+  content: {
+    tagline: 'tagline', tagline_ar: 'tagline_ar', description: 'description', description_ar: 'description_ar',
+    capabilities: 'capabilities', capabilities_ar: 'capabilities_ar', heroStats: 'heroStats',
+    featureCards: 'featureCards', howItWorks: 'howItWorks', faq: 'faq',
+    demoVideoUrl: 'demoVideoUrl', brochureUrl: 'brochureUrl',
+  },
+  seo: {
+    metaTitle: 'metaTitle', metaTitle_ar: 'metaTitle_ar',
+    metaDescription: 'metaDescription', metaDescription_ar: 'metaDescription_ar',
+  },
+  display: { icon: 'icon', color: 'color', sortOrder: 'sortOrder', platforms: 'platforms' },
+  pipeline: {
+    pipelineType: 'pipelineType', pipelineCategory: 'pipelineCategory', components: 'components',
+    requiredApiKeys: 'requiredApiKeys', defaultConfig: 'defaultConfig',
+  },
+  pricing: { tiers: 'pricingTiers', stripePriceId: 'stripePriceId' },
+};

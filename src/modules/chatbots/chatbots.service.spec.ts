@@ -34,7 +34,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
   const conversationModel: any = {};
   const userModel: any = {
     findById: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ isEmailVerified: userIsVerified }) }),
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ auth: { isEmailVerified: userIsVerified } }) }),
     }),
   };
   const apiKeysService: any = {
@@ -135,6 +135,14 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       await expect(
         service.update('bot1', 'owner1', { status: 'active' }),
       ).rejects.toThrow(/verify your email/i);
+    });
+
+    it('lets a verified owner take the chatbot live (reads auth.isEmailVerified)', async () => {
+      const chatbot = makeChatbot({ status: 'draft', billing: { tier: 'basic', status: 'trial' } });
+      const service = makeService(chatbot, /* userIsVerified */ true);
+
+      await expect(service.update('bot1', 'owner1', { status: 'active' })).resolves.toBeDefined();
+      expect(chatbot.status).toBe('active');
     });
   });
 

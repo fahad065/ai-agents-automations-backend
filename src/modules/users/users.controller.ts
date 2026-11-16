@@ -82,11 +82,7 @@ export class UsersController {
   grantFree(@Req() req: any, @Param('id') id: string) {
     if (req.user.role !== 'admin') return { message: 'Forbidden' };
     return this.usersService.adminUpdate(id, {
-      isFreeForever: true,
-      // Was 'lifetime' — not a real PlanType value (the enum is
-      // trial|paid|free_forever|expired), a pre-existing bug caught while
-      // aligning this module to the finalized schema in ai/architecture.md.
-      planType: PlanType.FREE_FOREVER,
+      plan: { isFreeForever: true, planType: PlanType.FREE_FOREVER },
     }, req.user._id.toString());
   }
   

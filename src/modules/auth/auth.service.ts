@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import * as CryptoJS from 'crypto-js';
-import { User, UserDocument, AuthProvider, PlanType, UserStatus } from '../users/schemas/user.schema';
+import { User, UserDocument, AuthProvider, PlanType, UserStatus, sanitizeUser } from '../users/schemas/user.schema';
 import { ApiKeyStatus } from '../api-keys/schemas/api-key.schema';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -64,12 +64,8 @@ export class AuthService {
       name: dto.name,
       email: dto.email.toLowerCase(),
       password: hashed,
-      isEmailVerified: false,          // ← not verified yet
-      emailVerificationToken,
-      emailVerificationExpires,
-      planType: PlanType.TRIAL,
-      trialStartDate: new Date(),
-      trialEndDate: trialEnd,
+      auth: { isEmailVerified: false, emailVerificationToken, emailVerificationExpires },
+      plan: { planType: PlanType.TRIAL, trialStartDate: new Date(), trialEndDate: trialEnd },
     });
    
     // Send verification email (not welcome email yet)
@@ -99,16 +95,16 @@ export class AuthService {
 
   async verifyEmail(token: string) {
     const user = await this.userModel.findOne({
-      emailVerificationToken: token,
-      emailVerificationExpires: { $gt: new Date() },
-      isEmailVerified: false,
+      'auth.emailVerificationToken': token,
+      'auth.emailVerificationExpires': { $gt: new Date() },
+      'auth.isEmailVerified': false,
     });
    
     if (!user) throw new BadRequestException('Invalid or expired verification link');
    
-    user.isEmailVerified = true;
-    user.emailVerificationToken = undefined;
-    user.emailVerificationExpires = undefined;
+    user.auth.isEmailVerified = true;
+    user.auth.emailVerificationToken = undefined;
+    user.auth.emailVerificationExpires = undefined;
     await user.save();
    
     // Send welcome email after verification
@@ -126,14 +122,14 @@ export class AuthService {
   async resendVerification(email: string) {
     const user = await this.userModel.findOne({ email: email.toLowerCase() });
     if (!user) throw new NotFoundException('User not found');
-    if (user.isEmailVerified) throw new BadRequestException('Email already verified');
+    if (user.auth?.isEmailVerified) throw new BadRequestException('Email already verified');
    
     const emailVerificationToken = crypto.randomBytes(32).toString('hex');
     const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
    
     await this.userModel.findByIdAndUpdate(user._id, {
-      emailVerificationToken,
-      emailVerificationExpires,
+      'auth.emailVerificationToken': emailVerificationToken,
+      'auth.emailVerificationExpires': emailVerificationExpires,
     });
    
     await this.emailService.sendVerificationEmail(
@@ -160,8 +156,8 @@ export class AuthService {
     const passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
 
     await this.userModel.findByIdAndUpdate(user._id, {
-      passwordResetToken,
-      passwordResetExpires,
+      'auth.passwordResetToken': passwordResetToken,
+      'auth.passwordResetExpires': passwordResetExpires,
     });
 
     await this.emailService.sendPasswordResetEmail(
@@ -174,18 +170,18 @@ export class AuthService {
 
   async resetPassword(token: string, newPassword: string) {
     const user = await this.userModel.findOne({
-      passwordResetToken: token,
-      passwordResetExpires: { $gt: new Date() },
+      'auth.passwordResetToken': token,
+      'auth.passwordResetExpires': { $gt: new Date() },
     });
 
     if (!user) throw new BadRequestException('Invalid or expired reset link');
 
     user.password = await bcrypt.hash(newPassword, 12);
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
+    user.auth.passwordResetToken = undefined;
+    user.auth.passwordResetExpires = undefined;
     // Force re-login on every other device/session — a password reset is
     // exactly the moment a stolen refresh token should stop working.
-    user.refreshToken = undefined;
+    user.auth.refreshToken = undefined;
     await user.save();
 
     return { message: 'Password reset successful — sign in with your new password.' };
@@ -224,18 +220,16 @@ export class AuthService {
       user = await this.userModel.create({
         name: googleUser.name,
         email: googleUser.email,
-        googleId: googleUser.googleId,
-        avatar: googleUser.avatar,
-        provider: AuthProvider.GOOGLE,
-        isEmailVerified: true,
+        profile: { avatar: googleUser.avatar },
+        auth: { googleId: googleUser.googleId, provider: AuthProvider.GOOGLE, isEmailVerified: true },
       });
-    } else if (!user.googleId) {
-      user.googleId = googleUser.googleId;
-      user.provider = AuthProvider.GOOGLE;
-      if (!user.avatar) user.avatar = googleUser.avatar;
+    } else if (!user.auth?.googleId) {
+      user.auth.googleId = googleUser.googleId;
+      user.auth.provider = AuthProvider.GOOGLE;
+      if (!user.profile?.avatar) user.profile.avatar = googleUser.avatar;
       // Linking Google to an existing (possibly still-unverified) account is
       // itself proof of ownership of the email — same reasoning as above.
-      user.isEmailVerified = true;
+      user.auth.isEmailVerified = true;
       await user.save();
     }
 
@@ -247,11 +241,11 @@ export class AuthService {
 
   async refreshTokens(userId: string, refreshToken: string) {
     const user = await this.userModel.findById(userId);
-    if (!user || !user.refreshToken) {
+    if (!user || !user.auth?.refreshToken) {
       throw new UnauthorizedException('Access denied');
     }
 
-    const tokenMatch = await bcrypt.compare(refreshToken, user.refreshToken);
+    const tokenMatch = await bcrypt.compare(refreshToken, user.auth.refreshToken);
     if (!tokenMatch) throw new UnauthorizedException('Invalid refresh token');
 
     const tokens = await this.generateTokens(user);
@@ -261,7 +255,7 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    await this.userModel.findByIdAndUpdate(userId, { refreshToken: null });
+    await this.userModel.findByIdAndUpdate(userId, { 'auth.refreshToken': null });
     return { message: 'Logged out successfully' };
   }
 
@@ -752,13 +746,11 @@ export class AuthService {
 
   private async saveRefreshToken(userId: string, token: string) {
     const hashed = await bcrypt.hash(token, 10);
-    await this.userModel.findByIdAndUpdate(userId, { refreshToken: hashed });
+    await this.userModel.findByIdAndUpdate(userId, { 'auth.refreshToken': hashed });
   }
 
   private sanitize(user: UserDocument) {
     const obj = user.toObject();
-    delete obj.password;
-    delete obj.refreshToken;
-    return obj;
+    return sanitizeUser(obj);
   }
 }

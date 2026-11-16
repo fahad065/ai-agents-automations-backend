@@ -889,3 +889,37 @@ stored as `[Object]`, so no migration — existing docs just lack it and fall
 back to `value`. architecture.md updated to list every list-section `_ar`
 sibling. Frontend side (admin inputs + detail pages rendering them): see
 frontend traces.
+
+## 2026-11-16 — users + services regrouped into sub-objects (user-approved migration)
+User asked for related fields to be grouped instead of flat; final field
+list confirmed before migrating (rules.md #13).
+- **users**: name/email/password/role/status/isDeleted/onboarding/
+  notifyPreferences stay top level; `profile`{phoneNumber,country,avatar,
+  timezone,company}, `auth`{provider,googleId,isEmailVerified,verification +
+  reset tokens,refreshToken}, `plan`{planType,trialStartDate,trialEndDate,
+  isFreeForever,totalBilled}, `welcomeEmails`{day1/3/7Sent}, `deletion`
+  {requestedAt,pendingAt,reminderSent}. Migration
+  `UsersService.groupFlatFields()` (onModuleInit): one raw-collection pipeline
+  updateMany — `$mergeObjects` of the flat values with any existing group
+  (existing wins), then `$unset` of every old path; filter only matches docs
+  with an old field, so it's a no-op after first boot. Drops old indexes
+  `googleId_1`/`planType_1`. New `sanitizeUser()`/`USER_PUBLIC_PROJECTION`
+  strip password + every auth token from API responses (previously only
+  password/refreshToken were stripped — verification/reset tokens leaked into
+  /users/profile responses). PATCH /users/profile takes `{name, profile:{…}}`;
+  PATCH /users/:id takes `{name,status,role,profile:{phoneNumber,country},
+  plan:{planType,trialEndDate,isFreeForever}}`, both written as dotted paths.
+  Response keys of GET /admin/usage and GET /account/deletion-status kept flat.
+- **services**: `content`/`seo`/`display`/`pipeline`/`pricing` (pricingTiers →
+  pricing.tiers, stripePriceId → pricing). `badge` DROPPED (user's call — it
+  duplicated status). Before unsetting badge, any doc with badge "Coming Soon"
+  and status active is set to coming_soon so the site looks the same.
+  Migration `ServicesService.groupFlatFields()` runs before the seed; drops
+  old index `type_1_status_1_isDeleted_1_sortOrder_1`. Seed mapper emits the
+  grouped shape. `ChatbotsService` reads `module.pricing.tiers`.
+- Specs: users migration (5 cases), services migration (4), plus fixed the
+  chatbot go-live spec whose mock still used flat `isEmailVerified` (it was
+  passing vacuously) and added the verified-owner-can-go-live case. 53/53.
+- Not run against a real MongoDB (no network path from this sandbox) — the
+  pipeline relies on `$mergeObjects` omitting missing fields, documented
+  MongoDB behaviour. Check the boot log lines "Grouped …" on the next deploy.

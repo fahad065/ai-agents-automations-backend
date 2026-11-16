@@ -53,15 +53,13 @@ export class AccountDeletionService {
     }
 
     // Idempotent — re-requesting doesn't push the deadline further out.
-    if (user.pendingDeletionAt) {
-      return { message: 'Deletion already scheduled', scheduledFor: user.pendingDeletionAt };
+    if (user.deletion?.pendingAt) {
+      return { message: 'Deletion already scheduled', scheduledFor: user.deletion.pendingAt };
     }
 
     const scheduledFor = new Date();
     scheduledFor.setDate(scheduledFor.getDate() + SCHEDULED_DELETION_DAYS);
-    user.deletionRequestedAt = new Date();
-    user.pendingDeletionAt = scheduledFor;
-    user.deletionReminderSent = false;
+    user.deletion = { requestedAt: new Date(), pendingAt: scheduledFor, reminderSent: false };
     await user.save();
 
     await this.emailService.sendAccountDeletionRequestedEmail(
@@ -82,11 +80,9 @@ export class AccountDeletionService {
   async cancelDeletion(userId: string) {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('Account not found');
-    if (!user.pendingDeletionAt) throw new BadRequestException('No deletion request is pending');
+    if (!user.deletion?.pendingAt) throw new BadRequestException('No deletion request is pending');
 
-    user.pendingDeletionAt = undefined;
-    user.deletionRequestedAt = undefined;
-    user.deletionReminderSent = false;
+    user.deletion = { reminderSent: false };
     await user.save();
 
     await this.activityLogsService.record({
@@ -99,11 +95,11 @@ export class AccountDeletionService {
   }
 
   async getStatus(userId: string) {
-    const user = await this.userModel.findById(userId).select('pendingDeletionAt deletionRequestedAt').lean();
+    const user = await this.userModel.findById(userId).select('deletion').lean();
     if (!user) throw new NotFoundException('Account not found');
     return {
-      pendingDeletionAt: (user as any).pendingDeletionAt || null,
-      deletionRequestedAt: (user as any).deletionRequestedAt || null,
+      pendingDeletionAt: user.deletion?.pendingAt || null,
+      deletionRequestedAt: user.deletion?.requestedAt || null,
     };
   }
 
@@ -141,9 +137,9 @@ export class AccountDeletionService {
     const profile = wb.addWorksheet('Profile');
     profile.addRow(['Field', 'Value']);
     profile.addRows([
-      ['Name', user.name], ['Email', user.email], ['Phone', user.phoneNumber || ''],
-      ['Country', user.country || ''], ['Company', (user as any).company || ''],
-      ['Plan type', user.planType], ['Account created', (user as any).createdAt],
+      ['Name', user.name], ['Email', user.email], ['Phone', user.profile?.phoneNumber || ''],
+      ['Country', user.profile?.country || ''], ['Company', user.profile?.company || ''],
+      ['Plan type', user.plan?.planType], ['Account created', (user as any).createdAt],
     ]);
 
     const keys = wb.addWorksheet('API Keys');
@@ -204,8 +200,8 @@ export class AccountDeletionService {
 
     const candidates = await this.userModel
       .find({
-        pendingDeletionAt: { $lte: reminderCutoff, $gt: new Date() },
-        deletionReminderSent: { $ne: true },
+        'deletion.pendingAt': { $lte: reminderCutoff, $gt: new Date() },
+        'deletion.reminderSent': { $ne: true },
         isDeleted: { $ne: true },
       })
       .select('_id')
@@ -214,8 +210,8 @@ export class AccountDeletionService {
     let sent = 0;
     for (const { _id } of candidates) {
       const claimed = await this.userModel.findOneAndUpdate(
-        { _id, deletionReminderSent: { $ne: true } },
-        { $set: { deletionReminderSent: true } },
+        { _id, 'deletion.reminderSent': { $ne: true } },
+        { $set: { 'deletion.reminderSent': true } },
         { new: true },
       );
       if (!claimed) continue; // another replica already claimed it
@@ -223,7 +219,7 @@ export class AccountDeletionService {
       try {
         await this.emailService.sendAccountDeletionReminderEmail(
           { name: claimed.name, email: claimed.email },
-          { scheduledFor: claimed.pendingDeletionAt! },
+          { scheduledFor: claimed.deletion!.pendingAt! },
         );
         sent++;
       } catch (err: any) {
@@ -244,7 +240,7 @@ export class AccountDeletionService {
   async performScheduledDeletions(): Promise<{ processed: number }> {
     const now = new Date();
     const candidates = await this.userModel
-      .find({ pendingDeletionAt: { $lte: now }, isDeleted: { $ne: true } })
+      .find({ 'deletion.pendingAt': { $lte: now }, isDeleted: { $ne: true } })
       .select('_id')
       .lean();
 
@@ -253,7 +249,7 @@ export class AccountDeletionService {
       // Atomic claim — see the multi-replica note on chatbot-billing.cron.ts;
       // only the replica whose update actually matches proceeds.
       const claimed = await this.userModel.findOneAndUpdate(
-        { _id, pendingDeletionAt: { $lte: now }, isDeleted: { $ne: true } },
+        { _id, 'deletion.pendingAt': { $lte: now }, isDeleted: { $ne: true } },
         { $set: { isDeleted: true } },
       );
       if (!claimed) continue;
@@ -292,17 +288,13 @@ export class AccountDeletionService {
     user.name = 'Deleted User';
     user.email = `deleted-${uid.toString()}@deleted.logicmate.io`;
     user.password = undefined;
-    user.refreshToken = undefined;
-    user.phoneNumber = undefined;
-    user.country = undefined;
-    (user as any).company = undefined;
-    user.googleId = undefined;
-    user.avatar = undefined;
+    // Wipes every personal detail and auth credential (Google link,
+    // refresh/verification/reset tokens) in one go.
+    user.profile = {};
+    user.auth = { provider: user.auth?.provider } as any;
     user.status = UserStatus.INACTIVE;
     user.isDeleted = true;
-    user.pendingDeletionAt = undefined;
-    user.deletionRequestedAt = undefined;
-    user.deletionReminderSent = false;
+    user.deletion = { reminderSent: false };
     await user.save();
 
     await this.activityLogsService.record({

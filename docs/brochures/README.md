@@ -1,0 +1,18 @@
+# Service brochures
+
+One HTML source per service; render to PDF with headless Chromium:
+
+```bash
+node -e "const {chromium}=require('playwright');(async()=>{const b=await chromium.launch();const p=await b.newPage();await p.goto('file://'+process.argv[1]);await p.pdf({path:process.argv[2],format:'A4',printBackground:true,preferCSSPageSize:true});await b.close()})()" "$PWD/docs/brochures/restaurant-chatbot.html" LogicMate-Restaurant-Chatbot-Overview.pdf
+```
+
+Upload the PDF to Vercel Blob and paste its URL into admin → Services →
+(service) → Basic tab → **Brochure PDF URL**. The service page then shows a
+"Download brochure" button next to "Watch demo".
+
+Keep prices and features identical to the service's admin Pricing tab — the
+brochure and the website must never disagree.
+
+| Service | Source | Prices in brochure (monthly / annual per month) |
+|---|---|---|
+| Restaurant chatbot | restaurant-chatbot.html | Basic $79 / $63 · Pro $120 / $96 |

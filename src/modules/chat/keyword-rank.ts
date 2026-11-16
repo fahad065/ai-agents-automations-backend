@@ -23,8 +23,11 @@ const STOPWORDS = new Set([
 ]);
 
 export function tokenize(text: string): string[] {
-  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
-    .filter((w) => w.length > 1 && !STOPWORDS.has(w))
+  // Explicitly typed: some TypeScript versions infer `match(...) || []` as
+  // a union whose .filter() callback param becomes `never`.
+  const words: string[] = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words
+    .filter((w: string) => w.length > 1 && !STOPWORDS.has(w))
     // crude plural folding: "burgers" ~ "burger", "dishes" ~ "dish"
     .map((w) => (w.length > 4 && w.endsWith('es') ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
 }

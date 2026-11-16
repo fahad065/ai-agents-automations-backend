@@ -28,7 +28,7 @@ npm run build
 # frontend repo (separate terminal)
 npm run build && npx next start -p 3410
 # backend repo
-bash test/e2e/run.sh restaurant
+bash test/e2e/run.sh restaurant   # or: bash test/e2e/run.sh gym
 ```
 
 `run.sh` starts MongoDB in Docker if needed, wipes `lm_e2e`, starts the

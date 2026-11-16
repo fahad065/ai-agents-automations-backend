@@ -525,15 +525,15 @@ export const LEGACY_SEED_MODULES: Record<string, any>[] = [
     capabilities: ['Menu Q&A', 'Table reservations', 'Daily specials', 'Allergen info', 'WhatsApp ordering'],
     capabilities_ar: ['أسئلة القائمة', 'حجز الطاولات', 'عروض اليوم', 'معلومات الحساسية', 'الطلب عبر واتساب'],
     pricing: {
-      monthly: 39, annual: 31,
+      monthly: 79, annual: 49,
       features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'],
       features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'],
       hasCustomPlan: true, customLabel: 'Need it for multiple restaurant locations or a custom ordering integration?',
       customLabel_ar: 'تحتاجه لعدة فروع مطعم أو ربط مخصص مع نظام الطلبات؟',
     },
     pricingTiers: [
-      { key: 'basic', monthly: 39, annual: 31, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
-      { key: 'pro', monthly: 79, annual: 63, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
+      { key: 'basic', monthly: 79, annual: 49, features: ['1 chatbot', 'Website widget', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Email support'], features_ar: ['بوت واحد', 'ودجت الموقع', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'دعم بالإيميل'] },
+      { key: 'pro', monthly: 120, annual: 99, features: ['1 chatbot', 'Website + WhatsApp + Instagram', 'Knowledge base (FAQ/Text/URL)', 'Human handoff', 'Analytics & insights dashboard', 'Priority support'], features_ar: ['بوت واحد', 'الموقع + واتساب + إنستقرام', 'قاعدة معرفة (أسئلة شائعة/نص/رابط)', 'تحويل للموظف', 'لوحة تحليلات ورؤى متقدمة', 'دعم ذو أولوية'] },
     ],
     heroStats: [
       { label: 'Response time', label_ar: 'وقت الرد', value: 'Instant' },

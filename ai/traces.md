@@ -968,3 +968,12 @@ pendingDeletionAt) → plan.trialEndDate / deletion.pendingAt, old ones dropped.
 
 Schema: WhatsappChannel + InstagramChannel gained `appSecret`; Instagram
 gained `verifyToken` (WhatsApp already had it, unused). Unit tests 68/68.
+
+## 2026-11-16 — Restaurant chatbot pricing: round numbers
+Owner set: Basic $79/mo or $49/mo billed annually; Pro $120/mo or $99/mo
+billed annually. Live prices are set by the admin (Services → Pricing tab);
+code changes only keep fresh installs and docs in line:
+- seed-services.ts restaurant-chatbot: pricing + tiers 79/49 and 120/99
+  ($setOnInsert only — never touches an existing document).
+- test/e2e/restaurant-e2e.cjs: Basic fee 79, Pro fee 120. Full run 63/63.
+- docs/brochures/restaurant-chatbot.html + README table updated, PDF re-rendered.

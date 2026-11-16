@@ -90,7 +90,7 @@ async function openTab(page, label) {
     botId = page.url().match(/chatbots\/([a-f0-9]{24})/)[1];
     const bot = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}))`));
     embedKey = bot.embedKey; embedKeyRef = embedKey;
-    ok('chatbot created on Basic with Basic price', bot.billing.tier === 'basic' && bot.billing.monthlyFee === 39, `tier=${bot.billing.tier} fee=${bot.billing.monthlyFee}`);
+    ok('chatbot created on Basic with Basic price', bot.billing.tier === 'basic' && bot.billing.monthlyFee === 79, `tier=${bot.billing.tier} fee=${bot.billing.monthlyFee}`);
     ok('30-day trial started', Math.round((new Date(bot.billing.trialEndsAt) - Date.now()) / 864e5) === 30);
     ok('setup-guide + trial emails sent', calls().filter((c) => c.kind === 'email' && JSON.stringify(c.to).includes(OWNER.email)).length >= 2);
   }, page);
@@ -268,7 +268,7 @@ async function openTab(page, label) {
     await ap.getByRole('button', { name: /Confirm Pro Upgrade/ }).click();
     await ap.waitForTimeout(1500);
     const bot = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}).billing)`));
-    ok('bot is now Pro at the Pro price', bot.tier === 'pro' && bot.monthlyFee === 79, `tier=${bot.tier} fee=${bot.monthlyFee}`);
+    ok('bot is now Pro at the Pro price', bot.tier === 'pro' && bot.monthlyFee === 120, `tier=${bot.tier} fee=${bot.monthlyFee}`);
 
     // Admin services form: chatbot shows no Pipeline tab, Niche on Basic tab.
     await ap.goto(`${FE}/dashboard/cms-modules`, { waitUntil: 'networkidle' });

@@ -15,4 +15,4 @@ brochure and the website must never disagree.
 
 | Service | Source | Prices in brochure (monthly / annual per month) |
 |---|---|---|
-| Restaurant chatbot | restaurant-chatbot.html | Basic $79 / $63 · Pro $120 / $96 |
+| Restaurant chatbot | restaurant-chatbot.html | Basic $79 / $49 · Pro $120 / $99 |

@@ -408,7 +408,7 @@ platforms: []                                -- DESCRIPTIVE/marketing only (e.g.
 icon, color, badge, sortOrder                -- flat fields, NOT nested under a key called "config" (that name is already used, differently, on userservices)
 pricing: { monthly, annual, features(_ar): [], hasCustomPlan, customLabel(_ar) }
 pricingTiers: []                             -- generic now, any type may use it, not just chatbots: [{key, monthly, annual, features(_ar): []}]
-heroStats: [], featureCards: [], howItWorks: [], faq: []   -- "featureCards" deliberately NOT named "features" — pricing.features[] (plan bullets) and this (marketing cards with icon/title/description) are different shapes that collided under one name in the real schema
+heroStats: [], featureCards: [], howItWorks: [], faq: []   -- each item carries optional _ar siblings (heroStats: label_ar, value_ar [added 2026-11-16]; featureCards/howItWorks: title_ar, description_ar; faq: question_ar, answer_ar)   -- "featureCards" deliberately NOT named "features" — pricing.features[] (plan bullets) and this (marketing cards with icon/title/description) are different shapes that collided under one name in the real schema
 demoVideoUrl?
 brochureUrl?                                 -- a downloadable PDF one-pager for this service (hosted the same way demo videos are, e.g. Vercel Blob). Generic across types, not chatbot-specific, same reasoning as demoVideoUrl. First real use: the restaurant chatbot's PDF overview, generated in a separate "LogicMate — General Q&A" session.
 defaultConfig: {}                            -- seeds a new userservices.config with sensible starting values

@@ -882,3 +882,10 @@ Trial/chatbot-trial emails reply to `billing@`, account-deletion emails to
 hello@ general/admin alerts, support@ technical, billing@ payments/refunds,
 privacy@ data/cookies/deletion, legal@ terms/contracts. No `.ai` addresses.
 tsc (build config) clean, jest 44/44, nest build OK.
+
+## 2026-11-16 — Service list sections: Arabic editable + value_ar
+`HeroStat` gained optional `value_ar` (e.g. "Instant" → "فوري"); heroStats is
+stored as `[Object]`, so no migration — existing docs just lack it and fall
+back to `value`. architecture.md updated to list every list-section `_ar`
+sibling. Frontend side (admin inputs + detail pages rendering them): see
+frontend traces.

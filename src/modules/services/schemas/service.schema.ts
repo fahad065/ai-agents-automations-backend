@@ -54,6 +54,7 @@ class HeroStat {
   @Prop() label: string;
   @Prop() label_ar?: string;
   @Prop() value: string;
+  @Prop() value_ar?: string; // e.g. "Instant" → "فوري"; falls back to value
 }
 
 // Marketing feature cards. Deliberately NOT named `features` — that name is

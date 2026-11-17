@@ -537,7 +537,7 @@ export class EmailService {
   }
 
   async sendChatbotSetupGuideEmail(user: { name: string; email: string }, data: { chatbotName: string }): Promise<void> {
-    const dashboardUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots`;
+    const dashboardUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/modules`;
     const html = this.base(`
       <div style="padding:40px 36px;">
         <div style="font-size:48px;margin-bottom:12px;text-align:center;">🤖</div>

@@ -1,3 +1,4 @@
+import { knowledgeEmbedText, validateKnowledge } from '../chat/knowledge-format';
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -415,18 +416,17 @@ export class ChatbotsService implements OnModuleInit {
     // Verify ownership (or admin access)
     const chatbot = await this.findOne(chatbotId, userId, isAdmin);
 
+    const fields = pickKnowledgeFields(dto);
+    const invalid = validateKnowledge(fields);
+    if (invalid) throw new BadRequestException(invalid);
+
     let embedding: number[] = [];
 
     try {
       // Always embeds with the bot OWNER's key + configured provider (BYOK)
       // — an admin adding knowledge on a client's behalf still bills the
       // client's own key, never a platform-wide fallback.
-      let textToEmbed = '';
-      if (dto.type === 'faq') {
-        textToEmbed = `${dto.question || ''} ${dto.answer || ''}`.trim();
-      } else {
-        textToEmbed = dto.content || '';
-      }
+      const textToEmbed = knowledgeEmbedText(fields);
 
       if (textToEmbed) {
         const vector = await this.resolveEmbedding(chatbot, textToEmbed);
@@ -440,7 +440,7 @@ export class ChatbotsService implements OnModuleInit {
     }
 
     const entry = await this.knowledgeBaseModel.create({
-      ...dto,
+      ...fields,
       chatbotId: new Types.ObjectId(chatbotId),
       embedding,
     });
@@ -478,16 +478,13 @@ export class ChatbotsService implements OnModuleInit {
     });
     if (!entry) throw new NotFoundException('Knowledge entry not found');
 
-    if (dto.question !== undefined) entry.question = dto.question;
-    if (dto.answer !== undefined) entry.answer = dto.answer;
-    if (dto.content !== undefined) entry.content = dto.content;
-    if (dto.sourceUrl !== undefined) entry.sourceUrl = dto.sourceUrl;
+    const changes = pickKnowledgeFields(dto);
+    for (const [key, value] of Object.entries(changes)) (entry as any)[key] = value;
+    const invalid = validateKnowledge(entry);
+    if (invalid) throw new BadRequestException(invalid);
 
     try {
-      const textToEmbed =
-        entry.type === 'faq'
-          ? `${entry.question || ''} ${entry.answer || ''}`.trim()
-          : entry.content || '';
+      const textToEmbed = knowledgeEmbedText(entry);
       if (textToEmbed) {
         const vector = await this.resolveEmbedding(chatbot, textToEmbed);
         if (!vector) throw new Error('No API key available for embedding provider');
@@ -750,4 +747,18 @@ export class ChatbotsService implements OnModuleInit {
     const history = await this.billingService.findByChatbot(chatbotId);
     return { billing: chatbot.billing, history };
   }
+}
+
+// Only these fields are writable on a knowledge entry (chatbotId/embedding
+// are set by the server). `type` may change between faq and text on edit.
+function pickKnowledgeFields(dto: any) {
+  const out: Record<string, any> = {};
+  if (dto?.type !== undefined) {
+    if (!['faq', 'text', 'url'].includes(dto.type)) throw new BadRequestException('Unknown entry type');
+    out.type = dto.type;
+  }
+  for (const key of ['question', 'answer', 'content', 'sourceUrl', 'linkLabel']) {
+    if (dto?.[key] !== undefined) out[key] = typeof dto[key] === 'string' ? dto[key].trim() : dto[key];
+  }
+  return out;
 }

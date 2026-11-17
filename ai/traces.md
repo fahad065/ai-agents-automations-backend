@@ -1003,3 +1003,17 @@ women-only hours, membership price edit, trial + class booking link, two
 branches) and docs/test-cases/gym-chatbot.md. Extra case: asking to book a
 specific class only shares the booking link, never confirms a spot. First run
 on a fresh database: 64/64.
+
+## 2026-11-17 — Knowledge links, branch facilities, e2e for the dashboard rework
+- Knowledge entries: optional `linkLabel` next to `sourceUrl`; an faq can be
+  text, a link, or text + link (e.g. address + Google Maps). chat/knowledge-format.ts
+  is the one place that renders entries for the AI and builds embed text, and
+  validates them (question required, answer or link, http(s) links only).
+  Older `url` entries used to render as an empty snippet — they now reach the bot.
+  The prompt tells the model to share links exactly.
+- Outlet gained `facilities: string[]` (labelled per template in the dashboard)
+  and is shown to the AI as "Facilities/services".
+- Setup-guide email links to /dashboard/modules (My Services).
+- e2e: gym suite now subscribes through Browse Services, adds a text + Google
+  Maps answer through the UI, checks template-specific Locations fields and
+  My Services. Gym 75/75, restaurant 65/65; unit tests 74/74.

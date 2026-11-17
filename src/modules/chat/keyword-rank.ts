@@ -14,6 +14,7 @@ export interface RankableEntry {
   answer?: string;
   content?: string;
   sourceUrl?: string;
+  linkLabel?: string;
 }
 
 const STOPWORDS = new Set([
@@ -40,7 +41,7 @@ export function rankByKeywords<T extends RankableEntry>(entries: T[], query: str
   const docs = entries.map((e) => ({
     entry: e,
     question: tokenize(e.question || ''),
-    body: tokenize([e.answer, e.content].filter(Boolean).join(' ')),
+    body: tokenize([e.answer, e.content, e.linkLabel].filter(Boolean).join(' ')),
   }));
   const df = new Map<string, number>();
   for (const d of docs) for (const t of new Set([...d.question, ...d.body])) df.set(t, (df.get(t) || 0) + 1);

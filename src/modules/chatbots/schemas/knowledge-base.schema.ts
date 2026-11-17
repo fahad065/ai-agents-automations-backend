@@ -20,8 +20,16 @@ export class KnowledgeBase {
   @Prop()
   content?: string;
 
+  // The link the bot shares with this answer (Google Maps location, menu,
+  // booking page…). On an faq it can stand alone ("link-only" answer) or
+  // sit next to the answer text. See chat/knowledge-format.ts.
   @Prop()
   sourceUrl?: string;
+
+  // What the link is, shown to the AI as "<label>: <url>"
+  // (e.g. "Google Maps location", "Menu (PDF)").
+  @Prop()
+  linkLabel?: string;
 
   @Prop({ type: [Number], default: [], select: false })
   embedding: number[];

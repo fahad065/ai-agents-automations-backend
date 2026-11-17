@@ -8,6 +8,7 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { callChatCompletion, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
+import { knowledgeSnippet } from './knowledge-format';
 import { rankByKeywords } from './keyword-rank';
 
 // Entries given to the model when ranking by word matching. A few more than
@@ -84,7 +85,7 @@ export class ChatService {
     // in which case this is a complete no-op.
     const outletsSection =
       chatbot.outlets && chatbot.outlets.length > 0
-        ? `This business has multiple locations. Use these to answer questions about which branch to visit, whether a location/area is covered, hours at a specific branch, or delivery platforms available there:\n${chatbot.outlets
+        ? `This business has multiple locations. Use these to answer questions about which branch to visit, whether a location/area is covered, hours or facilities at a specific branch, or delivery platforms available there:\n${chatbot.outlets
             .map((o) => {
               const parts = [`- ${o.name} — ${o.city}, ${o.country}`];
               if (o.address) parts.push(`Address: ${o.address}`);
@@ -94,6 +95,7 @@ export class ChatService {
               if (o.deliveryPlatforms?.length) parts.push(`Order via: ${o.deliveryPlatforms.join(', ')}`);
               if (o.phone) parts.push(`Phone: ${o.phone}`);
               if (o.mapUrl) parts.push(`Directions: ${o.mapUrl}`);
+              if (o.facilities?.length) parts.push(`Facilities/services: ${o.facilities.join(', ')}`);
               if (o.notes) parts.push(o.notes);
               return parts.join(' | ');
             })
@@ -105,6 +107,7 @@ Persona: ${chatbot.persona || 'friendly and professional'}.
 Language: ${languageInstruction}
 IMPORTANT: Only answer questions based on the knowledge base and locations below. If the question is not covered, say: "${chatbot.fallbackMessage}".
 Do not make up information.
+When a knowledge-base answer includes a link (for example a Google Maps location, a menu, a booking page), share that exact link with the customer — never change or invent links.
 
 Whenever it's natural — especially if the customer wants to book, order, get a quote, or asks to be contacted — politely ask for their name, phone number and email if they haven't shared them yet. Weave this into the conversation over a message or two rather than demanding all three at once, and never block answering their actual question just to collect these details.
 
@@ -381,22 +384,18 @@ ${knowledgeSection}`;
               .slice(0, 4);
 
             knowledgeSnippets = scored.map((s) => {
-              const k = s.entry;
-              if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
-              return k.content || '';
+              return knowledgeSnippet(s.entry);
             });
           } catch {
             // Embedding failed — fall back to word matching
             knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-              if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
-              return k.content || '';
+              return knowledgeSnippet(k);
             });
           }
         } else {
           // Knowledge exists but no embeddings — word matching
           knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-            if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
-            return k.content || '';
+            return knowledgeSnippet(k);
           });
         }
       } else {
@@ -404,8 +403,7 @@ ${knowledgeSection}`;
         // embeddings API): pick entries by word matching instead of just
         // taking the first few, so entry #30 is as reachable as entry #1.
         knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-          if (k.type === 'faq') return `Q: ${k.question}\nA: ${k.answer}`;
-          return k.content || '';
+          return knowledgeSnippet(k);
         });
       }
 

@@ -81,11 +81,21 @@ async function openTab(page, label) {
   }, page);
 
   section = 'Basic: buy';
-  await step('pick Basic on the gym page', async () => {
-    await page.goto(`${FE}/chatbots/gym-chatbot`, { waitUntil: 'networkidle' });
-    await page.locator('#pricing').scrollIntoViewIfNeeded();
-    await page.waitForTimeout(500);
-    await page.getByRole('button', { name: /^Get started$/ }).first().click();
+  await step('pick Basic in Browse Services', async () => {
+    const side = await page.locator('[data-sidebar="sidebar"]').first().innerText();
+    ok('sidebar: My Services + Browse Services, no separate Chatbots page', /My Services/.test(side) && /Browse Services/.test(side) && !/^Chatbots$/m.test(side), side.replace(/\n/g, ' | ').slice(0, 160));
+    await page.getByRole('link', { name: 'Browse Services' }).first().click();
+    await page.waitForURL(/\/dashboard\/services/, { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const card = page.locator('[data-testid="service-card"]', { hasText: 'Gym Membership Bot' });
+    ok('gym chatbot listed in Browse Services', (await card.count()) === 1);
+    await card.getByRole('button', { name: 'Start free trial' }).click();
+    const dlg = page.getByRole('dialog');
+    await dlg.waitFor({ timeout: 8000 });
+    const dt = await dlg.innerText();
+    ok('plan choice shows Basic $79 and Pro $120', /Basic/i.test(dt) && /\$79/.test(dt) && /Pro/i.test(dt) && /\$120/.test(dt), dt.slice(0, 160).replace(/\n/g, ' '));
+    await page.screenshot({ path: path.join(SHOTS, 'marketplace-plan-choice.png') });
+    await dlg.getByRole('button', { name: /Start free trial/ }).click();
     await page.waitForURL(/\/dashboard\/chatbots\/[a-f0-9]{24}/, { timeout: 20000 });
     botId = page.url().match(/chatbots\/([a-f0-9]{24})/)[1];
     const bot = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}))`));
@@ -123,8 +133,8 @@ async function openTab(page, label) {
   await step('knowledge base via UI + bulk', async () => {
     await openTab(page, 'Knowledge Base');
     await page.getByRole('button', { name: /Add Knowledge/ }).click();
-    await page.getByPlaceholder('What are your opening hours?').fill('What are your opening hours?');
-    await page.getByPlaceholder("We're open daily from 9am to 11pm.").fill('We are open every day from 5am to 11pm.');
+    await page.getByPlaceholder('Type the question a customer would ask').fill('What are your opening hours?');
+    await page.getByPlaceholder('Type the answer the bot should give').fill('We are open every day from 5am to 11pm.');
     await page.getByRole('button', { name: /^Add Entry$/ }).click();
     await page.waitForTimeout(1200);
     ok('FAQ added through the UI', (await page.locator('main').last().innerText()).includes('5am to 11pm'));
@@ -150,6 +160,19 @@ async function openTab(page, label) {
     await page.getByRole('button', { name: /^Save Changes$/ }).first().click();
     await page.waitForTimeout(1200);
     ok('FAQ edited through the UI', mongo(`db.knowledgebases.findOne({question:"How much is the monthly membership?"}).answer`) === 'The monthly membership is now $55.');
+    // Question + written answer + Google Maps link, added through the UI.
+    await page.getByRole('button', { name: /Add Knowledge/ }).click();
+    await page.getByPlaceholder('Type the question a customer would ask').fill('Where is your Marina club located?');
+    await page.getByRole('button', { name: 'Text + link' }).click();
+    await page.getByPlaceholder('Type the answer the bot should give').fill('Marina Walk, next to the tram stop.');
+    await page.getByPlaceholder('Paste the link (https://...)').fill('https://maps.app.goo.gl/ironfit-marina');
+    await page.getByRole('button', { name: /^Add Entry$/ }).click();
+    await page.waitForTimeout(1200);
+    const linked = JSON.parse(mongo(`JSON.stringify(db.knowledgebases.findOne({question:"Where is your Marina club located?"}))`));
+    ok('answer + Google Maps link stored together', linked.answer === 'Marina Walk, next to the tram stop.' && linked.sourceUrl === 'https://maps.app.goo.gl/ironfit-marina' && linked.linkLabel === 'Google Maps location', JSON.stringify(linked).slice(0, 160));
+    ok('link shown on the entry in the list', (await page.locator('main').last().innerText()).includes('Google Maps location:'));
+    const bad = await api(token, 'POST', `/chatbots/${botId}/knowledge`, { type: 'faq', question: 'Bad link?', sourceUrl: 'javascript:alert(1)' });
+    ok('unsafe link rejected', bad.status === 400, `status ${bad.status}`);
   }, page);
 
   section = 'Basic: locations + booking';
@@ -165,6 +188,12 @@ async function openTab(page, label) {
     });
     await page.reload({ waitUntil: 'networkidle' }); await page.keyboard.press('Escape').catch(() => {});
     await openTab(page, 'Locations');
+    await page.getByRole('button', { name: /^Add Location$/ }).first().click();
+    await page.waitForTimeout(400);
+    let lf = await page.locator('main').last().innerText();
+    ok('gym location form: no delivery fields, has Facilities', !/delivery apps|Delivery-only/i.test(lf) && /Facilities/.test(lf), lf.slice(0, 120).replace(/\n/g, ' '));
+    ok('neutral placeholders ("Enter gym name", country dropdown)', (await page.getByPlaceholder('Enter gym name').count()) === 1 && (await page.getByText('Select country').count()) >= 1);
+    await page.getByRole('button', { name: /^Cancel$/ }).first().click();
     ok('2 branches shown in Locations tab', /Marina Club[\s\S]*Barsha Studio/.test(await page.locator('main').last().innerText()));
     const live = await api(token, 'PUT', `/chatbots/${botId}`, { status: 'active' });
     ok('verified owner can take the bot live', live.status === 200 && live.data.status === 'active', `status ${live.status}`);
@@ -199,6 +228,8 @@ async function openTab(page, label) {
     ok('shares the trial booking link', a.includes('https://book.example.com/ironfit'), a);
     a = await ask('Can I book the 7pm spin class?');
     ok('class slot: points to the booking link, never confirms a spot itself', a.includes('https://book.example.com/ironfit') && !/you are booked|confirmed/i.test(a), a);
+    a = await ask('Where is your Marina club located?');
+    ok('answer comes with its Google Maps link', a.includes('Marina Walk') && a.includes('https://maps.app.goo.gl/ironfit-marina'), a);
     a = await ask('Do you have a branch near Marina?');
     ok('answers about branches', /marina/i.test(a), a);
     const sys = calls().filter((c) => c.kind === 'openai.chat' && !c.json).pop()?.system || '';
@@ -223,7 +254,18 @@ async function openTab(page, label) {
     await page.goto(`${FE}/dashboard/chatbots/${botId}?tab=conversations`, { waitUntil: 'networkidle' });
     await page.keyboard.press('Escape').catch(() => {});
     await page.waitForTimeout(800);
-    const t = await page.locator('main').last().innerText();
+    let t = await page.locator('main').last().innerText();
+    await page.goto(`${FE}/dashboard/modules`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const myCard = page.locator('[data-testid="my-chatbot-card"]');
+    ok('My Services lists the chatbot (Basic, on trial)', (await myCard.count()) === 1 && /Basic/.test(await myCard.innerText()) && /Trial left/.test(await myCard.innerText()));
+    await page.goto(`${FE}/dashboard/chatbots`, { waitUntil: 'networkidle' });
+    await page.waitForURL(/\/dashboard\/modules/, { timeout: 10000 }).catch(() => {});
+    ok('old Chatbots page sends customers to My Services', /\/dashboard\/modules/.test(page.url()), page.url());
+    await page.goto(`${FE}/dashboard/chatbots/${botId}?tab=conversations`, { waitUntil: 'networkidle' });
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(800);
+    t = await page.locator('main').last().innerText();
     ok('conversation listed with lead details', /Lead/.test(t) && t.includes('+971501234567'));
     await page.screenshot({ path: path.join(SHOTS, 'basic-conversations.png') });
     const n = await api(token, 'GET', '/notifications?limit=20');

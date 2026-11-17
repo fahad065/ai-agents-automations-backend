@@ -142,6 +142,11 @@ export class Outlet {
   @Prop({ type: [String], default: [] })
   deliveryPlatforms: string[];
 
+  // What this branch offers, labelled per template in the dashboard
+  // (gym/hotel: "Facilities", clinic/salon: "Services offered", …).
+  @Prop({ type: [String], default: [] })
+  facilities: string[];
+
   @Prop()
   mapUrl?: string;
 

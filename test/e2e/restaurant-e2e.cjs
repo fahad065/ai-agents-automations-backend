@@ -123,8 +123,8 @@ async function openTab(page, label) {
   await step('knowledge base via UI + bulk', async () => {
     await openTab(page, 'Knowledge Base');
     await page.getByRole('button', { name: /Add Knowledge/ }).click();
-    await page.getByPlaceholder('What are your opening hours?').fill('What are your opening hours?');
-    await page.getByPlaceholder("We're open daily from 9am to 11pm.").fill('We are open every day from 12pm to midnight.');
+    await page.getByPlaceholder('Type the question a customer would ask').fill('What are your opening hours?');
+    await page.getByPlaceholder('Type the answer the bot should give').fill('We are open every day from 12pm to midnight.');
     await page.getByRole('button', { name: /^Add Entry$/ }).click();
     await page.waitForTimeout(1200);
     ok('FAQ added through the UI', (await page.locator('main').last().innerText()).includes('12pm to midnight'));
@@ -165,6 +165,12 @@ async function openTab(page, label) {
     });
     await page.reload({ waitUntil: 'networkidle' }); await page.keyboard.press('Escape').catch(() => {});
     await openTab(page, 'Locations');
+    await page.getByRole('button', { name: /^Add Location$/ }).first().click();
+    await page.waitForTimeout(400);
+    let lf = await page.locator('main').last().innerText();
+    ok('restaurant location form: delivery apps + delivery-only switch', /delivery apps/i.test(lf) && /Delivery-only kitchen/.test(lf));
+    ok('neutral placeholders ("Enter restaurant name", country dropdown)', (await page.getByPlaceholder('Enter restaurant name').count()) === 1 && (await page.getByText('Select country').count()) >= 1);
+    await page.getByRole('button', { name: /^Cancel$/ }).first().click();
     ok('2 branches shown in Locations tab', /Marina Kitchen[\s\S]*Delivery Hub/.test(await page.locator('main').last().innerText()));
     const live = await api(token, 'PUT', `/chatbots/${botId}`, { status: 'active' });
     ok('verified owner can take the bot live', live.status === 200 && live.data.status === 'active', `status ${live.status}`);

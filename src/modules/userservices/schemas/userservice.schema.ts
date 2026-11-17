@@ -328,3 +328,83 @@ ChatbotUserServiceSchema.index(
   { 'config.embedKey': 1 },
   { unique: true, partialFilterExpression: { 'config.embedKey': { $type: 'string' } } },
 );
+
+// ── Agent / automation config ────────────────────────────────────
+
+export const PIPELINE_FILTER = { type: { $in: [UserServiceType.AGENT, UserServiceType.AUTOMATION] } };
+
+@Schema({ _id: false })
+export class PipelineSchedule {
+  @Prop({ enum: ['manual', 'daily', 'weekly'], default: 'manual' })
+  frequency: 'manual' | 'daily' | 'weekly';
+
+  // "HH:MM" in UAE time (UTC+4) — see runScheduledServices().
+  @Prop({ default: '08:00' })
+  time: string;
+
+  // Weekly only: days of week as strings, "0" = Sunday … "6" = Saturday.
+  @Prop({ type: [String], default: ['1'] })
+  days: string[];
+}
+
+@Schema({ _id: false })
+export class PipelineConfig {
+  // Snapshot of the service's pipeline at subscribe time — what the Python
+  // service is asked to run.
+  @Prop({ required: true })
+  pipelineType: string;
+
+  @Prop({ enum: ['standalone', 'niche_pipeline'], default: 'standalone' })
+  pipelineCategory: string;
+
+  @Prop()
+  nicheSlug?: string;
+
+  // The customer's own topic ("healthy home cooking").
+  @Prop()
+  niche?: string;
+
+  @Prop({ type: [String], default: [] })
+  enabledComponents: string[];
+
+  // The customer paused it — scheduled runs stop; separate from `status`.
+  @Prop({ default: false })
+  paused: boolean;
+
+  @Prop({ type: PipelineSchedule, default: () => ({}) })
+  schedule: PipelineSchedule;
+
+  @Prop()
+  customPrompt?: string;
+
+  @Prop({ default: false })
+  useCustomPrompt: boolean;
+
+  @Prop()
+  youtubeChannelId?: string;
+
+  @Prop({ default: 'auto' })
+  videoModel: string;
+
+  @Prop({ enum: ['own_keys', 'platform_keys'], default: 'own_keys' })
+  apiKeyMode: string;
+
+  // Run bookkeeping. lastRunAt also serves as the cron's once-a-day claim.
+  @Prop()
+  lastRunAt?: Date;
+
+  @Prop({ default: 0 })
+  totalRuns: number;
+
+  @Prop({ default: 0 })
+  totalCost: number;
+}
+
+@Schema({ timestamps: true, collection: 'userservices' })
+export class PipelineUserService extends UserServiceBase {
+  @Prop({ type: PipelineConfig, default: () => ({}) })
+  config: PipelineConfig;
+}
+
+export type PipelineUserServiceDocument = PipelineUserService & Document;
+export const PipelineUserServiceSchema = SchemaFactory.createForClass(PipelineUserService);

@@ -2,18 +2,29 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { UserModulesService } from './usermodules.service';
+import { PipelineServicesService } from './pipeline-services.service';
 import { EmailService } from '../email/email.service';
 
 @Injectable()
-export class TrialExpiryCron {
-  private readonly logger = new Logger(TrialExpiryCron.name);
+export class PipelineServicesCron {
+  private readonly logger = new Logger(PipelineServicesCron.name);
 
   constructor(
-    private readonly service: UserModulesService,
+    private readonly service: PipelineServicesService,
     private readonly emailService: EmailService,
     @InjectModel('User') private userModel: Model<any>,
   ) {}
+
+  // Every minute: run agents/automations whose schedule is due.
+  @Cron('* * * * *')
+  async runScheduledServices() {
+    try {
+      const result = await this.service.runScheduledServices();
+      if (result.ran > 0) this.logger.log(`[Cron] Ran ${result.ran} pipelines`);
+    } catch (err) {
+      this.logger.error(`[Cron] Error: ${err.message}`);
+    }
+  }
 
   // Runs every day at 9 AM UTC
   @Cron('0 9 * * *')
@@ -21,7 +32,7 @@ export class TrialExpiryCron {
     this.logger.log('[TrialCron] Checking expiring trials...');
     try {
       // Day 27 warning (3 days left) — claim each module atomically
-      // (flip trialReminderSent BEFORE sending) so two replicas racing
+      // (set trialReminderSentAt BEFORE sending) so two replicas racing
       // this cron in the same minute can't both send the reminder for
       // the same module; only the claim that actually flips false→true
       // proceeds to email.
@@ -33,31 +44,31 @@ export class TrialExpiryCron {
         const claimed = await this.service.claimReminderSent(module._id.toString());
         if (!claimed) continue; // another replica already claimed it
         const daysLeft = Math.ceil(
-          (new Date(module.trialEndDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          (new Date(module.trialEndDate!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
         );
         await this.emailService.sendTrialExpiringEmail(
           { name: user.name, email: user.email },
-          { moduleName: module.moduleName, daysLeft, trialEndDate: module.trialEndDate }
+          { moduleName: module.name, daysLeft, trialEndDate: module.trialEndDate! }
         );
         warned++;
         this.logger.log(`[TrialCron] Expiry warning sent to ${user.email}`);
       }
 
       // Expired trials — same claim-before-send pattern, atomically
-      // flipping status TRIAL→EXPIRED before notifying.
+      // moving status trial → past_due before notifying.
       let expiredCount = 0;
       const expired = await this.service.getExpired();
       for (const module of expired) {
         const user = (module as any).userId;
         if (!user?.email) continue;
-        const claimed = await this.service.claimExpireModule(module._id.toString());
+        const claimed = await this.service.claimExpire(module._id.toString());
         if (!claimed) continue; // another replica already claimed it
         await this.emailService.sendTrialExpiredEmail(
           { name: user.name, email: user.email },
-          { moduleName: module.moduleName }
+          { moduleName: module.name }
         );
         expiredCount++;
-        this.logger.log(`[TrialCron] Expired + paused: ${module.moduleName} for ${user.email}`);
+        this.logger.log(`[TrialCron] Trial ended (past_due): ${module.name} for ${user.email}`);
       }
 
       this.logger.log(`[TrialCron] ✓ Warned: ${warned}, Expired: ${expiredCount}`);

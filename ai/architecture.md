@@ -374,7 +374,7 @@ updatedAt
 ```
 No `user_id` — this is public content, isolated from the ownership model.
 
-### `userservices` — CORE. The single answer to "what does this customer own." — DONE for chatbots, 2026-11-17 (agents/automations still on `usermodules`)
+### `userservices` — CORE. The single answer to "what does this customer own." — DONE for chatbots + agents/automations, 2026-11-17
 ```
 _id, userId
 type: agent | automation | chatbot        -- NEVER "bundle", see the correction above
@@ -391,11 +391,21 @@ plan: { tier: basic|pro|custom, monthlyFee, setupFee, currency }   -- added 2026
 adminNotes?                                 -- admin-only deal notes, never returned to the customer
 trialReminderSentAt?                        -- "trial ends in 5 days" email sent (claim-before-send)
 config: {}                                  -- shape depends on type AND the specific service, not type alone:
-  -- agent/automation: schedule{frequency,time,days}, customPrompt?, useCustomPrompt?, youtubeChannelId?, videoModel?
+  -- agent/automation: pipelineType (snapshot), pipelineCategory, nicheSlug?, niche?, enabledComponents[], paused (customer's own pause switch),
+  --                   schedule{frequency: manual|daily|weekly, time "HH:MM" UAE, days[]}, customPrompt?, useCustomPrompt, youtubeChannelId?,
+  --                   videoModel, apiKeyMode, lastRunAt? (also the cron's once-a-day claim), totalRuns, totalCost
   -- chatbot: botStatus (draft|active|inactive — is the bot live; separate from the subscription status), description, persona, language,
   --          embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]?,
   --          chatModelConfig, embeddingModelConfig
 ```
+Agents/automations (2026-11-17, no data to migrate — `usermodules` had no
+customers): `PipelineUserServiceSchema` (same collection, `config` typed for
+pipelines), `PipelineServicesService`/controller/cron in
+`src/modules/userservices/pipeline-services.*`, routes `/api/v1/userservices/*`
+(`/usermodules/*` kept as a temporary alias until the Python service on `main`
+calls `/userservices`). A trial that ends unpaid becomes `past_due` (the
+dashboard still shows "expired"); "paused" is `config.paused`, not a status.
+
 Chatbots: `src/modules/userservices/` — `UserServiceSchema` (generic, loose
 `config`) and `ChatbotUserServiceSchema` (same collection, `config` typed for
 chatbots) — every chatbot query adds `{type: 'chatbot'}` (`CHATBOT_FILTER`).
@@ -728,7 +738,7 @@ output), so it stays paused rather than deleted.
 | `industries` | **CODE DELETED 2026-11-12** (user: "we don't need industries") — collection to be dropped by hand. Not migrated into bundles. `/industries` URLs 308 to `/services` / `/services?niche=<slug>`; the industry filter on `/services` (by `nicheSlug`) replaces the pages | `services.nicheSlug` |
 | `industry-subscriptions` | **CODE DELETED 2026-11-12** — collection to be dropped by hand | `userservices` |
 | `modules` (ModuleTemplate) | **Migrated + code deleted 2026-11-12** (incl. the boot-time migration) — collection to be dropped by hand | `services` |
-| `usermodules` (UserModule) | Replaced once migrated | `userservices` (type: agent\|automation) |
+| `usermodules` (UserModule) | **Code deleted 2026-11-17** — no customer data existed, nothing migrated; collection to be dropped by hand | `userservices` (type: agent\|automation) |
 | `chatbots` | **Migrated + code deleted 2026-11-17** — collection to be dropped by hand once production is verified | `userservices` (type: chatbot) |
 | `chatbots.billing` subdocument | **Migrated 2026-11-17** into `userservices` status/plan/dates | `userservices` (current state) + `billing` (transaction history) |
 | `Billing` (old ledger) | Replaced once migrated | `billing` (new shape) |

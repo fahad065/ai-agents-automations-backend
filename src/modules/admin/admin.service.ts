@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument, UserStatus } from '../users/schemas/user.schema';
 import { PipelineRun, PipelineRunDocument } from '../pipeline-runs/schemas/pipeline-run.schema';
-import { UserModule as UserModuleModel, UserModuleDocument } from '../modules/schemas/user-module.schema';
+import { PIPELINE_FILTER, PipelineUserService, PipelineUserServiceDocument } from '../userservices/schemas/userservice.schema';
 import { EmailService } from '../email/email.service';
 
 @Injectable()
@@ -11,7 +11,7 @@ export class AdminService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(PipelineRun.name) private pipelineModel: Model<PipelineRunDocument>,
-    @InjectModel(UserModuleModel.name) private userModuleModel: Model<UserModuleDocument>,
+    @InjectModel(PipelineUserService.name) private pipelineServiceModel: Model<PipelineUserServiceDocument>,
     private emailService: EmailService,
   ) {}
 
@@ -32,8 +32,8 @@ export class AdminService {
       this.userModel.countDocuments({ createdAt: { $gte: startOfMonth } }),
       this.userModel.countDocuments({ 'plan.planType': 'trial', 'plan.isFreeForever': { $ne: true } }),
       this.userModel.countDocuments({ 'plan.isFreeForever': true }),
-      this.userModuleModel.countDocuments({}),
-      this.userModuleModel.countDocuments({ isActive: true }),
+      this.pipelineServiceModel.countDocuments({ ...PIPELINE_FILTER, isDeleted: false }),
+      this.pipelineServiceModel.countDocuments({ ...PIPELINE_FILTER, isDeleted: false, status: { $in: ['trial', 'active'] }, 'config.paused': { $ne: true } }),
       this.pipelineModel.countDocuments({}),
       this.pipelineModel.countDocuments({ status: { $in: ['complete', 'completed'] } }),
       this.pipelineModel.countDocuments({ status: 'failed' }),
@@ -99,8 +99,8 @@ export class AdminService {
           },
         },
       ]),
-      this.userModuleModel.aggregate([
-        { $match: { isDeleted: { $ne: true } } },
+      this.pipelineServiceModel.aggregate([
+        { $match: { ...PIPELINE_FILTER, isDeleted: { $ne: true } } },
         { $group: { _id: { userId: '$userId', status: '$status' }, count: { $sum: 1 } } },
       ]),
       this.userModel

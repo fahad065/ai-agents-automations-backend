@@ -4,7 +4,6 @@ import { AccountDeletionController } from './account-deletion.controller';
 import { AccountDeletionService } from './account-deletion.service';
 import { AccountDeletionCron } from './account-deletion.cron';
 import { User, UserSchema } from '../users/schemas/user.schema';
-import { UserModule as UserModuleSchemaClass, UserModuleSchema } from '../modules/schemas/user-module.schema';
 import { KnowledgeBase, KnowledgeBaseSchema } from '../chatbots/schemas/knowledge-base.schema';
 import { Conversation, ConversationSchema } from '../chatbots/schemas/conversation.schema';
 import { ApiKey, ApiKeySchema } from '../api-keys/schemas/api-key.schema';
@@ -17,7 +16,6 @@ import { DocumentsModule } from '../documents/documents.module';
   imports: [
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
-      { name: UserModuleSchemaClass.name, schema: UserModuleSchema },
       { name: KnowledgeBase.name, schema: KnowledgeBaseSchema },
       { name: Conversation.name, schema: ConversationSchema },
       { name: ApiKey.name, schema: ApiKeySchema },

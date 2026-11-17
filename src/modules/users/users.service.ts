@@ -10,8 +10,10 @@ import {
   import * as bcrypt from 'bcryptjs';
   import { User, UserDocument, UserStatus, USER_PUBLIC_PROJECTION, USER_FIELD_GROUPS } from './schemas/user.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
-import { CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument } from '../userservices/schemas/userservice.schema';
+
+import {
+  CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument, PIPELINE_FILTER, PipelineUserService, PipelineUserServiceDocument,
+} from '../userservices/schemas/userservice.schema';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
@@ -21,7 +23,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
 
     constructor(
       @InjectModel(User.name) private userModel: Model<UserDocument>,
-      @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>,
+      @InjectModel(PipelineUserService.name) private pipelineServiceModel: Model<PipelineUserServiceDocument>,
       @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
       private activityLogsService: ActivityLogsService,
     ) {}
@@ -258,9 +260,9 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       // already established elsewhere in this codebase).
       const userIds = users.map((u: any) => u._id);
       const [moduleCounts, chatbotCounts] = await Promise.all([
-        this.userModuleModel.aggregate([
-          { $match: { userId: { $in: userIds } } },
-          { $group: { _id: { userId: '$userId', moduleType: '$moduleType' }, count: { $sum: 1 } } },
+        this.pipelineServiceModel.aggregate([
+          { $match: { ...PIPELINE_FILTER, isDeleted: false, userId: { $in: userIds } } },
+          { $group: { _id: { userId: '$userId', moduleType: '$type' }, count: { $sum: 1 } } },
         ]),
         this.chatbotModel.aggregate([
           { $match: { ...CHATBOT_FILTER, isDeleted: false, userId: { $in: userIds } } },
@@ -368,19 +370,20 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       });
      
       // Reactivate paused modules if extending
-      await this.userModuleModel.updateMany(
-        { userId, pausedReason: 'trial_expired' },
-        { $set: { isActive: true, pausedReason: null } },
+      // Agents/automations whose trial had ended get the same new end date.
+      await this.pipelineServiceModel.updateMany(
+        { ...PIPELINE_FILTER, userId: new Types.ObjectId(userId), isDeleted: false, status: 'past_due' },
+        { $set: { status: 'trial', trialEndDate: newEnd } },
       );
      
       return { message: `Trial extended by ${days} days until ${newEnd.toDateString()}` };
     }
      
     async pauseUserModules(userId: string, pause: boolean): Promise<any> {
-      const result = await this.userModuleModel.updateMany(
-        { userId },
-        { $set: { isActive: !pause, ...(pause && { pausedReason: 'admin_paused' }) } },
+      const result = await this.pipelineServiceModel.updateMany(
+        { ...PIPELINE_FILTER, userId: new Types.ObjectId(userId), isDeleted: false },
+        { $set: { 'config.paused': pause } },
       );
-      return { message: `${result.modifiedCount} modules ${pause ? 'paused' : 'unpaused'}` };
+      return { message: `${result.modifiedCount} services ${pause ? 'paused' : 'unpaused'}` };
     }
   }

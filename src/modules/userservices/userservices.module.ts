@@ -1,7 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
-  ChatbotUserService, ChatbotUserServiceSchema, UserService, UserServiceSchema,
+  ChatbotUserService, ChatbotUserServiceSchema, PipelineUserService, PipelineUserServiceSchema,
+  UserService, UserServiceSchema,
 } from './schemas/userservice.schema';
 import { UserServicesMigration } from './userservices.migration';
 
@@ -14,6 +15,7 @@ import { UserServicesMigration } from './userservices.migration';
     MongooseModule.forFeature([
       { name: UserService.name, schema: UserServiceSchema },
       { name: ChatbotUserService.name, schema: ChatbotUserServiceSchema },
+      { name: PipelineUserService.name, schema: PipelineUserServiceSchema },
     ]),
   ],
   providers: [UserServicesMigration],

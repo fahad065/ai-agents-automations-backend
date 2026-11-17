@@ -1041,3 +1041,24 @@ prices; no custom/blank chatbots (every bot comes from a catalog service);
 - Collections the owner can now drop by hand (after checking production):
   `chatbots`, plus the earlier `modules`, `industries`, `industry_subscriptions`,
   `niches`, `subscriptions`, `trends`, `content_ideas`.
+
+## 2026-11-17 — Agents/automations on `userservices`; `usermodules` code deleted
+Owner: no customer data in `usermodules`, so nothing migrated.
+- `PipelineUserService` model (same `userservices` collection, typed `config`:
+  pipelineType, niche, schedule{frequency,time,days}, paused, customPrompt,
+  videoModel, apiKeyMode, lastRunAt/totalRuns/totalCost).
+  `pipeline-services.{service,controller,cron,module}.ts` + `pipeline-view.ts`
+  replace `usermodules/*` and `modules/schemas/user-module.schema.ts` (deleted).
+- Routes `/userservices/*`, same response shape as before; `/usermodules/*`
+  alias kept until the Python service on main is redeployed (its branch
+  `claude/env-vars-repo-setup-js2a6s` now calls /userservices).
+- Subscribe takes name/type/pipeline from the catalog (not the request body),
+  refuses chatbots, duplicates and coming-soon services.
+- Status: trial→past_due when the trial ends unpaid (was "expired"); pause is
+  `config.paused` (was status "paused"); remove = isDeleted + cancelled.
+- Bugs fixed on the way: Instagram key lookup used `isActive` (field no longer
+  exists) so it never found a key; run-status returned the user's latest run of
+  ANY service (now this service's, matched by ObjectId — a string agentId never
+  matched); admin overview/extend-trial/pause-all queried `isActive`/
+  `pausedReason`, which never existed.
+- Verified: unit 74/74; e2e agent 32/32 (new), restaurant 66/66, gym 76/76.

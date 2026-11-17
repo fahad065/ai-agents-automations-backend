@@ -3,8 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as ExcelJS from 'exceljs';
 import { User, UserDocument, UserStatus } from '../users/schemas/user.schema';
-import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
-import { CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument } from '../userservices/schemas/userservice.schema';
+import {
+  CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument, PIPELINE_FILTER, PipelineUserService, PipelineUserServiceDocument,
+} from '../userservices/schemas/userservice.schema';
 import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowledge-base.schema';
 import { Conversation, ConversationDocument } from '../chatbots/schemas/conversation.schema';
 import { ApiKey, ApiKeyDocument } from '../api-keys/schemas/api-key.schema';
@@ -28,7 +29,7 @@ export class AccountDeletionService {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
-    @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>,
+    @InjectModel(PipelineUserService.name) private pipelineServiceModel: Model<PipelineUserServiceDocument>,
     @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
@@ -118,7 +119,7 @@ export class AccountDeletionService {
     const [chatbots, apiKeys, userModules, billing, activityLogs] = await Promise.all([
       this.chatbotModel.find({ ...CHATBOT_FILTER, userId: uid }).populate('serviceId', 'slug').lean(),
       this.apiKeyModel.find({ userId: uid }, { encryptedKey: 0 }).lean(),
-      this.userModuleModel.find({ userId: uid }).lean(),
+      this.pipelineServiceModel.find({ ...PIPELINE_FILTER, userId: uid }).populate('serviceId', 'name').lean(),
       this.billingModel.find({ userId: uid }).sort({ billingDate: -1 }).lean(),
       this.activityLogModel.find({ userId: uid }).sort({ createdAt: -1 }).limit(1000).lean(),
     ]);
@@ -150,7 +151,7 @@ export class AccountDeletionService {
 
     const subs = wb.addWorksheet('Subscriptions');
     subs.addRow(['Module', 'Type', 'Status', 'Trial End', 'Created']);
-    userModules.forEach((m: any) => subs.addRow([m.moduleName, m.moduleType, m.status, m.trialEndDate, m.createdAt]));
+    userModules.forEach((m: any) => subs.addRow([m.serviceId?.name || m.name, m.type, m.status, m.trialEndDate, m.createdAt]));
 
     const bots = wb.addWorksheet('Chatbots');
     bots.addRow(['Name', 'Template', 'Status', 'Billing Tier', 'Billing Status', 'Created']);
@@ -277,7 +278,7 @@ export class AccountDeletionService {
       this.knowledgeBaseModel.deleteMany({ userserviceId: { $in: chatbotIds } }),
       this.conversationModel.deleteMany({ userserviceId: { $in: chatbotIds } }),
       this.apiKeyModel.deleteMany({ userId: uid }),
-      this.userModuleModel.deleteMany({ userId: uid }),
+      this.pipelineServiceModel.deleteMany({ ...PIPELINE_FILTER, userId: uid }),
       this.notificationModel.deleteMany({ userId: uid }),
       // Uploaded identity/business documents (and their stored files).
       this.documentsService.purgeAllForUser(uid.toString()),

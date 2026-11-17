@@ -19,8 +19,8 @@ const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
 
 @Schema({ timestamps: true })
 export class Conversation {
-  @Prop({ type: Types.ObjectId, ref: 'Chatbot', required: true })
-  chatbotId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'ChatbotUserService', required: true })
+  userserviceId: Types.ObjectId;
 
   @Prop({ required: true })
   sessionId: string;
@@ -58,5 +58,5 @@ export class Conversation {
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
-ConversationSchema.index({ chatbotId: 1, sessionId: 1 });
-ConversationSchema.index({ chatbotId: 1, createdAt: -1 });
+ConversationSchema.index({ userserviceId: 1, sessionId: 1 });
+ConversationSchema.index({ userserviceId: 1, createdAt: -1 });

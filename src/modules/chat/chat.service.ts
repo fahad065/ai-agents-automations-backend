@@ -1,7 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
+import { CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument } from '../userservices/schemas/userservice.schema';
+import { ChatbotView, toChatbotView } from '../userservices/chatbot-view';
 import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowledge-base.schema';
 import { Conversation, ConversationDocument } from '../chatbots/schemas/conversation.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
@@ -41,7 +42,7 @@ export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
-    @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
+    @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
@@ -62,7 +63,7 @@ export class ChatService {
     }
   }
 
-  private buildSystemPrompt(chatbot: ChatbotDocument, knowledgeSnippets: string[]): string {
+  private buildSystemPrompt(chatbot: ChatbotView, knowledgeSnippets: string[]): string {
     let languageInstruction = 'Respond in the same language the user writes in.';
     if (chatbot.language === 'en') languageInstruction = 'Only respond in English.';
     if (chatbot.language === 'ar') languageInstruction = 'Only respond in Arabic.';
@@ -171,7 +172,7 @@ ${knowledgeSection}`;
   // much as a Pro one. Never blocks the reply — caller fires this and
   // moves on, logging failures instead of surfacing them to the customer.
   private async notifyLead(
-    chatbot: ChatbotDocument,
+    chatbot: ChatbotView,
     conversation: ConversationDocument,
     snippet: string,
   ): Promise<void> {
@@ -227,7 +228,7 @@ ${knowledgeSection}`;
   // behavior unchanged (just the fallback message, no notification).
   // Fire-and-forget, same pattern as notifyLead() above.
   private async notifyHandoff(
-    chatbot: ChatbotDocument,
+    chatbot: ChatbotView,
     conversation: ConversationDocument,
     snippet: string,
   ): Promise<void> {
@@ -264,6 +265,17 @@ ${knowledgeSection}`;
     );
   }
 
+  // A chatbot is a userservices row (type 'chatbot') found by its public
+  // embedKey. `chatbot` is the flat view the engine reads; `row` keeps the
+  // subscription fields (status, trialEndDate) for the billing gate.
+  private async findBot(embedKey: string): Promise<{ chatbot: ChatbotView | null; row: any }> {
+    if (!embedKey) return { chatbot: null, row: null };
+    const row = await this.chatbotModel
+      .findOne({ ...CHATBOT_FILTER, isDeleted: false, 'config.embedKey': embedKey })
+      .lean();
+    return { chatbot: row ? toChatbotView(row) : null, row };
+  }
+
   // Public, read-only widget config — lets chatbot-widget.js fetch the
   // owner's *current* name/color/welcome message on every page load
   // instead of the customer's pasted <script> tag baking in a one-time
@@ -277,7 +289,7 @@ ${knowledgeSection}`;
   async getPublicConfig(
     embedKey: string,
   ): Promise<{ name: string; color: string; welcomeMessage: string; welcomeMessageAr: string }> {
-    const chatbot = await this.chatbotModel.findOne({ embedKey });
+    const { chatbot } = await this.findBot(embedKey);
     if (!chatbot || chatbot.status !== 'active') {
       throw new NotFoundException('Chatbot not found');
     }
@@ -296,8 +308,8 @@ ${knowledgeSection}`;
     channel: 'website' | 'whatsapp' | 'instagram' = 'website',
   ): Promise<{ reply: string; sessionId: string; handoff: boolean }> {
     // 1. Find chatbot
-    const chatbot = await this.chatbotModel.findOne({ embedKey });
-    if (!chatbot || chatbot.status !== 'active') {
+    const { chatbot, row } = await this.findBot(embedKey);
+    if (!chatbot || !row || chatbot.status !== 'active') {
       return {
         reply: "This chatbot is not currently available.",
         sessionId,
@@ -310,7 +322,7 @@ ${knowledgeSection}`;
     // `status` themselves. Without this check a lapsed trial would keep
     // answering for free indefinitely, since `status` and `billing.status`
     // are tracked separately.
-    if (!isChatbotBillingActive(chatbot)) {
+    if (!isChatbotBillingActive(row)) {
       return {
         reply: chatbot.fallbackMessage,
         sessionId,
@@ -319,10 +331,10 @@ ${knowledgeSection}`;
     }
 
     // 2. Find or create conversation
-    let conversation = await this.conversationModel.findOne({ chatbotId: chatbot._id, sessionId });
+    let conversation = await this.conversationModel.findOne({ userserviceId: chatbot._id, sessionId });
     if (!conversation) {
       conversation = await this.conversationModel.create({
-        chatbotId: chatbot._id,
+        userserviceId: chatbot._id,
         sessionId,
         channel,
         messages: [],
@@ -357,7 +369,7 @@ ${knowledgeSection}`;
 
       // 5. Retrieve knowledge entries
       const allKnowledge = await this.knowledgeBaseModel
-        .find({ chatbotId: chatbot._id })
+        .find({ userserviceId: chatbot._id })
         .select('+embedding');
 
       let knowledgeSnippets: string[] = [];
@@ -528,10 +540,11 @@ ${knowledgeSection}`;
     challenge: string,
   ): Promise<string | null> {
     if (mode !== 'subscribe' || !token) return null;
-    const chatbot = await this.chatbotModel.findOne({ embedKey }).select('channels').lean();
-    const expected = (chatbot?.channels as any)?.[channel]?.verifyToken;
+    const filter = { ...CHATBOT_FILTER, isDeleted: false, 'config.embedKey': embedKey };
+    const row = await this.chatbotModel.findOne(filter).select('config.channels').lean();
+    const expected = (row?.config?.channels as any)?.[channel]?.verifyToken;
     if (!expected || !safeEqual(token, expected)) return null;
-    await this.chatbotModel.updateOne({ embedKey }, { $set: { [`channels.${channel}.webhookVerified`]: true } });
+    await this.chatbotModel.updateOne(filter, { $set: { [`config.channels.${channel}.webhookVerified`]: true } });
     return challenge;
   }
 
@@ -547,7 +560,7 @@ ${knowledgeSection}`;
   // ignored outright — no AI call (it would spend the owner's BYOK credits),
   // no conversation, no lead.
   private async loadMetaChannel(embedKey: string, channel: 'whatsapp' | 'instagram') {
-    const chatbot = await this.chatbotModel.findOne({ embedKey }).lean();
+    const { chatbot } = await this.findBot(embedKey);
     const cfg: any = chatbot?.channels?.[channel];
     const idField = channel === 'whatsapp' ? 'phoneNumberId' : 'accountId';
     if (!chatbot || chatbot.billing?.tier === 'basic' || !cfg?.enabled || !cfg[idField] || !cfg.accessToken || !cfg.appSecret) {

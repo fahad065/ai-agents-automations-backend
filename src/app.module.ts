@@ -19,6 +19,7 @@ import { UserModulesModule } from './modules/usermodules/usermodules.module';
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ChatbotsModule } from './modules/chatbots/chatbots.module';
+import { UserServicesModule } from './modules/userservices/userservices.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
 import { AccountDeletionModule } from './modules/account-deletion/account-deletion.module';
@@ -84,6 +85,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     UserModulesModule,
     EmailModule,
     AdminModule,
+    UserServicesModule,
     ChatbotsModule,
     ChatModule,
     ActivityLogsModule,

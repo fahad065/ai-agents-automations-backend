@@ -21,7 +21,7 @@ export class BillingService {
     status?: string;
     pipelineRunId?: string;
     subscriptionId?: string;
-    chatbotId?: string;
+    userserviceId?: string;
     apiCosts?: { openai?: number; seedance?: number; atlas?: number };
   }): Promise<BillingDocument> {
     return this.billingModel.create({
@@ -34,7 +34,7 @@ export class BillingService {
       status: data.status || BillingStatus.PAID,
       pipelineRunId: data.pipelineRunId ? new Types.ObjectId(data.pipelineRunId) : undefined,
       subscriptionId: data.subscriptionId ? new Types.ObjectId(data.subscriptionId) : undefined,
-      chatbotId: data.chatbotId ? new Types.ObjectId(data.chatbotId) : undefined,
+      userserviceId: data.userserviceId ? new Types.ObjectId(data.userserviceId) : undefined,
       apiCosts: data.apiCosts || {},
       billingDate: new Date(),
     });
@@ -44,9 +44,9 @@ export class BillingService {
     return this.billingModel.findByIdAndUpdate(id, { status }, { new: true });
   }
 
-  async findByChatbot(chatbotId: string) {
+  async findByUserService(userserviceId: string) {
     return this.billingModel
-      .find({ chatbotId: new Types.ObjectId(chatbotId), isDeleted: false })
+      .find({ userserviceId: new Types.ObjectId(userserviceId), isDeleted: false })
       .sort({ billingDate: -1 })
       .lean();
   }

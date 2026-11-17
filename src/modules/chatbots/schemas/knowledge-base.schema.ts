@@ -5,8 +5,8 @@ export type KnowledgeBaseDocument = KnowledgeBase & Document;
 
 @Schema({ timestamps: true })
 export class KnowledgeBase {
-  @Prop({ type: Types.ObjectId, ref: 'Chatbot', required: true })
-  chatbotId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'ChatbotUserService', required: true })
+  userserviceId: Types.ObjectId;
 
   @Prop({ enum: ['text', 'faq', 'url'], required: true })
   type: 'text' | 'faq' | 'url';
@@ -36,4 +36,4 @@ export class KnowledgeBase {
 }
 
 export const KnowledgeBaseSchema = SchemaFactory.createForClass(KnowledgeBase);
-KnowledgeBaseSchema.index({ chatbotId: 1 });
+KnowledgeBaseSchema.index({ userserviceId: 1 });

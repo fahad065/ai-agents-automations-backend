@@ -46,7 +46,7 @@ export class ChatbotsController {
 
   @Get(':id')
   findOne(@Req() req: any, @Param('id') id: string) {
-    return this.chatbotsService.findOne(id, req.user._id.toString(), req.user.role === 'admin');
+    return this.chatbotsService.findOneView(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
   @Put(':id')

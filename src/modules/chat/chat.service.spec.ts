@@ -1,5 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { ChatService } from './chat.service';
+import { toUserServiceRow } from '../userservices/userservices.migration';
+import { toChatbotView } from '../userservices/chatbot-view';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 
 // Exercises the lead-capture behaviour (name/phone/email capture + owner
@@ -10,8 +12,16 @@ import { NotificationType } from '../notifications/schemas/notification.schema';
 // the real code is everything that doesn't require reaching OpenAI:
 // the billing gate, the WhatsApp-phone auto-capture, the notify-once guard,
 // and extractLeadInfo()'s early return once nothing is missing.
+// Bots are userservices rows now; tests write them in the familiar chatbot
+// shape and convert with the migration's own converter.
+function asRow(legacy: any) {
+  const row: any = toUserServiceRow({ embedKey: 'key1', ...legacy }, new Map());
+  row.userId = legacy.userId;
+  return row;
+}
+
 function makeChatbot(overrides: any = {}) {
-  return {
+  return asRow({
     _id: 'bot1',
     userId: 'owner1',
     name: 'Sunset Cafe Bot',
@@ -21,13 +31,13 @@ function makeChatbot(overrides: any = {}) {
     persona: 'Warm and upbeat',
     billing: { tier: 'basic', status: 'trial', trialEndsAt: new Date(Date.now() + 10 * 86400000) },
     ...overrides,
-  };
+  });
 }
 
 function makeConversation(overrides: any = {}) {
   const convo: any = {
     _id: 'convo1',
-    chatbotId: 'bot1',
+    userserviceId: 'bot1',
     sessionId: overrides.sessionId || 'session-1',
     channel: overrides.channel || 'website',
     messages: [],
@@ -49,7 +59,7 @@ function makeService(opts: {
   const { chatbot, existingConversation = null, hasOpenAiKey = false } = opts;
 
   const createdConversations: any[] = [];
-  const chatbotModel: any = { findOne: jest.fn().mockResolvedValue(chatbot) };
+  const chatbotModel: any = { findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(chatbot) }) };
   const knowledgeBaseModel: any = {
     find: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue([]) }),
   };
@@ -97,7 +107,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
 
     const result = await service.chat('embed1', 'session-1', 'Hi, table for two tonight?', 'website');
 
-    expect(result.reply).toBe(chatbot.fallbackMessage);
+    expect(result.reply).toBe(chatbot.config.fallbackMessage);
     expect(conversationModel.findOne).not.toHaveBeenCalled();
   });
 
@@ -107,7 +117,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
 
     const result = await service.chat('embed1', 'session-1', 'What time do you open?', 'website');
 
-    expect(result.reply).toBe(chatbot.fallbackMessage);
+    expect(result.reply).toBe(chatbot.config.fallbackMessage);
     expect(createdConversations[0].visitorPhone).toBeUndefined();
     expect(notificationsService.create).not.toHaveBeenCalled();
     expect(emailService.sendChatbotLeadEmail).not.toHaveBeenCalled();
@@ -119,7 +129,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
 
     const result = await service.chat('embed1', '971501234567', 'I want to book a table for 4', 'whatsapp');
 
-    expect(result.reply).toBe(chatbot.fallbackMessage); // no key -> no AI, but capture still works
+    expect(result.reply).toBe(chatbot.config.fallbackMessage); // no key -> no AI, but capture still works
     const convo = createdConversations[0];
     expect(convo.visitorPhone).toBe('971501234567');
     expect(convo.leadNotifiedAt).toBeInstanceOf(Date);
@@ -171,7 +181,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
       ],
     });
     const { service } = makeService({ chatbot });
-    const prompt = (service as any).buildSystemPrompt(chatbot, []);
+    const prompt = (service as any).buildSystemPrompt(toChatbotView(chatbot), []);
 
     expect(prompt).toContain('Al Quoz (Delivery Only)');
     expect(prompt).toContain('Business Bay');
@@ -184,7 +194,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
   it('buildSystemPrompt() has no outlets section at all for a single-location chatbot (unchanged behavior)', async () => {
     const chatbot = makeChatbot({ outlets: [] });
     const { service } = makeService({ chatbot });
-    const prompt = (service as any).buildSystemPrompt(chatbot, []);
+    const prompt = (service as any).buildSystemPrompt(toChatbotView(chatbot), []);
 
     expect(prompt).not.toMatch(/multiple locations/i);
   });
@@ -192,12 +202,12 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
   it('buildSystemPrompt() shares the booking link when set, and falls back to full lead capture when not', async () => {
     const withLink = makeChatbot({ bookingUrl: 'https://calendly.com/sunset-cafe/table' });
     const { service: serviceWithLink } = makeService({ chatbot: withLink });
-    const promptWithLink = (serviceWithLink as any).buildSystemPrompt(withLink, []);
+    const promptWithLink = (serviceWithLink as any).buildSystemPrompt(toChatbotView(withLink), []);
     expect(promptWithLink).toContain('https://calendly.com/sunset-cafe/table');
 
     const withoutLink = makeChatbot({ bookingUrl: undefined });
     const { service: serviceWithoutLink } = makeService({ chatbot: withoutLink });
-    const promptWithoutLink = (serviceWithoutLink as any).buildSystemPrompt(withoutLink, []);
+    const promptWithoutLink = (serviceWithoutLink as any).buildSystemPrompt(toChatbotView(withoutLink), []);
     expect(promptWithoutLink).not.toContain('http');
     expect(promptWithoutLink).toMatch(/no separate booking link/i);
   });
@@ -361,7 +371,8 @@ describe('WhatsApp / Instagram webhooks (Pro channels)', () => {
     return { body, raw, sig: 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex') };
   };
 
-  function setup(bot: any) {
+  function setup(legacyBot: any) {
+    const bot = asRow(legacyBot);
     const chatbotModel: any = {
       findOne: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue(bot),
@@ -449,7 +460,7 @@ describe('WhatsApp / Instagram webhooks (Pro channels)', () => {
   it('webhook handshake only succeeds with this bot\'s own verify token', async () => {
     const { service, chatbotModel } = setup(proBot({ whatsapp: wa, instagram: ig }));
     await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'vt-wa', 'CHALLENGE')).resolves.toBe('CHALLENGE');
-    expect(chatbotModel.updateOne).toHaveBeenCalledWith({ embedKey: 'key1' }, { $set: { 'channels.whatsapp.webhookVerified': true } });
+    expect(chatbotModel.updateOne).toHaveBeenCalledWith({ type: 'chatbot', isDeleted: false, 'config.embedKey': 'key1' }, { $set: { 'config.channels.whatsapp.webhookVerified': true } });
     await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'guess', 'CHALLENGE')).resolves.toBeNull();
     await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'vt-ig', 'CHALLENGE')).resolves.toBeNull();
     await expect(service.verifyMetaWebhook('instagram', 'key1', 'subscribe', 'vt-ig', 'C2')).resolves.toBe('C2');

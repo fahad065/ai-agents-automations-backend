@@ -374,22 +374,40 @@ updatedAt
 ```
 No `user_id` — this is public content, isolated from the ownership model.
 
-### `userservices` — CORE. The single answer to "what does this customer own."
+### `userservices` — CORE. The single answer to "what does this customer own." — DONE for chatbots, 2026-11-17 (agents/automations still on `usermodules`)
 ```
-_id, user_id
+_id, userId
 type: agent | automation | chatbot        -- NEVER "bundle", see the correction above
-service_id                                  -- ALWAYS a single reference, NEVER an array
-bundle_id?                                   -- grouping label only, set only when bought as part of a bundle
+serviceId                                   -- ALWAYS a single reference, NEVER an array (empty only for a pre-2026-11-17 "custom" bot; new custom bots can't be created)
+bundleId?                                   -- grouping label only, set only when bought as part of a bundle
+name                                        -- the customer's own name for this subscription (added 2026-11-17 so My Services can list every type)
 status: trial | active | past_due | suspended | cancelled
-isFreeForever                                -- separate boolean, NOT a status value (it's an exemption that short-circuits billing, not a lifecycle stage)
+isFreeForever                               -- separate boolean, NOT a status value (it's an exemption that short-circuits billing, not a lifecycle stage)
 isDeleted
 subscriptionStartDate
 trialEndDate, nextRenewalDate
-cancelledAt?                                 -- set only if/when actually cancelled; there is no forward-looking "end date" for a continuously-renewing subscription
-config: {}                                   -- shape depends on type AND the specific service, not type alone:
+cancelledAt?                                -- set only if/when actually cancelled; there is no forward-looking "end date" for a continuously-renewing subscription
+plan: { tier: basic|pro|custom, monthlyFee, setupFee, currency }   -- added 2026-11-17 (owner-approved): tier drives feature locks, prices are per deal
+adminNotes?                                 -- admin-only deal notes, never returned to the customer
+trialReminderSentAt?                        -- "trial ends in 5 days" email sent (claim-before-send)
+config: {}                                  -- shape depends on type AND the specific service, not type alone:
   -- agent/automation: schedule{frequency,time,days}, customPrompt?, useCustomPrompt?, youtubeChannelId?, videoModel?
-  -- chatbot: persona, embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]? (multi-location only)
+  -- chatbot: botStatus (draft|active|inactive — is the bot live; separate from the subscription status), description, persona, language,
+  --          embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]?,
+  --          chatModelConfig, embeddingModelConfig
 ```
+Chatbots: `src/modules/userservices/` — `UserServiceSchema` (generic, loose
+`config`) and `ChatbotUserServiceSchema` (same collection, `config` typed for
+chatbots) — every chatbot query adds `{type: 'chatbot'}` (`CHATBOT_FILTER`).
+The `/api/v1/chatbots/*` API still answers in the old chatbot shape through
+`toChatbotView()` (`userservices/chatbot-view.ts`), so the dashboard, widget
+embed codes and Meta webhook URLs did not change. The one-time migration
+(`userservices.migration.ts`) copied every `chatbots` doc with the **same
+`_id`** and renamed `chatbotId` → `userserviceId` on `knowledgebases`,
+`conversations` and `billings`; `awaiting_setup_payment` became `past_due`.
+Verified on local MongoDB (test/e2e/seed-old-chatbots.js +
+check-userservices-migration.js, 20/20, idempotent).
+
 `config` is intentionally loose (`Record<string, any>`, validated at the
 application layer, not via Mongoose discriminators) — matches how
 `UserModule.config`/`Chatbot`'s fields already work today. Keeping it simple
@@ -645,11 +663,11 @@ independently.
 
 ### `knowledge_bases` — chatbot child data (the chat engine answers from this)
 ```
-_id, userservice_id                          -- was chatbot_id
+_id, userserviceId                           -- was chatbotId (renamed 2026-11-17)
 type: text | faq | url
 question?, answer?                           -- faq only
 content?                                     -- text/url
-sourceUrl?                                   -- url only
+sourceUrl?, linkLabel?                       -- the link an answer shares (Google Maps, menu…), see chat/knowledge-format.ts
 embedding: []                                -- hidden by default; a vector array, not for display; empty if the bot owner has no OpenAI key (graceful BYOK degrade, unchanged behavior)
 createdAt, updatedAt
 ```
@@ -657,7 +675,7 @@ No `isDeleted` — deliberate, see `rules.md`.
 
 ### `conversations` — chatbot child data (chat session logs)
 ```
-_id, userservice_id                          -- was chatbot_id
+_id, userserviceId                           -- was chatbotId (renamed 2026-11-17)
 sessionId, channel: website | whatsapp | instagram
 messages: [{role, content, timestamp}]       -- embedded; fine for a typical session, a real (if unlikely) MongoDB 16MB document-size ceiling for an unusually long-running one
 status: active | closed | handoff
@@ -711,8 +729,8 @@ output), so it stays paused rather than deleted.
 | `industry-subscriptions` | **CODE DELETED 2026-11-12** — collection to be dropped by hand | `userservices` |
 | `modules` (ModuleTemplate) | **Migrated + code deleted 2026-11-12** (incl. the boot-time migration) — collection to be dropped by hand | `services` |
 | `usermodules` (UserModule) | Replaced once migrated | `userservices` (type: agent\|automation) |
-| `chatbots` (ownership fields only) | Replaced once migrated | `userservices` (type: chatbot) |
-| `chatbots.billing` subdocument | Replaced once migrated | `userservices` (current state) + `billing` (transaction history) |
+| `chatbots` | **Migrated + code deleted 2026-11-17** — collection to be dropped by hand once production is verified | `userservices` (type: chatbot) |
+| `chatbots.billing` subdocument | **Migrated 2026-11-17** into `userservices` status/plan/dates | `userservices` (current state) + `billing` (transaction history) |
 | `Billing` (old ledger) | Replaced once migrated | `billing` (new shape) |
 | `trends` | **DELETE** — confirmed. The old YouTube-specific trend-discovery mechanism isn't being carried forward; agent implementation gets redesigned from scratch when that phase is reached. | n/a — no replacement, a future redesign decides what (if anything) replaces this |
 | `content_ideas` | **DELETE, recommended** — references `trends` by id (`trendId`), so deleting one without the other leaves a dangling reference. Flagged, not yet explicitly confirmed by the user — see `traces.md`. | Same as `trends` |

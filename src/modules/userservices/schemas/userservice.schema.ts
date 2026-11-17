@@ -2,7 +2,117 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { ApiKeyProvider } from '../../api-keys/schemas/api-key.schema';
 
-export type ChatbotDocument = Chatbot & Document;
+// userservices — "what does this customer own" (ai/architecture.md).
+// One row per subscribed service. `type` is always a real type, never
+// "bundle"; `serviceId` is always one reference, never an array.
+//
+// Two Mongoose models share this collection:
+//   - UserService: the generic row, `config` loose (agents/automations).
+//   - ChatbotUserService: the same row with `config` typed for chatbots
+//     (channels, branches, AI models…), so defaults and casting work.
+// Every chatbot query must include { type: 'chatbot' } (CHATBOT_FILTER).
+
+export enum UserServiceType {
+  AGENT = 'agent',
+  AUTOMATION = 'automation',
+  CHATBOT = 'chatbot',
+}
+
+export enum UserServiceStatus {
+  TRIAL = 'trial',
+  ACTIVE = 'active',
+  PAST_DUE = 'past_due',
+  SUSPENDED = 'suspended',
+  CANCELLED = 'cancelled',
+}
+
+export const CHATBOT_FILTER = { type: UserServiceType.CHATBOT } as const;
+
+// The customer's plan for this one service. Prices are per deal (an admin
+// can set them by hand); tier drives feature locks (Pro: WhatsApp,
+// Instagram, Analytics). Agreed with the owner 2026-11-17.
+@Schema({ _id: false })
+export class UserServicePlan {
+  @Prop({ enum: ['basic', 'pro', 'custom'], default: 'basic' })
+  tier: 'basic' | 'pro' | 'custom';
+
+  @Prop({ default: 0 })
+  monthlyFee: number;
+
+  @Prop({ default: 0 })
+  setupFee: number;
+
+  @Prop({ default: 'USD' })
+  currency: string;
+}
+
+// Fields every userservices row has, whatever its type.
+@Schema({ timestamps: true, collection: 'userservices' })
+export class UserServiceBase {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  userId: Types.ObjectId;
+
+  @Prop({ enum: UserServiceType, required: true })
+  type: UserServiceType;
+
+  @Prop({ type: Types.ObjectId, ref: 'Service' })
+  serviceId?: Types.ObjectId;
+
+  // Grouping label only — set when bought as part of a bundle.
+  @Prop({ type: Types.ObjectId })
+  bundleId?: Types.ObjectId;
+
+  // The customer's own name for this subscription ("IronFit Marina bot").
+  @Prop({ required: true, trim: true })
+  name: string;
+
+  @Prop({ enum: UserServiceStatus, default: UserServiceStatus.TRIAL })
+  status: UserServiceStatus;
+
+  // An exemption that skips billing, not a lifecycle stage.
+  @Prop({ default: false })
+  isFreeForever: boolean;
+
+  @Prop({ default: false })
+  isDeleted: boolean;
+
+  @Prop({ default: () => new Date() })
+  subscriptionStartDate: Date;
+
+  @Prop()
+  trialEndDate?: Date;
+
+  @Prop()
+  nextRenewalDate?: Date;
+
+  @Prop()
+  cancelledAt?: Date;
+
+  @Prop({ type: UserServicePlan, default: () => ({}) })
+  plan: UserServicePlan;
+
+  // Admin-only deal notes — never returned to the customer.
+  @Prop()
+  adminNotes?: string;
+
+  // Set once the "trial ends in 5 days" email went out, so it never repeats.
+  @Prop()
+  trialReminderSentAt?: Date;
+}
+
+@Schema({ timestamps: true, collection: 'userservices' })
+export class UserService extends UserServiceBase {
+  // Shape depends on the service; validated in the service layer.
+  @Prop({ type: Object, default: {} })
+  config: Record<string, any>;
+}
+
+export type UserServiceDocument = UserService & Document;
+export const UserServiceSchema = SchemaFactory.createForClass(UserService);
+UserServiceSchema.index({ userId: 1, type: 1, isDeleted: 1 });
+UserServiceSchema.index({ status: 1, trialEndDate: 1 });
+
+// ── Chatbot config ───────────────────────────────────────────────
 
 // Which BYOK provider+model this chatbot's chat replies / knowledge-base
 // embeddings are generated with. `model: 'auto'` (the default) means "let
@@ -159,61 +269,11 @@ export class Outlet {
 const OutletSchema = SchemaFactory.createForClass(Outlet);
 
 @Schema({ _id: false })
-export class ChatbotBilling {
-  // Set by admin only — never writable by the chatbot's owner.
-  @Prop({ default: 0 })
-  setupFee: number;
-
-  @Prop({ default: 0 })
-  monthlyFee: number;
-
-  @Prop({ default: 'USD' })
-  currency: string;
-
-  // Which of the module's pricingTiers this chatbot is on — drives feature
-  // gating (Analytics tab, WhatsApp/Instagram channels) in
-  // ChatbotsService/chatbots.controller and the frontend config page. See
-  // backend CLAUDE.md's "Tiered chatbot pricing" section. Admin-only —
-  // never in CUSTOMER_EDITABLE_FIELDS, same as monthlyFee/setupFee; a
-  // customer upgrades by asking, admin flips this via PUT /:id/pricing,
-  // matching the existing hand-set-price billing model.
-  @Prop({ enum: ['basic', 'pro', 'custom'], default: 'basic' })
-  tier: 'basic' | 'pro' | 'custom';
-
-  @Prop({
-    enum: ['trial', 'awaiting_setup_payment', 'active', 'past_due', 'suspended'],
-    default: 'trial',
-  })
-  status: 'trial' | 'awaiting_setup_payment' | 'active' | 'past_due' | 'suspended';
-
-  @Prop()
-  trialEndsAt?: Date;
-
-  @Prop()
-  setupPaidAt?: Date;
-
-  @Prop()
-  lastBillingDate?: Date;
-
-  @Prop()
-  nextBillingDate?: Date;
-
-  // Admin-only internal notes about the deal (not shown to the customer).
-  @Prop()
-  notes?: string;
-
-  // Set once by ChatbotsCron so the "5 days left" reminder email fires only once.
-  @Prop({ default: false })
-  trialReminderSent: boolean;
-}
-
-@Schema({ timestamps: true })
-export class Chatbot {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  userId: Types.ObjectId;
-
-  @Prop({ required: true })
-  name: string;
+export class ChatbotConfig {
+  // Whether the bot answers at all: draft → active (live) → inactive (paused).
+  // Separate from the subscription status above.
+  @Prop({ enum: ['draft', 'active', 'inactive'], default: 'draft' })
+  botStatus: 'draft' | 'active' | 'inactive';
 
   @Prop()
   description?: string;
@@ -221,26 +281,13 @@ export class Chatbot {
   @Prop()
   persona?: string;
 
-  // Any booking link the owner already uses — Calendly, OpenTable, Resy,
-  // a Google Form, whatever. Purely a link to share in chat when a customer
-  // wants to book, not a real booking integration (see backend CLAUDE.md's
-  // "Booking link" section for why: restaurant reservations aren't really
-  // calendar-slot-shaped the way Calendly assumes, so lead capture stays
-  // the fallback whenever this is empty or the customer just gives their
-  // details in-chat instead of clicking through).
+  // A link the bot shares when someone wants to book (table, trial class,
+  // appointment…). Not a booking integration.
   @Prop()
   bookingUrl?: string;
 
   @Prop({ enum: ['en', 'ar', 'both'], default: 'both' })
   language: 'en' | 'ar' | 'both';
-
-  @Prop({
-    enum: ['restaurant', 'real_estate', 'clinic', 'ecommerce', 'gym', 'education', 'salon', 'hotel', 'auto_dealership', 'custom'],
-  })
-  template?: string;
-
-  @Prop({ enum: ['draft', 'active', 'inactive'], default: 'draft' })
-  status: 'draft' | 'active' | 'inactive';
 
   @Prop({ default: "I'm not sure about that. Let me connect you with a human." })
   fallbackMessage: string;
@@ -251,24 +298,17 @@ export class Chatbot {
   @Prop({ default: false })
   humanHandoff: boolean;
 
-  @Prop({ required: true, unique: true })
+  // Public key the website widget and Meta webhooks use (/chat/<embedKey>).
+  @Prop({ required: true })
   embedKey: string;
 
   @Prop({ type: ChatbotChannels, default: () => ({}) })
   channels: ChatbotChannels;
 
-  // Optional — most chatbots are single-location and this stays empty,
-  // which is a complete no-op for buildSystemPrompt() (see Outlet above).
-  // Only worth filling in for a business with more than one branch.
+  // Empty for a single-location business.
   @Prop({ type: [OutletSchema], default: [] })
   outlets: Outlet[];
 
-  @Prop({ type: ChatbotBilling, default: () => ({}) })
-  billing: ChatbotBilling;
-
-  // Which BYOK provider/model powers this bot's replies vs. its knowledge-
-  // base embeddings. Defaults preserve exact pre-existing behavior (OpenAI,
-  // auto model) for every chatbot created before this field existed.
   @Prop({ type: AiModelConfig, default: () => ({}) })
   chatModelConfig: AiModelConfig;
 
@@ -276,6 +316,15 @@ export class Chatbot {
   embeddingModelConfig: AiModelConfig;
 }
 
-export const ChatbotSchema = SchemaFactory.createForClass(Chatbot);
-ChatbotSchema.index({ userId: 1 });
-ChatbotSchema.index({ embedKey: 1 }, { unique: true });
+@Schema({ timestamps: true, collection: 'userservices' })
+export class ChatbotUserService extends UserServiceBase {
+  @Prop({ type: ChatbotConfig, default: () => ({}) })
+  config: ChatbotConfig;
+}
+
+export type ChatbotUserServiceDocument = ChatbotUserService & Document;
+export const ChatbotUserServiceSchema = SchemaFactory.createForClass(ChatbotUserService);
+ChatbotUserServiceSchema.index(
+  { 'config.embedKey': 1 },
+  { unique: true, partialFilterExpression: { 'config.embedKey': { $type: 'string' } } },
+);

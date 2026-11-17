@@ -34,7 +34,7 @@ export class Billing {
   subscriptionId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId })
-  chatbotId?: Types.ObjectId;
+  userserviceId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId })
   pipelineRunId?: Types.ObjectId;

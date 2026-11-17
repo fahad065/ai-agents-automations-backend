@@ -49,3 +49,13 @@ confirm the grouping migrations.
 Copy `restaurant-e2e.cjs` to `<service>-e2e.cjs`, change the knowledge base
 and questions, and add `docs/test-cases/<service>.md` with the same table
 layout as the restaurant one.
+
+## Checking the chatbots → userservices migration
+```bash
+docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").dropDatabase()'
+# boot the backend once (seeds services), stop it, then:
+docker exec -i lm-mongo mongosh --quiet < test/e2e/seed-old-chatbots.js
+# boot the backend again (runs the migration), then:
+docker exec -i lm-mongo mongosh --quiet < test/e2e/check-userservices-migration.js
+```
+

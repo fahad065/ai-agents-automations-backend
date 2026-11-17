@@ -1,5 +1,22 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ChatbotsService } from './chatbots.service';
+import { toUserServiceRow } from '../userservices/userservices.migration';
+
+// Tests describe bots in the familiar chatbot shape; this turns that into a
+// userservices row with the same converter the real migration uses, plus
+// the bits of a Mongoose document the service calls (set/save).
+function asUserServiceRow(legacy: any) {
+  const row: any = toUserServiceRow(legacy, new Map());
+  row.userId = legacy.userId;
+  row.set = (path: string, value: any) => {
+    const keys = path.split('.');
+    let node = row;
+    for (const k of keys.slice(0, -1)) node = node[k] ??= {};
+    node[keys[keys.length - 1]] = value;
+  };
+  row.save = jest.fn().mockResolvedValue(row);
+  return row;
+}
 
 // Exercises the real Basic-vs-Pro gating logic on a restaurant-template
 // chatbot end to end, using dummy WhatsApp/Instagram credentials (this
@@ -24,12 +41,11 @@ function makeChatbot(overrides: any = {}) {
     billing: { tier: 'basic', status: 'trial', trialEndsAt: new Date(Date.now() + 10 * 86400000) },
     ...overrides,
   };
-  bot.save = jest.fn().mockResolvedValue(bot);
-  return bot;
+  return asUserServiceRow(bot);
 }
 
 function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseModel?: any; hasOpenAiKey?: boolean } = {}) {
-  const chatbotModel: any = { findById: jest.fn().mockResolvedValue(chatbot) };
+  const chatbotModel: any = { findOne: jest.fn().mockReturnValue({ populate: jest.fn().mockResolvedValue(chatbot) }) };
   const knowledgeBaseModel: any = opts.knowledgeBaseModel || {};
   const conversationModel: any = {};
   const userModel: any = {
@@ -65,7 +81,7 @@ const KB_ID = '507f1f77bcf86cd799439022';
 function makeKnowledgeEntry(overrides: any = {}) {
   const entry: any = {
     _id: KB_ID,
-    chatbotId: BOT_ID,
+    userserviceId: BOT_ID,
     type: 'faq',
     question: 'What time do you open?',
     answer: 'We open at 9am.',
@@ -85,12 +101,12 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const service = makeService(chatbot);
 
       await expect(
-        service.update('bot1', 'owner1', {
+        service.update(BOT_ID, 'owner1', {
           channels: { whatsapp: { enabled: true, ...DUMMY_WHATSAPP } },
         }),
       ).rejects.toThrow(ForbiddenException);
       await expect(
-        service.update('bot1', 'owner1', {
+        service.update(BOT_ID, 'owner1', {
           channels: { whatsapp: { enabled: true, ...DUMMY_WHATSAPP } },
         }),
       ).rejects.toThrow(/Pro plan/);
@@ -101,7 +117,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const service = makeService(chatbot);
 
       await expect(
-        service.update('bot1', 'owner1', {
+        service.update(BOT_ID, 'owner1', {
           channels: { instagram: { enabled: true, ...DUMMY_INSTAGRAM } },
         }),
       ).rejects.toThrow(/Pro plan/);
@@ -111,7 +127,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const chatbot = makeChatbot({ billing: { tier: 'basic', status: 'trial' } });
       const service = makeService(chatbot);
 
-      const result = await service.update('bot1', 'owner1', {
+      const result = await service.update(BOT_ID, 'owner1', {
         persona: 'Warm, upbeat, knows the full menu',
         channels: { website: { enabled: true, customColor: '#ff6b35' } },
       });
@@ -133,7 +149,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const service = makeService(chatbot, /* userIsVerified */ false);
 
       await expect(
-        service.update('bot1', 'owner1', { status: 'active' }),
+        service.update(BOT_ID, 'owner1', { status: 'active' }),
       ).rejects.toThrow(/verify your email/i);
     });
 
@@ -141,8 +157,8 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const chatbot = makeChatbot({ status: 'draft', billing: { tier: 'basic', status: 'trial' } });
       const service = makeService(chatbot, /* userIsVerified */ true);
 
-      await expect(service.update('bot1', 'owner1', { status: 'active' })).resolves.toBeDefined();
-      expect(chatbot.status).toBe('active');
+      await expect(service.update(BOT_ID, 'owner1', { status: 'active' })).resolves.toBeDefined();
+      expect(chatbot.config.botStatus).toBe('active');
     });
   });
 
@@ -151,7 +167,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const chatbot = makeChatbot({ billing: { tier: 'pro', status: 'active' } });
       const service = makeService(chatbot);
 
-      const result = await service.update('bot1', 'owner1', {
+      const result = await service.update(BOT_ID, 'owner1', {
         channels: { whatsapp: { enabled: true, ...DUMMY_WHATSAPP } },
       });
 
@@ -164,7 +180,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const chatbot = makeChatbot({ billing: { tier: 'pro', status: 'active' } });
       const service = makeService(chatbot);
 
-      const result = await service.update('bot1', 'owner1', {
+      const result = await service.update(BOT_ID, 'owner1', {
         channels: { instagram: { enabled: true, ...DUMMY_INSTAGRAM } },
       });
 
@@ -197,7 +213,7 @@ describe('ChatbotsService — Basic vs Pro tier gating (restaurant bot)', () => 
       const chatbot = makeChatbot({ billing: { tier: 'custom', status: 'active' } });
       const service = makeService(chatbot);
 
-      const result = await service.update('bot1', 'owner1', {
+      const result = await service.update(BOT_ID, 'owner1', {
         channels: { whatsapp: { enabled: true, ...DUMMY_WHATSAPP } },
       });
       expect(result.channels.whatsapp.enabled).toBe(true);
@@ -271,6 +287,7 @@ describe('ChatbotsService.findAllAdmin() — template filter', () => {
     const conversationModel: any = { aggregate: jest.fn().mockResolvedValue([]) };
     const apiKeysService: any = { getUserIdsWithActiveKey: jest.fn().mockResolvedValue(new Set()) };
 
+    const servicesService: any = { findOne: jest.fn().mockResolvedValue({ _id: 'svc-restaurant' }) };
     const service = new ChatbotsService(
       chatbotModel,
       {} as any,
@@ -279,21 +296,21 @@ describe('ChatbotsService.findAllAdmin() — template filter', () => {
       apiKeysService,
       {} as any,
       {} as any,
-      {} as any,
+      servicesService,
       {} as any,
     );
     return { service, chatbotModel };
   }
 
-  it('passes {template} as the Mongo filter when a template is given', async () => {
+  it('filters by the template catalog service when a template is given', async () => {
     const { service, chatbotModel } = makeAdminListService([]);
     await service.findAllAdmin('restaurant');
-    expect(chatbotModel.find).toHaveBeenCalledWith({ template: 'restaurant' });
+    expect(chatbotModel.find).toHaveBeenCalledWith({ type: 'chatbot', isDeleted: false, serviceId: 'svc-restaurant' });
   });
 
   it('passes an empty filter (all templates) when none is given', async () => {
     const { service, chatbotModel } = makeAdminListService([]);
     await service.findAllAdmin();
-    expect(chatbotModel.find).toHaveBeenCalledWith({});
+    expect(chatbotModel.find).toHaveBeenCalledWith({ type: 'chatbot', isDeleted: false });
   });
 });

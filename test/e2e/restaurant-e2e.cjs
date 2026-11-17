@@ -88,10 +88,11 @@ async function openTab(page, label) {
     await page.getByRole('button', { name: /^Get started$/ }).first().click();
     await page.waitForURL(/\/dashboard\/chatbots\/[a-f0-9]{24}/, { timeout: 20000 });
     botId = page.url().match(/chatbots\/([a-f0-9]{24})/)[1];
-    const bot = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}))`));
-    embedKey = bot.embedKey; embedKeyRef = embedKey;
-    ok('chatbot created on Basic with Basic price', bot.billing.tier === 'basic' && bot.billing.monthlyFee === 79, `tier=${bot.billing.tier} fee=${bot.billing.monthlyFee}`);
-    ok('30-day trial started', Math.round((new Date(bot.billing.trialEndsAt) - Date.now()) / 864e5) === 30);
+    const bot = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}))`));
+    embedKey = bot.config.embedKey; embedKeyRef = embedKey;
+    ok('stored in userservices as a chatbot linked to its catalog service', bot.type === 'chatbot' && !!bot.serviceId && bot.status === 'trial' && mongo('db.getCollectionNames().includes("chatbots") ? db.chatbots.countDocuments() : 0') === '0');
+    ok('chatbot created on Basic with Basic price', bot.plan.tier === 'basic' && bot.plan.monthlyFee === 79, `tier=${bot.plan.tier} fee=${bot.plan.monthlyFee}`);
+    ok('30-day trial started', Math.round((new Date(bot.trialEndDate) - Date.now()) / 864e5) === 30);
     ok('setup-guide + trial emails sent', calls().filter((c) => c.kind === 'email' && JSON.stringify(c.to).includes(OWNER.email)).length >= 2);
   }, page);
 
@@ -137,7 +138,7 @@ async function openTab(page, label) {
       ['Do you have parking?', 'Free valet parking at the main entrance.'],
     ];
     for (const [q, a] of faqs) await api(token, 'POST', `/chatbots/${botId}/knowledge`, { type: 'faq', question: q, answer: a });
-    ok('15 knowledge entries stored', mongo(`db.knowledgebases.countDocuments({chatbotId:ObjectId("${botId}")})`) === '15');
+    ok('15 knowledge entries stored', mongo(`db.knowledgebases.countDocuments({userserviceId:ObjectId("${botId}")})`) === '15');
     ok('entries embedded with the OWNER\'s key', calls().filter((c) => c.kind === 'openai.embed').every((c) => c.auth === 'Bearer sk-owner-test-key-1234567890'));
     // Edit the biryani price through the UI.
     await page.reload({ waitUntil: 'networkidle' }); await page.getByRole('dialog').waitFor({ timeout: 2000 }).then(() => page.keyboard.press('Escape')).catch(() => {});
@@ -208,13 +209,13 @@ async function openTab(page, label) {
     const sys = calls().filter((c) => c.kind === 'openai.chat' && !c.json).pop()?.system || '';
     ok('every branch + booking link in the AI instructions', sys.includes('Marina Kitchen') && sys.includes('Delivery Hub') && sys.includes('book.example.com'));
     a = await ask('Can you fix my car engine?');
-    const fallbackMsg = mongo(`db.chatbots.findOne({_id:ObjectId("${botId}")}).fallbackMessage`);
+    const fallbackMsg = mongo(`db.userservices.findOne({_id:ObjectId("${botId}")}).config.fallbackMessage`);
     ok('unknown question → the bot\'s own fallback message, nothing made up', a.includes(fallbackMsg), a);
     ok('hand-off shown to the guest', (await guest.locator('.lm-cb-msg.handoff').count()) >= 1);
     a = await ask("I'd like a table. My name is Sara and my number is +971501234567");
     await sleep(1500);
     await guest.screenshot({ path: path.join(SHOTS, 'widget-conversation.png') });
-    const convo = JSON.parse(mongo(`JSON.stringify(db.conversations.findOne({chatbotId:ObjectId("${botId}"),channel:"website"}))`));
+    const convo = JSON.parse(mongo(`JSON.stringify(db.conversations.findOne({userserviceId:ObjectId("${botId}"),channel:"website"}))`));
     ok('lead captured on Basic (name + phone)', convo.visitorPhone === '+971501234567' && convo.visitorName === 'Sara', `${convo.visitorName} ${convo.visitorPhone}`);
     ok('conversation marked hand-off', convo.status === 'handoff');
     const em = calls().filter((c) => c.kind === 'email' && JSON.stringify(c.to).includes(OWNER.email));
@@ -242,7 +243,7 @@ async function openTab(page, label) {
     await sleep(800);
     const after = calls().slice(before);
     ok('Basic bot ignores WhatsApp (no AI call, no reply)', !after.some((c) => c.kind.startsWith('openai.chat') || c.kind === 'meta'));
-    ok('no WhatsApp conversation created', mongo(`db.conversations.countDocuments({chatbotId:ObjectId("${botId}"),channel:"whatsapp"})`) === '0');
+    ok('no WhatsApp conversation created', mongo(`db.conversations.countDocuments({userserviceId:ObjectId("${botId}"),channel:"whatsapp"})`) === '0');
   });
 
   // ───────────────────────── UPGRADE ─────────────────────────
@@ -254,7 +255,7 @@ async function openTab(page, label) {
     await page.getByPlaceholder('e.g. TXN123456789').last().fill('TXN-UPGRADE-001');
     await page.getByRole('button', { name: /(Send|Submit|paid|Request)/i }).last().click();
     await page.waitForTimeout(1500);
-    ok('pending upgrade payment recorded', mongo(`db.billings.countDocuments({chatbotId:ObjectId("${botId}"),status:"pending"})`) >= '1');
+    ok('pending upgrade payment recorded', mongo(`db.billings.countDocuments({userserviceId:ObjectId("${botId}"),status:"pending"})`) >= '1');
     ok('admin alerted about the upgrade', calls().some((c) => c.kind === 'email' && JSON.stringify(c.to).includes('hello@logicmate.io') && /upgrade|payment/i.test(c.subject)));
   }, page);
 
@@ -273,7 +274,7 @@ async function openTab(page, label) {
     await ap.keyboard.press('Escape').catch(() => {});
     await ap.getByRole('button', { name: /Confirm Pro Upgrade/ }).click();
     await ap.waitForTimeout(1500);
-    const bot = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}).billing)`));
+    const bot = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).plan)`));
     ok('bot is now Pro at the Pro price', bot.tier === 'pro' && bot.monthlyFee === 120, `tier=${bot.tier} fee=${bot.monthlyFee}`);
 
     // Admin services form: chatbot shows no Pipeline tab, Niche on Basic tab.
@@ -318,7 +319,7 @@ async function openTab(page, label) {
     for (const i of [1, 2]) if ((await switches.nth(i).getAttribute('aria-checked')) !== 'true') await switches.nth(i).click();
     await page.getByRole('button', { name: /Save Channels/ }).click();
     await page.waitForTimeout(1500);
-    const ch = JSON.parse(mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}).channels)`));
+    const ch = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).config.channels)`));
     ok('WhatsApp + Instagram saved on Pro through the UI', ch.whatsapp.enabled && ch.whatsapp.phoneNumberId === 'PN-TEST-1' && ch.whatsapp.appSecret === 'wa-app-secret' && ch.instagram.enabled && ch.instagram.appSecret === 'ig-app-secret');
     ok('website widget settings kept when saving channels', ch.website.enabled === true && ch.website.customColor === '#e11d48');
     ok('a random verify token generated per channel', /^[a-f0-9]{32}$/.test(ch.whatsapp.verifyToken) && /^[a-f0-9]{32}$/.test(ch.instagram.verifyToken) && ch.whatsapp.verifyToken !== ch.instagram.verifyToken);
@@ -342,7 +343,7 @@ async function openTab(page, label) {
     ok('the Instagram token cannot verify WhatsApp', st === 403, `${st}`);
     [st] = await hs('instagram', vt.instagram.verifyToken);
     ok('Instagram handshake succeeds with its own token', st === 200);
-    ok('channels marked verified', mongo(`JSON.stringify(db.chatbots.findOne({_id:ObjectId("${botId}")}).channels.whatsapp.webhookVerified)`) === 'true');
+    ok('channels marked verified', mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).config.channels.whatsapp.webhookVerified)`) === 'true');
 
     const before = calls().length;
     const forged = JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ type: 'text', from: '971500000666', text: { body: 'fake order' } }] } }] }] });
@@ -361,7 +362,7 @@ async function openTab(page, label) {
     const waSend = meta.find((c) => c.url.includes('graph.facebook.com') && c.url.includes('PN-TEST-1/messages'));
     ok('WhatsApp reply sent back to the guest via Meta', !!waSend && waSend.body.to === '971500000001' && /halal/i.test(waSend.body.text.body), JSON.stringify(waSend?.body || {}));
     ok('WhatsApp reply uses the bot\'s own WhatsApp token', waSend?.auth === 'Bearer wa-token-test');
-    const wc = JSON.parse(mongo(`JSON.stringify(db.conversations.findOne({chatbotId:ObjectId("${botId}"),channel:"whatsapp"}))`));
+    const wc = JSON.parse(mongo(`JSON.stringify(db.conversations.findOne({userserviceId:ObjectId("${botId}"),channel:"whatsapp"}))`));
     ok('WhatsApp guest number captured as a lead automatically', wc.visitorPhone === '971500000001');
 
     const before2 = calls().length;
@@ -386,7 +387,7 @@ async function openTab(page, label) {
 
   section = 'Trial end';
   await step('lapsed trial stops answering', async () => {
-    mongo(`db.chatbots.updateOne({_id:ObjectId("${botId}")},{$set:{"billing.status":"trial","billing.trialEndsAt":new Date(Date.now()-864e5)}})`);
+    mongo(`db.userservices.updateOne({_id:ObjectId("${botId}")},{$set:{status:"trial",trialEndDate:new Date(Date.now()-864e5)}})`);
     const r = await api(null, 'POST', `/chat/${embedKey}`, { sessionId: 's-after-trial', message: 'Is the food halal?', channel: 'website' });
     ok('no AI answer after the trial ends unpaid', !/certified halal/i.test(JSON.stringify(r.data)), JSON.stringify(r.data).slice(0, 120));
   });

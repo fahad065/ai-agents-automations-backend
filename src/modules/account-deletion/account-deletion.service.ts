@@ -4,7 +4,7 @@ import { Model, Types } from 'mongoose';
 import * as ExcelJS from 'exceljs';
 import { User, UserDocument, UserStatus } from '../users/schemas/user.schema';
 import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
-import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
+import { CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument } from '../userservices/schemas/userservice.schema';
 import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowledge-base.schema';
 import { Conversation, ConversationDocument } from '../chatbots/schemas/conversation.schema';
 import { ApiKey, ApiKeyDocument } from '../api-keys/schemas/api-key.schema';
@@ -29,7 +29,7 @@ export class AccountDeletionService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>,
-    @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
+    @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     @InjectModel(ApiKey.name) private apiKeyModel: Model<ApiKeyDocument>,
@@ -116,7 +116,7 @@ export class AccountDeletionService {
     if (!user) throw new NotFoundException('Account not found');
 
     const [chatbots, apiKeys, userModules, billing, activityLogs] = await Promise.all([
-      this.chatbotModel.find({ userId: uid }).lean(),
+      this.chatbotModel.find({ ...CHATBOT_FILTER, userId: uid }).populate('serviceId', 'slug').lean(),
       this.apiKeyModel.find({ userId: uid }, { encryptedKey: 0 }).lean(),
       this.userModuleModel.find({ userId: uid }).lean(),
       this.billingModel.find({ userId: uid }).sort({ billingDate: -1 }).lean(),
@@ -125,8 +125,8 @@ export class AccountDeletionService {
 
     const chatbotIds = chatbots.map((c: any) => c._id);
     const [knowledgeBase, conversations] = await Promise.all([
-      this.knowledgeBaseModel.find({ chatbotId: { $in: chatbotIds } }, { embedding: 0 }).lean(),
-      this.conversationModel.find({ chatbotId: { $in: chatbotIds } }).lean(),
+      this.knowledgeBaseModel.find({ userserviceId: { $in: chatbotIds } }, { embedding: 0 }).lean(),
+      this.conversationModel.find({ userserviceId: { $in: chatbotIds } }).lean(),
     ]);
     const chatbotNameById = new Map(chatbots.map((c: any) => [c._id.toString(), c.name]));
 
@@ -154,18 +154,18 @@ export class AccountDeletionService {
 
     const bots = wb.addWorksheet('Chatbots');
     bots.addRow(['Name', 'Template', 'Status', 'Billing Tier', 'Billing Status', 'Created']);
-    chatbots.forEach((c: any) => bots.addRow([c.name, c.template, c.status, c.billing?.tier, c.billing?.status, c.createdAt]));
+    chatbots.forEach((c: any) => bots.addRow([c.name, c.serviceId?.slug || '', c.config?.botStatus, c.plan?.tier, c.status, c.createdAt]));
 
     const kb = wb.addWorksheet('Knowledge Base');
     kb.addRow(['Chatbot', 'Type', 'Question', 'Answer', 'Content', 'Created']);
     knowledgeBase.forEach((e: any) => kb.addRow([
-      chatbotNameById.get(e.chatbotId.toString()) || '', e.type, e.question || '', e.answer || '', e.content || '', e.createdAt,
+      chatbotNameById.get(String(e.userserviceId)) || '', e.type, e.question || '', e.answer || '', e.content || '', e.createdAt,
     ]));
 
     const convos = wb.addWorksheet('Conversations');
     convos.addRow(['Chatbot', 'Channel', 'Status', 'Message Count', 'Started']);
     conversations.forEach((c: any) => convos.addRow([
-      chatbotNameById.get(c.chatbotId.toString()) || '', c.channel, c.status, (c.messages || []).length, c.createdAt,
+      chatbotNameById.get(String(c.userserviceId)) || '', c.channel, c.status, (c.messages || []).length, c.createdAt,
     ]));
 
     const bill = wb.addWorksheet('Billing');
@@ -269,13 +269,13 @@ export class AccountDeletionService {
     const originalEmail = user.email;
     const originalName = user.name;
 
-    const chatbots = await this.chatbotModel.find({ userId: uid }).select('_id').lean();
+    const chatbots = await this.chatbotModel.find({ ...CHATBOT_FILTER, userId: uid }).select('_id').lean();
     const chatbotIds = chatbots.map((c: any) => c._id);
 
     await Promise.all([
-      this.chatbotModel.deleteMany({ userId: uid }),
-      this.knowledgeBaseModel.deleteMany({ chatbotId: { $in: chatbotIds } }),
-      this.conversationModel.deleteMany({ chatbotId: { $in: chatbotIds } }),
+      this.chatbotModel.deleteMany({ ...CHATBOT_FILTER, userId: uid }),
+      this.knowledgeBaseModel.deleteMany({ userserviceId: { $in: chatbotIds } }),
+      this.conversationModel.deleteMany({ userserviceId: { $in: chatbotIds } }),
       this.apiKeyModel.deleteMany({ userId: uid }),
       this.userModuleModel.deleteMany({ userId: uid }),
       this.notificationModel.deleteMany({ userId: uid }),

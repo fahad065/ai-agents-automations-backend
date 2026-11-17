@@ -2,14 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Chatbot, ChatbotDocument } from './schemas/chatbot.schema';
+import {
+  CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument, UserServiceStatus,
+} from '../userservices/schemas/userservice.schema';
 import { EmailService } from '../email/email.service';
 
 // Runs the same job the agents/automations side already has (see
 // usermodules/trial-expiry.cron.ts) but for chatbots: warn 5 days before a
-// trial ends (day 25 of a 30-day trial), then flip billing.status once it
+// trial ends (day 25 of a 30-day trial), then move the userservices status once it
 // actually does. The chat engine (chat.service.ts) also re-checks
-// trialEndsAt in real time via isChatbotBillingActive(), so a lapsed trial
+// trialEndDate in real time via isChatbotBillingActive(), so a lapsed trial
 // can never answer for free just because this cron hasn't run yet today —
 // this job's job is emails + moving the status forward, not the actual
 // gate. Uses sendChatbotTrialExpiringEmail()/sendChatbotTrialExpiredEmail()
@@ -23,7 +25,7 @@ export class ChatbotBillingCron {
   private readonly logger = new Logger(ChatbotBillingCron.name);
 
   constructor(
-    @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
+    @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
     @InjectModel('User') private userModel: Model<any>,
     private emailService: EmailService,
   ) {}
@@ -43,15 +45,17 @@ export class ChatbotBillingCron {
     try {
       const fiveDaysOut = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
       const candidates = await this.chatbotModel.find({
-        'billing.status': 'trial',
-        'billing.trialEndsAt': { $lte: fiveDaysOut, $gt: new Date() },
-        'billing.trialReminderSent': { $ne: true },
+        ...CHATBOT_FILTER,
+        isDeleted: false,
+        status: UserServiceStatus.TRIAL,
+        trialEndDate: { $lte: fiveDaysOut, $gt: new Date() },
+        trialReminderSentAt: { $exists: false },
       }).select('_id').lean();
 
       for (const { _id } of candidates) {
         const chatbot = await this.chatbotModel.findOneAndUpdate(
-          { _id, 'billing.trialReminderSent': { $ne: true } },
-          { $set: { 'billing.trialReminderSent': true } },
+          { _id, ...CHATBOT_FILTER, trialReminderSentAt: { $exists: false } },
+          { $set: { trialReminderSentAt: new Date() } },
           { new: true },
         );
         if (!chatbot) continue; // another replica already claimed it
@@ -59,7 +63,7 @@ export class ChatbotBillingCron {
         const user: any = await this.userModel.findById(chatbot.userId).lean();
         if (!user?.email) continue;
         const daysLeft = Math.ceil(
-          (new Date(chatbot.billing.trialEndsAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          (new Date(chatbot.trialEndDate!).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         );
         await this.emailService.sendChatbotTrialExpiringEmail(
           { name: user.name, email: user.email },
@@ -67,10 +71,10 @@ export class ChatbotBillingCron {
             chatbotId: String(chatbot._id),
             chatbotName: chatbot.name,
             daysLeft,
-            trialEndDate: chatbot.billing.trialEndsAt!,
-            monthlyFee: chatbot.billing.monthlyFee,
-            setupFee: chatbot.billing.setupFee,
-            currency: chatbot.billing.currency,
+            trialEndDate: chatbot.trialEndDate!,
+            monthlyFee: chatbot.plan.monthlyFee,
+            setupFee: chatbot.plan.setupFee,
+            currency: chatbot.plan.currency,
           },
         );
         this.logger.log(`[ChatbotBillingCron] Expiry warning sent for chatbot=${chatbot._id}`);
@@ -84,19 +88,22 @@ export class ChatbotBillingCron {
     // claim on the same chatbot fails fast instead of double-sending.
     try {
       const candidates = await this.chatbotModel.find({
-        'billing.status': 'trial',
-        'billing.trialEndsAt': { $lte: new Date() },
-      }).select('_id billing.setupFee billing.monthlyFee').lean();
+        ...CHATBOT_FILTER,
+        isDeleted: false,
+        isFreeForever: { $ne: true },
+        status: UserServiceStatus.TRIAL,
+        trialEndDate: { $lte: new Date() },
+      }).select('_id plan').lean();
 
       for (const c of candidates) {
         const newStatus =
-          (c.billing?.setupFee ?? 0) > 0 || (c.billing?.monthlyFee ?? 0) > 0
-            ? 'awaiting_setup_payment'
-            : 'suspended';
+          (c.plan?.setupFee ?? 0) > 0 || (c.plan?.monthlyFee ?? 0) > 0
+            ? UserServiceStatus.PAST_DUE
+            : UserServiceStatus.SUSPENDED;
 
         const chatbot = await this.chatbotModel.findOneAndUpdate(
-          { _id: c._id, 'billing.status': 'trial' },
-          { $set: { 'billing.status': newStatus } },
+          { _id: c._id, ...CHATBOT_FILTER, status: UserServiceStatus.TRIAL },
+          { $set: { status: newStatus } },
           { new: true },
         );
         if (!chatbot) continue; // another replica already claimed it
@@ -108,13 +115,13 @@ export class ChatbotBillingCron {
             {
               chatbotId: String(chatbot._id),
               chatbotName: chatbot.name,
-              monthlyFee: chatbot.billing.monthlyFee,
-              setupFee: chatbot.billing.setupFee,
-              currency: chatbot.billing.currency,
+              monthlyFee: chatbot.plan.monthlyFee,
+              setupFee: chatbot.plan.setupFee,
+              currency: chatbot.plan.currency,
             },
           );
         }
-        this.logger.log(`[ChatbotBillingCron] Trial expired for chatbot=${chatbot._id} -> ${chatbot.billing.status}`);
+        this.logger.log(`[ChatbotBillingCron] Trial expired for chatbot=${chatbot._id} -> ${chatbot.status}`);
       }
     } catch (err) {
       this.logger.error(`[ChatbotBillingCron] expiry pass failed: ${err?.message}`);

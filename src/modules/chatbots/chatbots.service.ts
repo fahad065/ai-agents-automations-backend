@@ -1,9 +1,12 @@
 import { knowledgeEmbedText, validateKnowledge } from '../chat/knowledge-format';
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as crypto from 'crypto';
-import { Chatbot, ChatbotDocument } from './schemas/chatbot.schema';
+import {
+  CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument, UserServiceStatus, UserServiceType,
+} from '../userservices/schemas/userservice.schema';
+import { CHATBOT_FIELD_PATHS, ChatbotView, TEMPLATE_TO_SERVICE_SLUG, toChatbotView } from '../userservices/chatbot-view';
 import { KnowledgeBase, KnowledgeBaseDocument } from './schemas/knowledge-base.schema';
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
@@ -25,7 +28,6 @@ const CUSTOMER_EDITABLE_FIELDS = [
   'persona',
   'bookingUrl',
   'language',
-  'template',
   'status',
   'fallbackMessage',
   'fallbackMessage_ar',
@@ -54,28 +56,12 @@ function pickCustomerEditable(dto: any): any {
   return out;
 }
 
-// Chatbot.template -> the services slug that carries this template's
-// pricingTiers, so a Basic->Pro upgrade request can look up the real Pro
-// price instead of the admin having to type it in by hand every time. Same
-// 9 slugs as SEED_MODULES's chatbot section (see backend CLAUDE.md).
-const TEMPLATE_TO_MODULE_SLUG: Record<string, string> = {
-  restaurant: 'restaurant-chatbot',
-  real_estate: 'real-estate-chatbot',
-  clinic: 'clinic-chatbot',
-  ecommerce: 'ecommerce-chatbot',
-  gym: 'gym-chatbot',
-  education: 'education-chatbot',
-  salon: 'salon-chatbot',
-  hotel: 'hotel-chatbot',
-  auto_dealership: 'auto-dealership-chatbot',
-};
-
 @Injectable()
-export class ChatbotsService implements OnModuleInit {
+export class ChatbotsService {
   private readonly logger = new Logger(ChatbotsService.name);
 
   constructor(
-    @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
+    @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
     @InjectModel(KnowledgeBase.name) private knowledgeBaseModel: Model<KnowledgeBaseDocument>,
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     @InjectModel('User') private userModel: Model<any>,
@@ -85,32 +71,6 @@ export class ChatbotsService implements OnModuleInit {
     private servicesService: ServicesService,
     private activityLogsService: ActivityLogsService,
   ) {}
-
-  // Self-healing backfill (same pattern as ServicesService's) for the
-  // billing.tier field added alongside tiered chatbot pricing (see backend
-  // CLAUDE.md). Every existing chatbot doc reads tier: 'basic' by default
-  // (the schema default), which is correct for the vast majority — but a
-  // bot that already has WhatsApp or Instagram credentials configured is
-  // clearly already using a Pro-tier feature, and gating it to Basic on
-  // this deploy would silently break a channel that was working a moment
-  // ago. Only touches docs still at the 'basic' default, so an admin who's
-  // already set a tier explicitly (including deliberately downgrading one)
-  // is never overwritten.
-  async onModuleInit() {
-    const result = await this.chatbotModel.updateMany(
-      {
-        'billing.tier': 'basic',
-        $or: [
-          { 'channels.whatsapp.enabled': true, 'channels.whatsapp.phoneNumberId': { $exists: true, $ne: '' } },
-          { 'channels.instagram.enabled': true, 'channels.instagram.accountId': { $exists: true, $ne: '' } },
-        ],
-      },
-      { $set: { 'billing.tier': 'pro' } },
-    );
-    if (result.modifiedCount) {
-      this.logger.log(`Backfilled billing.tier to 'pro' on ${result.modifiedCount} chatbot(s) with an already-configured WhatsApp/Instagram channel`);
-    }
-  }
 
   // Every new chatbot starts a 30-day free trial automatically — no admin
   // step required. If `dto.moduleSlug` is set (the marketing detail page's
@@ -123,35 +83,50 @@ export class ChatbotsService implements OnModuleInit {
   // else defaults to 'basic', the safest/cheapest tier. Omitting moduleSlug
   // entirely keeps the hand-negotiated-deal flow (dashboard's own
   // "+ New Chatbot" modal): admin sets pricing/tier later via PUT /:id/pricing.
-  async create(userId: string, dto: any, actor?: { id: string; role: 'user' | 'admin' }): Promise<ChatbotDocument> {
-    const embedKey = crypto.randomBytes(16).toString('hex');
-    const { moduleSlug, tier: requestedTier, ...rest } = dto;
+  async create(userId: string, dto: any, actor?: { id: string; role: 'user' | 'admin' }): Promise<ChatbotView> {
+    const { moduleSlug, tier: requestedTier, template, ...rest } = dto;
     assertEmbeddingProviderValid(rest.embeddingModelConfig?.provider);
 
-    const billing: any = {};
-    const tier = requestedTier === 'pro' ? 'pro' : 'basic';
+    // Every chatbot is a subscription to a real catalog service (no blank
+    // "custom" bots): the marketing page / Browse Services send moduleSlug,
+    // the admin's "build for a client" form sends template.
+    const slug = moduleSlug || (template ? TEMPLATE_TO_SERVICE_SLUG[template] : undefined);
+    if (!slug) throw new BadRequestException('Choose which chatbot service to start.');
+    let service: any;
+    try {
+      service = await this.servicesService.findOne(slug);
+    } catch {
+      throw new BadRequestException('That chatbot service does not exist.');
+    }
+    if (service.type !== 'chatbot') throw new BadRequestException('That service is not a chatbot.');
 
-    if (moduleSlug) {
-      try {
-        const module = await this.servicesService.findOne(moduleSlug);
-        const tierPricing = module.pricing?.tiers?.find((t: any) => t.key === tier);
-        billing.setupFee = 0;
-        billing.monthlyFee = tierPricing?.monthly ?? module.pricing?.monthly ?? 0;
-        billing.currency = 'USD';
-        billing.tier = tierPricing ? tier : 'basic';
-      } catch (err) {
-        this.logger.warn(`create() couldn't load module "${moduleSlug}" for pricing: ${err?.message}`);
-      }
+    const wanted = requestedTier === 'pro' ? 'pro' : 'basic';
+    const tierPricing = service.pricing?.tiers?.find((t: any) => t.key === wanted);
+    const trialEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const settings: Record<string, any> = {};
+    for (const key of Object.keys(pickCustomerEditable(rest))) {
+      if (key === 'name' || key === 'status') continue;
+      settings[CHATBOT_FIELD_PATHS[key].replace('config.', '')] = rest[key];
     }
 
-    billing.trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    const chatbot = await this.chatbotModel.create({
-      ...rest,
+    const created = await this.chatbotModel.create({
       userId: new Types.ObjectId(userId),
-      embedKey,
-      billing,
+      type: UserServiceType.CHATBOT,
+      serviceId: service._id,
+      name: (rest.name || '').trim() || service.name,
+      status: UserServiceStatus.TRIAL,
+      trialEndDate,
+      plan: {
+        tier: tierPricing ? wanted : 'basic',
+        monthlyFee: tierPricing?.monthly ?? service.pricing?.monthly ?? 0,
+        setupFee: 0,
+        currency: 'USD',
+      },
+      config: { ...settings, embedKey: crypto.randomBytes(16).toString('hex') },
     });
+    const chatbot = toChatbotView({ ...created.toObject(), serviceId: { _id: service._id, slug } });
+    const billing = { trialEndsAt: trialEndDate };
 
     try {
       const user = await this.userModel.findById(userId).lean();
@@ -183,18 +158,35 @@ export class ChatbotsService implements OnModuleInit {
     return chatbot;
   }
 
-  async findAllByUser(userId: string, template?: string): Promise<ChatbotDocument[]> {
-    const filter: any = { userId: new Types.ObjectId(userId) };
-    if (template) filter.template = template;
-    return this.chatbotModel.find(filter).sort({ createdAt: -1 });
+  // Template key → service id, for the dashboard's ?template= filters.
+  private async serviceIdForTemplate(template?: string): Promise<Types.ObjectId | null> {
+    const slug = template ? TEMPLATE_TO_SERVICE_SLUG[template] : undefined;
+    if (!slug) return null;
+    try {
+      return (await this.servicesService.findOne(slug))._id as Types.ObjectId;
+    } catch {
+      return null;
+    }
+  }
+
+  async findAllByUser(userId: string, template?: string): Promise<ChatbotView[]> {
+    const filter: any = { ...CHATBOT_FILTER, userId: new Types.ObjectId(userId), isDeleted: false };
+    if (template) filter.serviceId = await this.serviceIdForTemplate(template);
+    const rows = await this.chatbotModel.find(filter).populate('serviceId', 'slug').sort({ createdAt: -1 }).lean();
+    return rows.map((r) => toChatbotView(r));
+  }
+
+  async findOneView(id: string, userId: string, isAdmin = false): Promise<ChatbotView> {
+    return toChatbotView(await this.findOne(id, userId, isAdmin), isAdmin);
   }
 
   // isAdmin bypasses the ownership check — lets an admin view/manage a
   // client's chatbot through the same routes the client themselves uses
   // (onboarding a client after a deal closes, or helping with support),
   // without duplicating every method for an admin-only variant.
-  async findOne(id: string, userId: string, isAdmin = false): Promise<ChatbotDocument> {
-    const chatbot = await this.chatbotModel.findById(id);
+  async findOne(id: string, userId: string, isAdmin = false): Promise<ChatbotUserServiceDocument> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Chatbot not found');
+    const chatbot = await this.chatbotModel.findOne({ _id: id, ...CHATBOT_FILTER, isDeleted: false }).populate('serviceId', 'slug');
     if (!chatbot) throw new NotFoundException('Chatbot not found');
     if (!isAdmin && chatbot.userId.toString() !== userId) throw new ForbiddenException('Access denied');
     return chatbot;
@@ -202,8 +194,9 @@ export class ChatbotsService implements OnModuleInit {
 
   // Admin-only lookup — no ownership check. Only ever call this from a route
   // that has already verified req.user.role === 'admin'.
-  async findOneAdmin(id: string): Promise<ChatbotDocument> {
-    const chatbot = await this.chatbotModel.findById(id);
+  async findOneAdmin(id: string): Promise<ChatbotUserServiceDocument> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Chatbot not found');
+    const chatbot = await this.chatbotModel.findOne({ _id: id, ...CHATBOT_FILTER, isDeleted: false }).populate('serviceId', 'slug');
     if (!chatbot) throw new NotFoundException('Chatbot not found');
     return chatbot;
   }
@@ -221,12 +214,15 @@ export class ChatbotsService implements OnModuleInit {
   // Batched into 2 queries total (bots + one api-key existence check),
   // not one per bot, so this stays cheap as the list grows.
   async findAllAdmin(template?: string): Promise<any[]> {
-    const filter = template ? { template } : {};
-    const bots = await this.chatbotModel
+    const filter: any = { ...CHATBOT_FILTER, isDeleted: false };
+    if (template) filter.serviceId = await this.serviceIdForTemplate(template);
+    const rows = await this.chatbotModel
       .find(filter)
       .populate('userId', 'name email')
+      .populate('serviceId', 'slug')
       .sort({ createdAt: -1 })
       .lean();
+    const bots: any[] = rows.map((r) => toChatbotView(r, true));
 
     const ownerIds = [...new Set(
       bots.map((b) => (b.userId as any)?._id?.toString()).filter(Boolean),
@@ -261,7 +257,7 @@ export class ChatbotsService implements OnModuleInit {
       this.conversationModel.aggregate([
         {
           $group: {
-            _id: '$chatbotId',
+            _id: '$userserviceId',
             totalConversations: { $sum: 1 },
             totalMessages: { $sum: { $size: { $ifNull: ['$messages', []] } } },
           },
@@ -271,7 +267,7 @@ export class ChatbotsService implements OnModuleInit {
         { $match: { createdAt: { $gte: thirtyDaysAgo } } },
         {
           $group: {
-            _id: '$chatbotId',
+            _id: '$userserviceId',
             conversations30d: { $sum: 1 },
             messages30d: { $sum: { $size: { $ifNull: ['$messages', []] } } },
           },
@@ -314,7 +310,7 @@ export class ChatbotsService implements OnModuleInit {
   // One plan, everything included — same story as agents/automations. No
   // per-tier channel gating: once subscribed, a chatbot owner can enable
   // website/WhatsApp/Instagram freely.
-  async update(id: string, userId: string, dto: any, isAdmin = false): Promise<ChatbotDocument> {
+  async update(id: string, userId: string, dto: any, isAdmin = false): Promise<ChatbotView> {
     const chatbot = await this.findOne(id, userId, isAdmin);
     const changes = pickCustomerEditable(dto);
     assertEmbeddingProviderValid(changes.embeddingModelConfig?.provider);
@@ -325,7 +321,7 @@ export class ChatbotsService implements OnModuleInit {
     // verification link itself already expires in 24h (see
     // AuthService.register()) with a one-click resend, so there's already
     // a natural forcing function without adding a second one here.
-    if (changes.status === 'active' && chatbot.status !== 'active') {
+    if (changes.status === 'active' && chatbot.config.botStatus !== 'active') {
       const owner = await this.userModel.findById(chatbot.userId).select('auth.isEmailVerified').lean();
       if (!owner || !(owner as any).auth?.isEmailVerified) {
         throw new BadRequestException(
@@ -341,7 +337,7 @@ export class ChatbotsService implements OnModuleInit {
     // replaces these toggles with a locked upgrade prompt on Basic, so this
     // is defense-in-depth against a direct API call bypassing that, not
     // the primary UX — hence a clear error rather than a silent strip.
-    if (chatbot.billing.tier === 'basic') {
+    if (chatbot.plan?.tier === 'basic') {
       if (changes.channels?.whatsapp?.enabled === true) {
         throw new ForbiddenException('WhatsApp integration requires the Pro plan. Upgrade to enable it.');
       }
@@ -350,11 +346,11 @@ export class ChatbotsService implements OnModuleInit {
       }
     }
 
-    Object.assign(chatbot, changes);
+    for (const [key, value] of Object.entries(changes)) chatbot.set(CHATBOT_FIELD_PATHS[key], value);
     // Every bot gets its own random webhook verify token per Meta channel,
     // so the handshake can't be completed by anyone who just guesses a URL.
     for (const ch of ['whatsapp', 'instagram'] as const) {
-      const cfg: any = chatbot.channels?.[ch];
+      const cfg: any = chatbot.config.channels?.[ch];
       if (cfg && !cfg.verifyToken) cfg.verifyToken = crypto.randomBytes(16).toString('hex');
     }
     const saved = await chatbot.save();
@@ -372,23 +368,24 @@ export class ChatbotsService implements OnModuleInit {
       description: `Chatbot "${chatbot.name}" updated (${Object.keys(changes).join(', ')})`,
     });
 
-    return saved;
+    return toChatbotView(saved, isAdmin);
   }
 
   async delete(id: string, userId: string, isAdmin = false): Promise<{ message: string }> {
     const chatbot = await this.findOne(id, userId, isAdmin);
     const chatbotId = chatbot._id as Types.ObjectId;
+    const template = toChatbotView(chatbot).template;
     await Promise.all([
-      this.chatbotModel.findByIdAndDelete(chatbotId),
-      this.knowledgeBaseModel.deleteMany({ chatbotId }),
-      this.conversationModel.deleteMany({ chatbotId }),
+      this.chatbotModel.deleteOne({ _id: chatbotId, ...CHATBOT_FILTER }),
+      this.knowledgeBaseModel.deleteMany({ userserviceId: chatbotId }),
+      this.conversationModel.deleteMany({ userserviceId: chatbotId }),
     ]);
 
     await this.activityLogsService.record({
       userId: chatbot.userId.toString(), actorId: userId,
       actorRole: isAdmin ? ActorRole.ADMIN : ActorRole.USER,
       action: ActivityAction.DELETE, entityType: 'chatbot', entityId: chatbotId.toString(),
-      changes: { before: { name: chatbot.name, template: chatbot.template } },
+      changes: { before: { name: chatbot.name, template } },
       description: `Chatbot "${chatbot.name}" deleted`,
     });
 
@@ -400,9 +397,9 @@ export class ChatbotsService implements OnModuleInit {
   // admin embedding knowledge on a client's behalf still bills the client.
   // No platform-wide fallback; null means "no key on file", handled by the
   // caller (store the entry without an embedding, keyword-fallback only).
-  private async resolveEmbedding(chatbot: ChatbotDocument, text: string): Promise<number[] | null> {
-    const provider = chatbot.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
-    const model = chatbot.embeddingModelConfig?.model;
+  private async resolveEmbedding(chatbot: ChatbotUserServiceDocument, text: string): Promise<number[] | null> {
+    const provider = chatbot.config.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
+    const model = chatbot.config.embeddingModelConfig?.model;
     let apiKey: string;
     try {
       apiKey = await this.apiKeysService.getDecryptedKey(chatbot.userId.toString(), provider);
@@ -441,7 +438,7 @@ export class ChatbotsService implements OnModuleInit {
 
     const entry = await this.knowledgeBaseModel.create({
       ...fields,
-      chatbotId: new Types.ObjectId(chatbotId),
+      userserviceId: new Types.ObjectId(chatbotId),
       embedding,
     });
 
@@ -474,7 +471,7 @@ export class ChatbotsService implements OnModuleInit {
 
     const entry = await this.knowledgeBaseModel.findOne({
       _id: new Types.ObjectId(knowledgeId),
-      chatbotId: new Types.ObjectId(chatbotId),
+      userserviceId: new Types.ObjectId(chatbotId),
     });
     if (!entry) throw new NotFoundException('Knowledge entry not found');
 
@@ -510,7 +507,7 @@ export class ChatbotsService implements OnModuleInit {
   async listKnowledge(chatbotId: string, userId: string, isAdmin = false): Promise<KnowledgeBaseDocument[]> {
     await this.findOne(chatbotId, userId, isAdmin);
     return this.knowledgeBaseModel
-      .find({ chatbotId: new Types.ObjectId(chatbotId) })
+      .find({ userserviceId: new Types.ObjectId(chatbotId) })
       .select('-embedding')
       .sort({ createdAt: -1 });
   }
@@ -519,7 +516,7 @@ export class ChatbotsService implements OnModuleInit {
     const chatbot = await this.findOne(chatbotId, userId, isAdmin);
     const result = await this.knowledgeBaseModel.findOneAndDelete({
       _id: new Types.ObjectId(knowledgeId),
-      chatbotId: new Types.ObjectId(chatbotId),
+      userserviceId: new Types.ObjectId(chatbotId),
     });
     if (!result) throw new NotFoundException('Knowledge entry not found');
 
@@ -537,7 +534,7 @@ export class ChatbotsService implements OnModuleInit {
   async getConversations(chatbotId: string, userId: string, limit = 20, isAdmin = false): Promise<ConversationDocument[]> {
     await this.findOne(chatbotId, userId, isAdmin);
     return this.conversationModel
-      .find({ chatbotId: new Types.ObjectId(chatbotId) })
+      .find({ userserviceId: new Types.ObjectId(chatbotId) })
       .sort({ createdAt: -1 })
       .limit(Number(limit));
   }
@@ -547,12 +544,12 @@ export class ChatbotsService implements OnModuleInit {
 
     // Analytics is a Pro+ feature — the config page hides this tab entirely
     // for Basic, this is the server-side backstop for a direct API call.
-    if (chatbot.billing.tier === 'basic') {
+    if (chatbot.plan?.tier === 'basic') {
       throw new ForbiddenException('Analytics requires the Pro plan. Upgrade to unlock it.');
     }
 
     const conversations = await this.conversationModel.find({
-      chatbotId: new Types.ObjectId(chatbotId),
+      userserviceId: new Types.ObjectId(chatbotId),
     });
 
     const totalConversations = conversations.length;
@@ -590,14 +587,14 @@ export class ChatbotsService implements OnModuleInit {
   // the script's own src are the only two values this snippet must carry.
   async getEmbedCode(chatbotId: string, userId: string, isAdmin = false): Promise<{ embedCode: string }> {
     const chatbot = await this.findOne(chatbotId, userId, isAdmin);
-    const color = chatbot.channels?.website?.customColor || '#7c3aed';
+    const color = chatbot.config.channels?.website?.customColor || '#7c3aed';
     const frontendUrl = process.env.FRONTEND_URL || 'https://www.logicmate.io';
     const backendUrl = process.env.PUBLIC_API_URL || process.env.BACKEND_URL || 'https://www.logicmate.io';
     const apiUrl = `${backendUrl.replace(/\/$/, '')}/api/v1`;
     const embedCode = `<!-- LogicMate Chatbot Widget — paste exactly as copied into your site's <head>. Works as-is on any platform, including Next.js/React/Vue. -->
 <script
   src="${frontendUrl}/chatbot-widget.js"
-  data-embed-key="${chatbot.embedKey}"
+  data-embed-key="${chatbot.config.embedKey}"
   data-api-url="${apiUrl}"
   data-color="${color}"
   async
@@ -612,27 +609,24 @@ export class ChatbotsService implements OnModuleInit {
   async updatePricing(
     id: string,
     dto: { setupFee?: number; monthlyFee?: number; currency?: string; trialEndsAt?: string; notes?: string; tier?: 'basic' | 'pro' | 'custom' },
-  ): Promise<ChatbotDocument> {
+  ): Promise<ChatbotView> {
     const chatbot = await this.findOneAdmin(id);
 
-    if (dto.setupFee !== undefined) chatbot.billing.setupFee = dto.setupFee;
-    if (dto.monthlyFee !== undefined) chatbot.billing.monthlyFee = dto.monthlyFee;
-    if (dto.currency !== undefined) chatbot.billing.currency = dto.currency;
-    if (dto.trialEndsAt !== undefined) chatbot.billing.trialEndsAt = new Date(dto.trialEndsAt);
-    if (dto.notes !== undefined) chatbot.billing.notes = dto.notes;
-    // The only way a chatbot's tier changes today — an upgrade request is
-    // handled by admin here, same hand-set-price model as everything else
-    // in this method. See backend CLAUDE.md's "Tiered chatbot pricing"
-    // section for why a self-serve upgrade-payment flow wasn't built yet.
-    if (dto.tier !== undefined) chatbot.billing.tier = dto.tier;
+    if (dto.setupFee !== undefined) chatbot.set('plan.setupFee', dto.setupFee);
+    if (dto.monthlyFee !== undefined) chatbot.set('plan.monthlyFee', dto.monthlyFee);
+    if (dto.currency !== undefined) chatbot.set('plan.currency', dto.currency);
+    if (dto.tier !== undefined) chatbot.set('plan.tier', dto.tier);
+    if (dto.trialEndsAt !== undefined) chatbot.trialEndDate = new Date(dto.trialEndsAt);
+    if (dto.notes !== undefined) chatbot.adminNotes = dto.notes;
 
-    // First time a real price is set, move it out of "trial" so the
-    // customer sees they owe a setup payment (unless it's already active).
-    if (chatbot.billing.status === 'trial' && (chatbot.billing.setupFee > 0 || chatbot.billing.monthlyFee > 0)) {
-      chatbot.billing.status = 'awaiting_setup_payment';
+    // A setup fee on a trial bot means it now owes that payment: it stops
+    // answering (past_due) until an admin confirms the setup payment.
+    // Changing only the tier or the monthly price never ends the trial.
+    if (chatbot.status === UserServiceStatus.TRIAL && dto.setupFee !== undefined && dto.setupFee > 0) {
+      chatbot.status = UserServiceStatus.PAST_DUE;
     }
 
-    return chatbot.save();
+    return toChatbotView(await chatbot.save(), true);
   }
 
   // Best-effort lookup of this chatbot's template's Pro-tier monthly price,
@@ -641,8 +635,9 @@ export class ChatbotsService implements OnModuleInit {
   // module mapping (e.g. 'custom') or the module/pricingTiers can't be
   // found — callers fall back to leaving monthlyFee untouched rather than
   // guessing, same defensive pattern create() already uses for moduleSlug.
-  private async resolveProMonthlyPrice(chatbot: ChatbotDocument): Promise<number | null> {
-    const slug = chatbot.template ? TEMPLATE_TO_MODULE_SLUG[chatbot.template] : undefined;
+  private async resolveProMonthlyPrice(chatbot: ChatbotUserServiceDocument): Promise<number | null> {
+    const serviceId: any = chatbot.serviceId;
+    const slug = serviceId?.slug || (serviceId ? String(serviceId) : undefined);
     if (!slug) return null;
     try {
       const module = await this.servicesService.findOne(slug);
@@ -667,20 +662,20 @@ export class ChatbotsService implements OnModuleInit {
   ): Promise<{ ok: true }> {
     const chatbot = await this.findOne(chatbotId, userId);
 
-    if (dto.kind === 'upgrade' && chatbot.billing.tier !== 'basic') {
+    if (dto.kind === 'upgrade' && chatbot.plan?.tier !== 'basic') {
       throw new BadRequestException('This chatbot is already on Pro or Custom — nothing to upgrade to.');
     }
 
     const proPrice = dto.kind === 'upgrade' ? await this.resolveProMonthlyPrice(chatbot) : null;
     const amount =
-      dto.kind === 'setup' ? chatbot.billing.setupFee
-      : dto.kind === 'upgrade' ? (proPrice ?? chatbot.billing.monthlyFee)
-      : chatbot.billing.monthlyFee;
+      dto.kind === 'setup' ? chatbot.plan.setupFee
+      : dto.kind === 'upgrade' ? (proPrice ?? chatbot.plan.monthlyFee)
+      : chatbot.plan.monthlyFee;
     const kindLabel = dto.kind === 'setup' ? 'Setup fee' : dto.kind === 'upgrade' ? 'Tier upgrade (Basic → Pro)' : 'Monthly fee';
 
     await this.billingService.create({
       userId,
-      chatbotId,
+      userserviceId: chatbotId,
       moduleType: 'chatbot',
       moduleName: chatbot.name,
       amount,
@@ -693,7 +688,7 @@ export class ChatbotsService implements OnModuleInit {
       `💰 Chatbot payment notification — ${chatbot.name}`,
       `Chatbot: ${chatbot.name} (${chatbotId})<br>
        Kind: ${dto.kind}<br>
-       Amount: ${chatbot.billing.currency} ${amount}<br>
+       Amount: ${chatbot.plan.currency} ${amount}<br>
        Transaction Ref: ${dto.transactionRef}<br>
        Notes: ${dto.notes || 'none'}<br><br>
        Go to admin dashboard to confirm and activate.`,
@@ -712,40 +707,36 @@ export class ChatbotsService implements OnModuleInit {
   async confirmPayment(
     id: string,
     dto: { kind: 'setup' | 'monthly' | 'upgrade'; billingRecordId?: string },
-  ): Promise<ChatbotDocument> {
+  ): Promise<ChatbotView> {
     const chatbot = await this.findOneAdmin(id);
     const now = new Date();
 
-    if (dto.kind === 'setup') {
-      chatbot.billing.setupPaidAt = now;
-      chatbot.billing.status = 'active';
-    }
+    if (dto.kind === 'setup') chatbot.status = UserServiceStatus.ACTIVE;
 
     if (dto.kind === 'upgrade') {
-      chatbot.billing.tier = 'pro';
+      chatbot.set('plan.tier', 'pro');
       const proPrice = await this.resolveProMonthlyPrice(chatbot);
-      if (proPrice !== null) chatbot.billing.monthlyFee = proPrice;
+      if (proPrice !== null) chatbot.set('plan.monthlyFee', proPrice);
     }
 
-    if (chatbot.billing.monthlyFee > 0) {
-      chatbot.billing.lastBillingDate = now;
+    if (chatbot.plan.monthlyFee > 0) {
       const next = new Date(now);
       next.setDate(next.getDate() + 30);
-      chatbot.billing.nextBillingDate = next;
-      if (chatbot.billing.status !== 'active') chatbot.billing.status = 'active';
+      chatbot.nextRenewalDate = next;
+      chatbot.status = UserServiceStatus.ACTIVE;
     }
 
     if (dto.billingRecordId) {
       await this.billingService.updateStatus(dto.billingRecordId, BillingStatus.PAID);
     }
 
-    return chatbot.save();
+    return toChatbotView(await chatbot.save(), true);
   }
 
   async getBillingHistory(chatbotId: string, userId: string, isAdmin: boolean) {
     const chatbot = isAdmin ? await this.findOneAdmin(chatbotId) : await this.findOne(chatbotId, userId);
-    const history = await this.billingService.findByChatbot(chatbotId);
-    return { billing: chatbot.billing, history };
+    const history = await this.billingService.findByUserService(chatbotId);
+    return { billing: toChatbotView(chatbot, isAdmin).billing, history };
   }
 }
 

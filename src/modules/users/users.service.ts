@@ -11,7 +11,7 @@ import {
   import { User, UserDocument, UserStatus, USER_PUBLIC_PROJECTION, USER_FIELD_GROUPS } from './schemas/user.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UserModule, UserModuleDocument } from '../modules/schemas/user-module.schema';
-import { Chatbot, ChatbotDocument } from '../chatbots/schemas/chatbot.schema';
+import { CHATBOT_FILTER, ChatbotUserService, ChatbotUserServiceDocument } from '../userservices/schemas/userservice.schema';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
@@ -22,7 +22,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
     constructor(
       @InjectModel(User.name) private userModel: Model<UserDocument>,
       @InjectModel(UserModule.name) private userModuleModel: Model<UserModuleDocument>,
-      @InjectModel(Chatbot.name) private chatbotModel: Model<ChatbotDocument>,
+      @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
       private activityLogsService: ActivityLogsService,
     ) {}
 
@@ -263,7 +263,7 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
           { $group: { _id: { userId: '$userId', moduleType: '$moduleType' }, count: { $sum: 1 } } },
         ]),
         this.chatbotModel.aggregate([
-          { $match: { userId: { $in: userIds } } },
+          { $match: { ...CHATBOT_FILTER, isDeleted: false, userId: { $in: userIds } } },
           { $group: { _id: '$userId', count: { $sum: 1 } } },
         ]),
       ]);

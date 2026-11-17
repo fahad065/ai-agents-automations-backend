@@ -1017,3 +1017,27 @@ on a fresh database: 64/64.
 - e2e: gym suite now subscribes through Browse Services, adds a text + Google
   Maps answer through the UI, checks template-specific Locations fields and
   My Services. Gym 75/75, restaurant 65/65; unit tests 74/74.
+
+## 2026-11-17 — Phase 2 (chatbots): `chatbots` → `userservices`
+Owner confirmed the field list (rules.md #13): plan object for tier + per-deal
+prices; no custom/blank chatbots (every bot comes from a catalog service);
+`awaiting_setup_payment` → `past_due`; chatbots first, `usermodules` next.
+- New `src/modules/userservices/` (global): `UserService` + `ChatbotUserService`
+  models on one `userservices` collection; `chatbot-view.ts` keeps the
+  `/chatbots/*` API shape; `userservices.migration.ts` (onModuleInit, same
+  `_id`, idempotent, never deletes `chatbots`).
+- Repointed: ChatbotsService/controller, ChatbotBillingCron (status/trialEndDate/
+  trialReminderSentAt), billing-status util, ChatService (embedKey lookup,
+  webhooks), UsersService counts, account deletion/export, BillingService
+  (`findByUserService`). knowledgebases/conversations/billings use
+  `userserviceId`. Deleted `chatbots/schemas/chatbot.schema.ts`.
+- `updatePricing` now ends a trial only when a setup fee is set (it used to end
+  it on any price/tier change).
+- Removed Nest starter leftovers: app.controller/app.service, test/app.e2e-spec.ts,
+  test/jest-e2e.json, `test:e2e` script (needed supertest, never installed).
+- Verified: unit 74/74; migration 20/20 on local Mongo + second boot no-op;
+  migrated bot answers on its old embedKey + webhook handshake; e2e
+  restaurant 66/66, gym 76/76.
+- Collections the owner can now drop by hand (after checking production):
+  `chatbots`, plus the earlier `modules`, `industries`, `industry_subscriptions`,
+  `niches`, `subscriptions`, `trends`, `content_ideas`.

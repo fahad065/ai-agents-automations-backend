@@ -402,8 +402,7 @@ Agents/automations (2026-11-17, no data to migrate — `usermodules` had no
 customers): `PipelineUserServiceSchema` (same collection, `config` typed for
 pipelines), `PipelineServicesService`/controller/cron in
 `src/modules/userservices/pipeline-services.*`, routes `/api/v1/userservices/*`
-(`/usermodules/*` kept as a temporary alias until the Python service on `main`
-calls `/userservices`). A trial that ends unpaid becomes `past_due` (the
+(the temporary `/usermodules/*` alias was removed on 2026-11-17). A trial that ends unpaid becomes `past_due` (the
 dashboard still shows "expired"); "paused" is `config.paused`, not a status.
 
 Chatbots: `src/modules/userservices/` — `UserServiceSchema` (generic, loose

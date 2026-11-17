@@ -1062,3 +1062,16 @@ Owner: no customer data in `usermodules`, so nothing migrated.
   matched); admin overview/extend-trial/pause-all queried `isActive`/
   `pausedReason`, which never existed.
 - Verified: unit 74/74; e2e agent 32/32 (new), restaurant 66/66, gym 76/76.
+
+## 2026-11-17 — One admin "Customer Services" page (chatbots + agents + automations)
+Owner asked why the admin sidebar had separate Customer Chatbots and Customer
+Subscriptions pages. No reason left: both list `userservices` rows. Merged.
+- Admin subscription actions are type-agnostic now (`PipelineServicesService`
+  uses the untyped `UserService` model for them, `$set` only, so a chatbot's
+  config is never re-cast): `PATCH /userservices/:id/extend-trial`,
+  `/free-forever`, and new `/cancel` (status cancelled + cancelledAt, row and
+  history kept, activity-logged). `/cancel` was called by the old
+  Subscriptions page's "Cancel Subscription" button but never existed — that
+  button had always failed.
+- `toChatbotView().billing.isFreeForever` added so the admin list can show it.
+- Verified: unit 74/74; e2e agent + gym extended with Customer Services checks.

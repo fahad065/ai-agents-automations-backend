@@ -69,6 +69,7 @@ export interface ChatbotView {
     trialEndsAt?: Date;
     nextBillingDate?: Date;
     trialReminderSent: boolean;
+    isFreeForever: boolean;
     notes?: string;
   };
   createdAt?: Date;
@@ -111,6 +112,7 @@ export function toChatbotView(row: ChatbotUserService | any, isAdmin = false): C
       trialEndsAt: r.trialEndDate,
       nextBillingDate: r.nextRenewalDate,
       trialReminderSent: !!r.trialReminderSentAt,
+      isFreeForever: !!r.isFreeForever,
       ...(isAdmin && r.adminNotes ? { notes: r.adminNotes } : {}),
     },
     createdAt: r.createdAt,

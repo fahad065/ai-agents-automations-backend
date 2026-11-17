@@ -151,6 +151,34 @@ async function login(page, who) {
     ok('a customer cannot extend their own trial', cust.status === 403);
     const usage = await api(adminToken, 'GET', '/admin/usage');
     ok('admin usage counts the agent', usage.status === 200 && JSON.stringify(usage.data).includes('trial'));
+    const custCancel = await api(token, 'PATCH', `/userservices/${id}/cancel`);
+    ok('a customer cannot use the admin cancel', custCancel.status === 403);
+    const cancel = await api(adminToken, 'PATCH', `/userservices/${id}/cancel`);
+    const c = row(id);
+    ok('admin cancel → cancelled, row kept', cancel.status === 200 && c.status === 'cancelled' && !!c.cancelledAt && c.isDeleted === false);
+    await api(adminToken, 'PATCH', `/userservices/${id}/extend-trial`, { days: 7 });
+    ok('extending the trial reopens it', row(id).status === 'trial');
+
+    // One Customer Services page for every type (no separate chatbots /
+    // subscriptions pages).
+    const actx = await browser.newContext({ viewport: { width: 1360, height: 900 } });
+    await actx.addInitScript(() => localStorage.setItem('lm_cookie_consent', JSON.stringify({ analytics: false, version: 1, decidedAt: 'x' })));
+    const ap = await actx.newPage();
+    await login(ap, ADMIN);
+    await ap.goto(`${FE}/dashboard/subscriptions`, { waitUntil: 'networkidle' });
+    await ap.waitForURL(/customer-services/, { timeout: 10000 }).catch(() => {});
+    ok('old Subscriptions URL opens Customer Services', /\/dashboard\/customer-services/.test(ap.url()), ap.url());
+    await ap.waitForTimeout(1000);
+    const side = await ap.locator('[data-sidebar="sidebar"]').first().innerText();
+    ok('admin sidebar: one Customer Services item', /Customer Services/.test(side) && !/Customer Chatbots|Customer Subscriptions/.test(side));
+    const agentRow = ap.locator('[data-testid="customer-service-row"][data-kind="agent"]', { hasText: OWNER.name });
+    ok('agent listed on Customer Services', (await agentRow.count()) === 1 && /Trial/.test(await agentRow.innerText()));
+    await agentRow.getByRole('button', { name: 'Manage' }).click();
+    await ap.getByRole('dialog').getByRole('button', { name: /Grant free forever/ }).click();
+    await ap.waitForTimeout(1200);
+    ok('Manage → free forever from the page', row(id).isFreeForever === true && row(id).status === 'active');
+    await ap.screenshot({ path: path.join(SHOTS, 'agent-customer-services.png') });
+    await actx.close();
   });
 
   section = 'Remove';

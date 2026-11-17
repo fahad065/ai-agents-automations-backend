@@ -6,7 +6,8 @@ import * as CryptoJS from 'crypto-js';
 import axios from 'axios';
 import * as Sentry from '@sentry/nestjs';
 import {
-  PIPELINE_FILTER, PipelineUserService, PipelineUserServiceDocument, UserServiceStatus, UserServiceType,
+  PIPELINE_FILTER, PipelineUserService, PipelineUserServiceDocument, UserService, UserServiceDocument,
+  UserServiceStatus, UserServiceType,
 } from './schemas/userservice.schema';
 import { PIPELINE_FIELD_PATHS, toPipelineView } from './pipeline-view';
 import { Service, ServiceDocument } from '../services/schemas/service.schema';
@@ -28,6 +29,10 @@ const RUNNABLE = [UserServiceStatus.TRIAL, UserServiceStatus.ACTIVE];
 export class PipelineServicesService {
   constructor(
     @InjectModel(PipelineUserService.name) private model: Model<PipelineUserServiceDocument>,
+    // Untyped config: used only by the admin subscription actions below,
+    // which touch top-level fields and must work for every service type
+    // (chatbots included) without re-casting a chatbot's config.
+    @InjectModel(UserService.name) private anyServiceModel: Model<UserServiceDocument>,
     @InjectModel(Service.name) private serviceModel: Model<ServiceDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(PipelineRun.name) private pipelineRunModel: Model<PipelineRunDocument>,
@@ -196,24 +201,48 @@ export class PipelineServicesService {
 
   // ── Admin ─────────────────────────────────────────────────
 
-  async extendTrial(id: string, days: number): Promise<void> {
+  // Admin subscription actions (Customer Services → Manage). They act on
+  // any userservices row — chatbot, agent or automation — since all three
+  // share the same status / trialEndDate / isFreeForever fields.
+  private async adminRow(id: string) {
     if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Service not found');
-    const row = await this.model.findOne({ _id: id, ...PIPELINE_FILTER });
+    const row = await this.anyServiceModel.findOne({ _id: new Types.ObjectId(id), isDeleted: false }).lean();
     if (!row) throw new NotFoundException('Service not found');
+    return row;
+  }
+
+  async extendTrial(id: string, days: number): Promise<void> {
+    const row = await this.adminRow(id);
     const base = row.trialEndDate && row.trialEndDate > new Date() ? new Date(row.trialEndDate) : new Date();
     base.setDate(base.getDate() + Number(days || 0));
-    row.trialEndDate = base;
-    row.status = UserServiceStatus.TRIAL;
-    row.trialReminderSentAt = undefined;
-    await row.save();
+    await this.anyServiceModel.updateOne(
+      { _id: row._id },
+      { $set: { trialEndDate: base, status: UserServiceStatus.TRIAL }, $unset: { trialReminderSentAt: 1 } },
+    );
   }
 
   async grantFreeForever(id: string): Promise<void> {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Service not found');
-    await this.model.updateOne(
-      { _id: id, ...PIPELINE_FILTER },
+    const row = await this.adminRow(id);
+    await this.anyServiceModel.updateOne(
+      { _id: row._id },
       { $set: { isFreeForever: true, status: UserServiceStatus.ACTIVE, 'plan.monthlyFee': 0 } },
     );
+  }
+
+  // Ends the subscription but keeps the row (and a chatbot's knowledge base
+  // and conversations) so it shows as cancelled and can be looked back at.
+  async cancelAsAdmin(id: string, actorId: string): Promise<void> {
+    const row = await this.adminRow(id);
+    await this.anyServiceModel.updateOne(
+      { _id: row._id },
+      { $set: { status: UserServiceStatus.CANCELLED, cancelledAt: new Date(), isFreeForever: false } },
+    );
+    await this.activityLogsService.record({
+      userId: String(row.userId), actorId, actorRole: ActorRole.ADMIN,
+      action: ActivityAction.UPDATE, entityType: 'userservice', entityId: id,
+      changes: { before: { status: row.status }, after: { status: UserServiceStatus.CANCELLED } },
+      description: `Admin cancelled "${row.name}"`,
+    });
   }
 
   // ── Runs ──────────────────────────────────────────────────

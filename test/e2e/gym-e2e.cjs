@@ -326,6 +326,29 @@ async function openTab(page, label) {
     const dtext = await ap.getByRole('dialog').innerText();
     ok('admin form: chatbot has no Pipeline tab', !/\bPipeline\b/.test(dtext.split('\n').slice(0, 12).join(' ')) && /Niche/.test(dtext), dtext.slice(0, 80).replace(/\n/g, ' '));
     await ap.screenshot({ path: path.join(SHOTS, 'admin-form-chatbot.png') });
+
+    // Customer Services: the admin's one list of every client's services.
+    await ap.goto(`${FE}/dashboard/chatbots`, { waitUntil: 'networkidle' });
+    await ap.waitForURL(/customer-services/, { timeout: 10000 }).catch(() => {});
+    ok('admin: old Chatbots URL opens Customer Services', /\/dashboard\/customer-services/.test(ap.url()), ap.url());
+    await ap.waitForTimeout(1000);
+    const botRow = ap.locator('[data-testid="customer-service-row"][data-kind="chatbot"]', { hasText: OWNER.email });
+    ok('chatbot listed on Customer Services (Pro)', (await botRow.count()) === 1 && /Pro/.test(await botRow.innerText()), (await botRow.count()) ? (await botRow.innerText()).replace(/\n/g, ' ') : 'none');
+    const before = new Date(JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).trialEndDate)`))).getTime();
+    await botRow.getByRole('button', { name: 'Manage' }).click();
+    await ap.getByRole('dialog').getByRole('button', { name: /Extend/ }).click();
+    await ap.waitForTimeout(1200);
+    const after = new Date(JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).trialEndDate)`))).getTime();
+    ok('Manage → extend a chatbot trial by 30 days', Math.round((after - Math.max(before, Date.now())) / 86400000) >= 29, `${Math.round((after - before) / 86400000)}d`);
+    ok('chatbot config untouched by the admin action', mongo(`db.userservices.findOne({_id:ObjectId("${botId}")}).config.embedKey`).length === 32);
+    await botRow.getByRole('button', { name: 'Configure' }).click();
+    await ap.waitForURL(new RegExp(`/dashboard/chatbots/${botId}`), { timeout: 10000 }).catch(() => {});
+    ok('Configure opens the bot settings', ap.url().includes(`/dashboard/chatbots/${botId}`));
+    const back = await ap.getByText('Back to Customer Services').first().waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+    ok('settings page links back to Customer Services', back);
+    await ap.goto(`${FE}/dashboard/customer-services`, { waitUntil: 'networkidle' });
+    await ap.waitForTimeout(800);
+    await ap.screenshot({ path: path.join(SHOTS, 'admin-customer-services.png') });
     await adminCtx.close();
   });
 

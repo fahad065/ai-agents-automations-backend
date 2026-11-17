@@ -7,7 +7,8 @@ import { Public } from '../auth/decorators/public.decorator';
 import { PipelineServicesService } from './pipeline-services.service';
 
 // Agents/automations a customer owns (userservices, type agent|automation).
-// Chatbots keep their own /chatbots routes.
+// Chatbots keep their own /chatbots routes, except the admin subscription
+// actions (extend-trial / free-forever / cancel), which work on any type.
 // 'usermodules' is a temporary alias so a Python service deployed before
 // 2026-11-17 can still call /usermodules/:id/record-run — remove it once the
 // Python service is redeployed (core/nestjs_client.py now calls /userservices).
@@ -94,6 +95,12 @@ export class PipelineServicesController {
   freeForever(@Req() req: any, @Param('id') id: string) {
     this.service.assertAdmin(req.user.role);
     return this.service.grantFreeForever(id);
+  }
+
+  @Patch(':id/cancel')
+  cancel(@Req() req: any, @Param('id') id: string) {
+    this.service.assertAdmin(req.user.role);
+    return this.service.cancelAsAdmin(id, req.user._id.toString());
   }
 
   @Post(':id/run')

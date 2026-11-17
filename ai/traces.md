@@ -1075,3 +1075,9 @@ Subscriptions pages. No reason left: both list `userservices` rows. Merged.
   button had always failed.
 - `toChatbotView().billing.isFreeForever` added so the admin list can show it.
 - Verified: unit 74/74; e2e agent + gym extended with Customer Services checks.
+
+## 2026-11-17 — Removed the temporary `/usermodules` route alias
+The Python service on main (0739bf9) calls `/userservices`, so
+`PipelineServicesController` now answers only on `/userservices`. The agent e2e
+suite checks `/usermodules/:id/record-run` returns 404. Old comments that
+named `usermodules` crons now name `pipeline-services.cron.ts`.

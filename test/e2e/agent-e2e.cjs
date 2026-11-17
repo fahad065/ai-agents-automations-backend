@@ -131,8 +131,9 @@ async function login(page, who) {
     const noSecret = await api(null, 'PATCH', `/userservices/${id}/record-run`, { cost: 1.5 });
     ok('record-run needs the pipeline secret', noSecret.status === 401 || noSecret.status === 403, `${noSecret.status}`);
     await api(null, 'PATCH', `/userservices/${id}/record-run`, { cost: 1.5 }, { 'x-pipeline-secret': PIPELINE_SECRET });
-    await api(null, 'PATCH', `/usermodules/${id}/record-run`, { cost: 0.5 }, { 'x-pipeline-secret': PIPELINE_SECRET });
-    ok('Python cost reports land (new route + old alias)', row(id).config.totalCost === 2, `cost=${row(id).config.totalCost}`);
+    const oldRoute = await api(null, 'PATCH', `/usermodules/${id}/record-run`, { cost: 0.5 }, { 'x-pipeline-secret': PIPELINE_SECRET });
+    ok('old /usermodules route is gone', oldRoute.status === 404, `${oldRoute.status}`);
+    ok('Python cost report lands', row(id).config.totalCost === 1.5, `cost=${row(id).config.totalCost}`);
     mongo(`db.userservices.updateOne({_id:ObjectId("${id}")},{$set:{status:"past_due"}})`);
     const blocked = await api(token, 'POST', `/userservices/${id}/run`);
     ok('an unpaid (past_due) service cannot run', blocked.status === 400 && /trial has ended/i.test(blocked.data.message), blocked.data.message);

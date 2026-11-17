@@ -8,7 +8,7 @@ export class AccountDeletionCron {
 
   constructor(private accountDeletionService: AccountDeletionService) {}
 
-  // Early morning, staggered from the other daily crons (usermodules at
+  // Early morning, staggered from the other daily crons (pipeline-services at
   // 9 AM, chatbot billing at 10 AM) — runs before either, since this one
   // does the most destructive work and shouldn't compete with them.
   @Cron('0 3 * * *')

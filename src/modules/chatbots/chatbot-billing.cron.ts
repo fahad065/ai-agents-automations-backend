@@ -8,7 +8,7 @@ import {
 import { EmailService } from '../email/email.service';
 
 // Runs the same job the agents/automations side already has (see
-// usermodules/trial-expiry.cron.ts) but for chatbots: warn 5 days before a
+// userservices/pipeline-services.cron.ts) but for chatbots: warn 5 days before a
 // trial ends (day 25 of a 30-day trial), then move the userservices status once it
 // actually does. The chat engine (chat.service.ts) also re-checks
 // trialEndDate in real time via isChatbotBillingActive(), so a lapsed trial
@@ -30,7 +30,7 @@ export class ChatbotBillingCron {
     private emailService: EmailService,
   ) {}
 
-  // Staggered from the 9 AM usermodules trial cron to avoid both hitting Mongo at once.
+  // Staggered from the 9 AM pipeline-services trial cron to avoid both hitting Mongo at once.
   @Cron('0 10 * * *')
   async checkChatbotTrials() {
     this.logger.log('[ChatbotBillingCron] Checking chatbot trials...');

@@ -9,10 +9,7 @@ import { PipelineServicesService } from './pipeline-services.service';
 // Agents/automations a customer owns (userservices, type agent|automation).
 // Chatbots keep their own /chatbots routes, except the admin subscription
 // actions (extend-trial / free-forever / cancel), which work on any type.
-// 'usermodules' is a temporary alias so a Python service deployed before
-// 2026-11-17 can still call /usermodules/:id/record-run — remove it once the
-// Python service is redeployed (core/nestjs_client.py now calls /userservices).
-@Controller(['userservices', 'usermodules'])
+@Controller('userservices')
 @UseGuards(JwtAuthGuard)
 export class PipelineServicesController {
   constructor(private readonly service: PipelineServicesService) {}

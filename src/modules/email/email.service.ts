@@ -694,7 +694,7 @@ export class EmailService {
   // ── 15. Chatbot trial expiring / expired ───────────────────
   // Chatbot-specific counterparts to sendTrialExpiringEmail()/
   // sendTrialExpiredEmail() above (which stay as-is — agents/automations'
-  // usermodules/trial-expiry.cron.ts still uses those generic ones).
+  // pipeline-services.cron.ts still uses those generic ones).
   // A chatbot's trial billing is tracked per-bot on Chatbot.billing, not
   // the account-level UserModule billing those generic emails assume, so
   // reusing them would send a client to /dashboard/payment-instructions —

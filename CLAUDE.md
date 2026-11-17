@@ -556,7 +556,7 @@ Full Basic → Pro run passes 63/63 against the real backend/frontend/MongoDB �
 ## Chatbots stored in `userservices` (implemented, 2026-11-17)
 Chatbots are `userservices` rows (`type: 'chatbot'`), not `chatbots` documents — see `ai/architecture.md` (userservices) and `ai/traces.md`. Settings live in `config.*` (bot live state is `config.botStatus`), the subscription in `status`/`trialEndDate`/`nextRenewalDate`, tier + prices in `plan`. Knowledge entries, conversations and billing link via `userserviceId`. The `/api/v1/chatbots/*` API still returns the old chatbot shape via `toChatbotView()`. Older sections of this file that mention `Chatbot.billing.*`, `chatbotId` or `embedKey` at the top level are historical — read them as the new paths. Every chatbot is created from a catalog service (no custom/blank bots).
 
-Agents/automations are `userservices` rows too (`type: agent|automation`, 2026-11-17 — `usermodules` code deleted, no data existed): `src/modules/userservices/pipeline-services.*`, routes `/api/v1/userservices/*` (old `/usermodules/*` is a temporary alias for the Python service). Pause is `config.paused`; an unpaid trial is `past_due`. Older sections mentioning `UserModule`/`usermodules` are historical.
+Agents/automations are `userservices` rows too (`type: agent|automation`, 2026-11-17 — `usermodules` code deleted, no data existed): `src/modules/userservices/pipeline-services.*`, routes `/api/v1/userservices/*` (the old `/usermodules/*` alias was removed once the Python service moved to `/userservices`). Pause is `config.paused`; an unpaid trial is `past_due`. Older sections mentioning `UserModule`/`usermodules` are historical.
 
 ## What is next to build
 1. ~~Chatbot module backend~~ ✅ done

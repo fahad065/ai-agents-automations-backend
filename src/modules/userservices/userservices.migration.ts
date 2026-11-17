@@ -126,7 +126,6 @@ export function toUserServiceRow(b: any, serviceIdBySlug: Map<string, any>) {
       channels: b.channels || {},
       outlets: b.outlets || [],
       chatModelConfig: b.chatModelConfig,
-      embeddingModelConfig: b.embeddingModelConfig,
     }),
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,

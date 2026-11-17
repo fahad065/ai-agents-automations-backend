@@ -8,7 +8,7 @@ import { Conversation, ConversationDocument } from '../chatbots/schemas/conversa
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
-import { callChatCompletion, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
+import { callChatCompletion, embeddingProviderFor, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
 import { knowledgeSnippet } from './knowledge-format';
 import { rankByKeywords } from './keyword-rank';
 
@@ -349,23 +349,20 @@ ${knowledgeSection}`;
     conversation.messages.push({ role: 'user', content: message, timestamp: new Date() });
 
     try {
-      // 4. Resolve the bot's own configured provider/model + the owner's
-      // BYOK key for it (defaults to OpenAI/auto for every bot created
-      // before chatModelConfig/embeddingModelConfig existed). Chat and
-      // embeddings can use different providers (e.g. Claude for replies,
-      // since it has no embeddings API at all, OpenAI/Gemini for ranking).
+      // 4. Resolve the bot's one AI provider/model + the owner's BYOK key
+      // for it (OpenAI/auto for bots that never chose). The knowledge base
+      // is embedded with the same provider; Anthropic has no embeddings
+      // API, so a Claude bot ranks knowledge by word matching.
       const userId = chatbot.userId.toString();
       const chatProvider = chatbot.chatModelConfig?.provider || ApiKeyProvider.OPENAI;
       const chatModel = chatbot.chatModelConfig?.model;
-      const embeddingProvider = chatbot.embeddingModelConfig?.provider || ApiKeyProvider.OPENAI;
-      const embeddingModel = chatbot.embeddingModelConfig?.model;
+      const embeddingProvider = embeddingProviderFor(chatProvider);
 
       const apiKey = await this.resolveKey(userId, chatProvider);
       if (!apiKey) {
         this.logger.warn(`No ${chatProvider} key on file for chatbot owner — returning fallbackMessage for embedKey=${embedKey}`);
       }
-      const embeddingApiKey =
-        embeddingProvider === chatProvider ? apiKey : await this.resolveKey(userId, embeddingProvider);
+      const embeddingApiKey = embeddingProvider ? apiKey : null;
 
       // 5. Retrieve knowledge entries
       const allKnowledge = await this.knowledgeBaseModel
@@ -383,14 +380,17 @@ ${knowledgeSection}`;
         if (knowledgeWithEmbeddings.length > 0) {
           try {
             const queryEmbedding = await getEmbeddingVector({
-              provider: embeddingProvider,
-              model: embeddingModel,
+              provider: embeddingProvider!,
               apiKey: embeddingApiKey,
               text: message,
             });
 
-            // Find top 4 by cosine similarity
-            const scored = knowledgeWithEmbeddings
+            // Find top 4 by cosine similarity. Only vectors from the same
+            // embedding model are comparable (an entry still waiting to be
+            // re-embedded after a provider switch has a different length).
+            const comparable = knowledgeWithEmbeddings.filter((k) => k.embedding.length === queryEmbedding.length);
+            if (!comparable.length) throw new Error('no comparable knowledge vectors');
+            const scored = comparable
               .map((k) => ({ entry: k, score: cosineSim(queryEmbedding, k.embedding) }))
               .sort((a, b) => b.score - a.score)
               .slice(0, 4);

@@ -133,12 +133,28 @@ real.
 | 10.7 | Counts hand-offs | — | `handoffs ≥ 1` | API |
 | 10.8 | Analytics tab | Open tab | Numbers + channel breakdown render | UI |
 
-## 11. Trial end
+## 11. AI model (one provider + model picker)
 
 | # | Case | Input | Expected | Via |
 |---|---|---|---|---|
-| 11.1 | Lapsed trial stops | Trial end date set to yesterday, unpaid; visitor asks "Do you have women-only hours?" | No knowledge-base answer (fallback only) | DB + API |
-| 11.2 | No browser errors | Whole run | Zero JavaScript errors on any page | UI |
+| 11.1 | One provider field | Open Overview → AI Model | One "Provider" and one "Model" field; no separate embedding provider | UI |
+| 11.2 | No scroll jump | Scroll down, click the Provider dropdown | Page stays where it was; search box focused | UI |
+| 11.3 | Model list | Open the Model dropdown (OpenAI key on file) | "Auto (recommended)" first, then gpt-4o, gpt-4o-mini, o3-mini; no embedding/whisper/dall-e/tts/realtime | UI |
+| 11.4 | Owner's key | — | Models listed with the owner's OpenAI key | Call log |
+| 11.5 | Pick a model | Choose gpt-4o, Save | `config.chatModelConfig.model = gpt-4o`; next reply uses gpt-4o | DB + call log |
+| 11.6 | Switch to Claude | Provider → Anthropic (Claude) | Model resets to Auto; "Add your Anthropic (Claude) API key…" note; keyword-matching note | UI |
+| 11.7 | Saved | Save | `chatModelConfig = {anthropic, auto}`; knowledge vectors cleared | DB |
+| 11.8 | Claude models | Owner adds an Anthropic key; `GET /chatbots/:id/models?provider=anthropic` | Lists claude-sonnet-4-5 | API |
+| 11.9 | Claude answers | "Do you have a swimming pool?" | "Yes — a 25m indoor pool…" via Anthropic with the owner key; no embedding call | API + call log |
+| 11.10 | Back to OpenAI | Provider → OpenAI | Every knowledge entry re-embedded | DB |
+| 11.11 | Old field ignored | `PUT` with `embeddingModelConfig` | Not stored | DB |
+
+## 12. Trial end
+
+| # | Case | Input | Expected | Via |
+|---|---|---|---|---|
+| 12.1 | Lapsed trial stops | Trial end date set to yesterday, unpaid; visitor asks "Do you have women-only hours?" | No knowledge-base answer (fallback only) | DB + API |
+| 12.2 | No browser errors | Whole run | Zero JavaScript errors on any page | UI |
 
 ---
 
@@ -147,6 +163,7 @@ real.
 - **Real AI answer quality** — the run uses a stand-in model.
 - **Real email delivery** (Resend) and **real WhatsApp/Instagram** delivery
   through Meta — the run records the requests instead of sending them.
-- **Claude- or Gemini-only bots** — covered by unit tests
-  (`keyword-rank.spec.ts`), not this run.
+- **Gemini bots** — model listing covered by unit tests
+  (`ai-provider.util.spec.ts`); Claude is covered above.
+- **Real model lists** — the run uses a fixed fake list per provider.
 - **Arabic widget conversation** — not in this run yet.

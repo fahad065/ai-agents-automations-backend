@@ -4,9 +4,9 @@ import { Document, Types } from 'mongoose';
 export type ApiKeyDocument = ApiKey & Document;
 
 // Known/suggested provider identifiers — used as typed constants by the AI
-// code paths (ai-provider.util.ts, Chatbot.chatModelConfig/
-// embeddingModelConfig, which stay genuinely enum-constrained to these
-// since the chat/embedding adapters only know how to call these three).
+// code paths (ai-provider.util.ts, the chatbot's chatModelConfig, which
+// stays genuinely enum-constrained to these since the chat/embedding
+// adapters only know how to call these three).
 // The ApiKey.provider FIELD ITSELF is no longer constrained to this list
 // (see the schema below) — a user can add a key for any provider by
 // typing a name in the dashboard, and it's stored as a plain string. This
@@ -19,8 +19,8 @@ export enum ApiKeyProvider {
   OPENAI = 'openai',
   // Chat-completion-capable alongside OpenAI — see ai-provider.util.ts for
   // the actual request/response adapters per provider. Anthropic has no
-  // embeddings API at all, so it's never valid as an embeddingModelConfig
-  // provider (validated in ChatbotsService) — chat-only.
+  // embeddings API at all — a Claude bot ranks its knowledge base by
+  // keywords.
   ANTHROPIC = 'anthropic',
   // Chat- AND embedding-capable (unlike Anthropic) — see ai-provider.util.ts.
   GEMINI = 'gemini',

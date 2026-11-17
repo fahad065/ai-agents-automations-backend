@@ -37,7 +37,6 @@ export const CHATBOT_FIELD_PATHS: Record<string, string> = {
   channels: 'config.channels',
   outlets: 'config.outlets',
   chatModelConfig: 'config.chatModelConfig',
-  embeddingModelConfig: 'config.embeddingModelConfig',
 };
 
 // What the dashboard/chat engine read. `billing` keeps its old field names.
@@ -59,7 +58,6 @@ export interface ChatbotView {
   channels: any;
   outlets: any[];
   chatModelConfig: any;
-  embeddingModelConfig: any;
   billing: {
     tier: 'basic' | 'pro' | 'custom';
     monthlyFee: number;
@@ -102,7 +100,6 @@ export function toChatbotView(row: ChatbotUserService | any, isAdmin = false): C
     channels: c.channels || {},
     outlets: c.outlets || [],
     chatModelConfig: c.chatModelConfig || {},
-    embeddingModelConfig: c.embeddingModelConfig || {},
     billing: {
       tier: r.plan?.tier || 'basic',
       monthlyFee: r.plan?.monthlyFee || 0,

@@ -1081,3 +1081,29 @@ The Python service on main (0739bf9) calls `/userservices`, so
 `PipelineServicesController` now answers only on `/userservices`. The agent e2e
 suite checks `/usermodules/:id/record-run` returns 404. Old comments that
 named `usermodules` crons now name `pipeline-services.cron.ts`.
+
+## 2026-11-17 — Chatbot AI model: one provider, model picker, no scroll jump
+Owner (testing the gym bot) asked for one provider instead of chat +
+embedding, a model dropdown fetched from the provider with Auto as default,
+and reported the page jumping to the top when opening a provider dropdown.
+- One provider: `config.chatModelConfig` is the only AI setting;
+  `embeddingModelConfig` removed from schema/view/editable fields (old values
+  left in existing docs are ignored). `embeddingProviderFor()` in
+  ai-provider.util.ts: OpenAI/Gemini embed with themselves (default embedding
+  model), Anthropic → no embeddings → keyword ranking. Changing provider
+  re-embeds the knowledge base in the background; the chat engine only
+  compares vectors of the query's length meanwhile. Needs-setup checks the
+  one provider's key.
+- `GET /chatbots/:id/models?provider=` lists chat models from the bot
+  OWNER's key (BYOK): OpenAI /v1/models filtered to gpt-/o*/chatgpt-
+  (no embedding/audio/image/realtime), Anthropic /v1/models, Gemini
+  generateContent models. Returns `{keyMissing}` with no key, `{error}` if
+  the provider rejects it. Frontend `ModelPicker`: Auto first and default;
+  changing provider resets to Auto.
+- Scroll jump root cause: cmdk scrolls its highlighted item into view as the
+  list mounts, before Base UI has positioned the popover, so the browser
+  scrolled the page to the top. `Combobox` now mounts the list two frames
+  after opening and focuses the search with `preventScroll` — fixes every
+  dropdown in the app.
+- Verified: unit 79/79 (new ai-provider.util.spec.ts); gym e2e gained an
+  "AI model" section (scroll, model list, save, Claude switch, re-embed).

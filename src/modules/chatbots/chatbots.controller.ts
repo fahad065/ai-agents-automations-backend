@@ -98,6 +98,12 @@ export class ChatbotsController {
     return this.chatbotsService.getAnalytics(id, req.user._id.toString(), req.user.role === 'admin');
   }
 
+  // Chat models the bot owner's key can use (Overview → AI model picker).
+  @Get(':id/models')
+  listModels(@Req() req: any, @Param('id') id: string, @Query('provider') provider: string) {
+    return this.chatbotsService.listModels(id, req.user._id.toString(), provider || 'openai', req.user.role === 'admin');
+  }
+
   @Get(':id/embed-code')
   getEmbedCode(@Req() req: any, @Param('id') id: string) {
     return this.chatbotsService.getEmbedCode(id, req.user._id.toString(), req.user.role === 'admin');

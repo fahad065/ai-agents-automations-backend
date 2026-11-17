@@ -219,8 +219,8 @@ need for key expiration shows up — flag it, don't add it speculatively.
   providers typed this way fall through to the same 🔑 default icon the
   table/badge rendering already used for anything not in the `PROVIDERS`
   list (that fallback already existed, confirmed before relying on it).
-  `Chatbot.chatModelConfig`/`embeddingModelConfig` on the chatbots
-  collection were deliberately NOT widened — those stay genuinely
+  `Chatbot.chatModelConfig` (and the since-removed `embeddingModelConfig`)
+  were deliberately NOT widened — those stay genuinely
   constrained to `ApiKeyProvider` (openai/anthropic/gemini only), since
   the chat/embedding adapters only know how to call those three; this
   change only affects the generic key-storage field.
@@ -245,8 +245,11 @@ need for key expiration shows up — flag it, don't add it speculatively.
   request — unlike `core/model_health.py`'s `get_best_openai_*` helpers on
   the Python side, a live availability check on every customer-facing chat
   message isn't worth the extra round trip.
-- `Chatbot.chatModelConfig`/`embeddingModelConfig` (`{provider, model}`,
-  both default to OpenAI/auto) live on the `chatbots` collection itself —
+- (2026-11-17: one provider per bot — `config.chatModelConfig` only; the
+  knowledge base is embedded with that provider's default embedding model,
+  Claude bots rank by keywords. `embeddingModelConfig` was removed.)
+  Originally `Chatbot.chatModelConfig`/`embeddingModelConfig` (`{provider, model}`,
+  both default to OpenAI/auto) lived on the `chatbots` collection itself —
   that collection predates this redesign and isn't otherwise documented in
   this file (see the migration-mapping table further below). The chatbot-
   owner-editable fields list (`CUSTOMER_EDITABLE_FIELDS` in
@@ -396,7 +399,7 @@ config: {}                                  -- shape depends on type AND the spe
   --                   videoModel, apiKeyMode, lastRunAt? (also the cron's once-a-day claim), totalRuns, totalCost
   -- chatbot: botStatus (draft|active|inactive — is the bot live; separate from the subscription status), description, persona, language,
   --          embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]?,
-  --          chatModelConfig, embeddingModelConfig
+  --          chatModelConfig {provider, model: 'auto' | a model id from GET /chatbots/:id/models}
 ```
 Agents/automations (2026-11-17, no data to migrate — `usermodules` had no
 customers): `PipelineUserServiceSchema` (same collection, `config` typed for

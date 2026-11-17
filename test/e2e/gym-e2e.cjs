@@ -436,6 +436,82 @@ async function openTab(page, label) {
     ok('Analytics tab renders numbers', /\d/.test(await page.locator('main').last().innerText()) && /WhatsApp|whatsapp/.test(await page.locator('main').last().innerText()));
   }, page);
 
+  section = 'AI model';
+  await step('one provider + model picker', async () => {
+    await page.goto(`${FE}/dashboard/chatbots/${botId}?tab=overview`, { waitUntil: 'networkidle' });
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(800);
+    const main = () => page.locator('main').last();
+    const text = await main().innerText();
+    ok('one Provider field (no separate embedding provider)', /\bProvider\b/.test(text) && !/Embedding provider|Chat provider/i.test(text));
+    const provLabel = page.getByText('Provider', { exact: true }).first();
+    await provLabel.scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollBy(0, 200));
+    const y0 = await page.evaluate(() => window.scrollY);
+    await provLabel.locator('xpath=..').locator('button').first().click();
+    await page.waitForTimeout(600);
+    const y1 = await page.evaluate(() => window.scrollY);
+    ok('opening the provider dropdown keeps the page where it was', y0 > 300 && Math.abs(y1 - y0) < 5, `${y0} → ${y1}`);
+    ok('…and its search box has focus', await page.evaluate(() => document.activeElement?.getAttribute('data-slot') === 'command-input'));
+    await page.keyboard.press('Escape');
+
+    // Model list comes from the owner's OpenAI key; chat models only.
+    const modelLabel = page.getByText('Model', { exact: true }).first();
+    await modelLabel.locator('xpath=..').getByText(/models available/).waitFor({ timeout: 10000 });
+    await modelLabel.locator('xpath=..').locator('button').first().click();
+    await page.waitForTimeout(500);
+    const opts = await page.locator('[data-slot="command-item"]').allInnerTexts();
+    ok('model list: Auto first, then the key\'s chat models', opts[0] === 'Auto (recommended)' && opts.includes('gpt-4o') && opts.includes('o3-mini'), opts.join(' | '));
+    ok('model list leaves out embedding/audio/image models', !opts.some((o) => /embedding|whisper|dall-e|tts|realtime/.test(o)));
+    const listCall = calls().filter((c) => c.kind === 'openai.models').pop();
+    ok('model list fetched with the OWNER\'s key', listCall?.auth === 'Bearer sk-owner-test-key-1234567890');
+    await page.locator('[data-slot="command-item"]', { hasText: /^gpt-4o$/ }).click();
+    await page.getByRole('button', { name: /^Save Changes$/ }).first().click();
+    await page.waitForTimeout(1200);
+    ok('chosen model saved', mongo(`db.userservices.findOne({_id:ObjectId("${botId}")}).config.chatModelConfig.model`) === 'gpt-4o');
+    const before = calls().length;
+    await api(null, 'POST', `/chat/${embedKey}`, { message: 'Do you have a swimming pool?', sessionId: 'model-check-1' });
+    const used = calls().slice(before).filter((c) => c.kind === 'openai.chat' && !c.json).pop();
+    ok('replies use the chosen model', used?.model === 'gpt-4o', used?.model);
+
+    // Switch to Claude in the UI: model goes back to Auto.
+    await page.reload({ waitUntil: 'networkidle' }); await page.keyboard.press('Escape').catch(() => {});
+    await page.getByText('Provider', { exact: true }).first().locator('xpath=..').locator('button').first().click();
+    await page.locator('[data-slot="command-item"]', { hasText: 'Anthropic (Claude)' }).click();
+    await page.waitForTimeout(800);
+    const modelText = await page.getByText('Model', { exact: true }).first().locator('xpath=..').innerText();
+    ok('new provider starts on Auto', /Auto \(recommended\)/.test(modelText) && /Add your Anthropic \(Claude\) API key/.test(modelText), modelText.replace(/\n/g, ' '));
+    ok('Claude explains keyword matching', /matched by keywords/.test(await main().innerText()));
+    await page.getByRole('button', { name: /^Save Changes$/ }).first().click();
+    await page.waitForTimeout(1500);
+    const cfg = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).config.chatModelConfig)`));
+    ok('saved as Anthropic / auto', cfg.provider === 'anthropic' && cfg.model === 'auto', JSON.stringify(cfg));
+    await sleep(1500);
+    ok('knowledge vectors cleared (Claude has no embeddings)', mongo(`db.knowledgebases.countDocuments({userserviceId:ObjectId("${botId}"),"embedding.0":{$exists:true}})`) === '0');
+    await page.keyboard.press('Escape').catch(() => {});
+
+    await api(token, 'POST', '/api-keys', { provider: 'anthropic', label: 'Claude', key: 'sk-ant-owner-test-1234567890' });
+    const claudeModels = await api(token, 'GET', `/chatbots/${botId}/models?provider=anthropic`);
+    ok('Claude models listed from the owner\'s key', claudeModels.data?.models?.some((m) => m.id === 'claude-sonnet-4-5'), JSON.stringify(claudeModels.data).slice(0, 120));
+    const b2 = calls().length;
+    const r = await api(null, 'POST', `/chat/${embedKey}`, { message: 'Do you have a swimming pool?', sessionId: 'model-check-2' });
+    const after = calls().slice(b2);
+    ok('Claude bot answers from the knowledge base (keyword match)', /25m indoor pool/.test(r.data?.reply || ''), r.data?.reply);
+    ok('…via Anthropic with the owner key, no embedding call', after.some((c) => c.kind === 'anthropic.chat' && c.auth === 'sk-ant-owner-test-1234567890') && !after.some((c) => c.kind === 'openai.embed'));
+
+    // Back to OpenAI: the knowledge base is re-embedded.
+    await api(token, 'PUT', `/chatbots/${botId}`, { chatModelConfig: { provider: 'openai', model: 'auto' } });
+    await sleep(2500);
+    const total = mongo(`db.knowledgebases.countDocuments({userserviceId:ObjectId("${botId}")})`);
+    ok('back on OpenAI: every entry re-embedded', mongo(`db.knowledgebases.countDocuments({userserviceId:ObjectId("${botId}"),"embedding.0":{$exists:true}})`) === total, `of ${total}`);
+    const old = await api(token, 'PUT', `/chatbots/${botId}`, { embeddingModelConfig: { provider: 'gemini', model: 'auto' } });
+    ok('separate embedding provider no longer accepted', mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).config.embeddingModelConfig || null)`) === 'null', `status ${old.status}`);
+    await page.goto(`${FE}/dashboard/chatbots/${botId}?tab=overview`, { waitUntil: 'networkidle' });
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.getByText('Provider', { exact: true }).first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, 'ai-model.png') });
+  }, page);
+
   section = 'Trial end';
   await step('lapsed trial stops answering', async () => {
     mongo(`db.userservices.updateOne({_id:ObjectId("${botId}")},{$set:{status:"trial",trialEndDate:new Date(Date.now()-864e5)}})`);

@@ -65,6 +65,23 @@ global.fetch = async (input, init = {}) => {
   try { body = body ? JSON.parse(body) : undefined; } catch {}
   const auth = init.headers?.Authorization || init.headers?.authorization || init.headers?.['x-api-key'];
 
+  // Model lists for the Overview → AI model picker (a realistic mix, so the
+  // backend's chat-model filter is exercised too).
+  if (url.startsWith('https://api.openai.com/v1/models')) {
+    log({ kind: 'openai.models', auth });
+    return json({ data: ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'text-embedding-3-small', 'whisper-1', 'dall-e-3', 'gpt-4o-realtime-preview', 'tts-1'].map((id) => ({ id })) });
+  }
+  if (url.startsWith('https://api.anthropic.com/v1/models')) {
+    log({ kind: 'anthropic.models', auth });
+    return json({ data: [{ id: 'claude-sonnet-4-5', display_name: 'Claude Sonnet 4.5' }, { id: 'claude-3-5-haiku-latest', display_name: 'Claude Haiku 3.5' }] });
+  }
+  if (url.startsWith('https://generativelanguage.googleapis.com/v1beta/models?')) {
+    log({ kind: 'gemini.models' });
+    return json({ models: [
+      { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/text-embedding-004', displayName: 'Text Embedding 004', supportedGenerationMethods: ['embedContent'] },
+    ] });
+  }
   if (url.startsWith('https://api.openai.com/v1/chat/completions')) {
     const content = fakeChat(body);
     log({ kind: 'openai.chat', auth, model: body.model, json: !!body.response_format, system: body.messages?.[0]?.content, reply: content });

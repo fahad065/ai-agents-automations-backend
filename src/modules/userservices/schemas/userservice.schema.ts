@@ -114,15 +114,15 @@ UserServiceSchema.index({ status: 1, trialEndDate: 1 });
 
 // ── Chatbot config ───────────────────────────────────────────────
 
-// Which BYOK provider+model this chatbot's chat replies / knowledge-base
-// embeddings are generated with. `model: 'auto'` (the default) means "let
+// Which BYOK provider+model this chatbot's replies are generated with (the
+// knowledge base is embedded with the same provider's default embedding
+// model — see ai-provider.util.ts embeddingProviderFor()). `model: 'auto'` (the default) means "let
 // the backend pick a sensible default for whichever provider is chosen" —
 // see ai-provider.util.ts's resolveChatModel()/resolveEmbeddingModel().
 // Provider here is always explicit (it determines which of the owner's
 // BYOK keys actually gets billed); only the specific model within that
-// provider defaults to auto. Anthropic is never valid for
-// embeddingModelConfig — it has no embeddings API at all (validated in
-// ChatbotsService.create()/update(), not at the schema level).
+// provider defaults to auto. A Claude bot has no embeddings (Anthropic has
+// no embeddings API) and ranks its knowledge base by word matching.
 @Schema({ _id: false })
 export class AiModelConfig {
   @Prop({ type: String, enum: ApiKeyProvider, default: ApiKeyProvider.OPENAI })
@@ -311,9 +311,6 @@ export class ChatbotConfig {
 
   @Prop({ type: AiModelConfig, default: () => ({}) })
   chatModelConfig: AiModelConfig;
-
-  @Prop({ type: AiModelConfig, default: () => ({}) })
-  embeddingModelConfig: AiModelConfig;
 }
 
 @Schema({ timestamps: true, collection: 'userservices' })

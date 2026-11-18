@@ -6,3 +6,4 @@ site/index.html
 last-run.txt
 results-gym.txt
 results-agent.txt
+results-*.txt

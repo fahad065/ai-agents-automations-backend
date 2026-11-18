@@ -97,6 +97,7 @@ export class ChatService {
               if (o.phone) parts.push(`Phone: ${o.phone}`);
               if (o.mapUrl) parts.push(`Directions: ${o.mapUrl}`);
               if (o.facilities?.length) parts.push(`Facilities/services: ${o.facilities.join(', ')}`);
+              if (o.insurance?.length) parts.push(`Insurance accepted: ${o.insurance.join(', ')} (any other insurer: not listed — say so and offer to check with the team)`);
               if (o.notes) parts.push(o.notes);
               return parts.join(' | ');
             })

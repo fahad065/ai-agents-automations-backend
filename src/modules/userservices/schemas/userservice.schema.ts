@@ -257,6 +257,12 @@ export class Outlet {
   @Prop({ type: [String], default: [] })
   facilities: string[];
 
+  // Insurance providers/cards this branch accepts. Clinics in the UAE
+  // only for now (the dashboard shows the field there), but stored
+  // generically so any branch could carry it.
+  @Prop({ type: [String], default: [] })
+  insurance: string[];
+
   @Prop()
   mapUrl?: string;
 

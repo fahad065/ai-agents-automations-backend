@@ -191,6 +191,20 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     expect(prompt).toContain('Surat, India');
   });
 
+  it('buildSystemPrompt() lists the insurance each clinic branch accepts', async () => {
+    const chatbot = makeChatbot({
+      outlets: [
+        { name: 'Marina Clinic', city: 'Dubai', country: 'United Arab Emirates', insurance: ['Daman', 'AXA'] },
+        { name: 'Barsha Clinic', city: 'Dubai', country: 'United Arab Emirates' },
+      ],
+    });
+    const { service } = makeService({ chatbot });
+    const prompt = (service as any).buildSystemPrompt(toChatbotView(chatbot), []);
+
+    expect(prompt).toContain('Insurance accepted: Daman, AXA');
+    expect(prompt.match(/Insurance accepted/g)).toHaveLength(1);
+  });
+
   it('buildSystemPrompt() has no outlets section at all for a single-location chatbot (unchanged behavior)', async () => {
     const chatbot = makeChatbot({ outlets: [] });
     const { service } = makeService({ chatbot });

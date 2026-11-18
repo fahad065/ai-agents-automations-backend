@@ -1107,3 +1107,16 @@ and reported the page jumping to the top when opening a provider dropdown.
   dropdown in the app.
 - Verified: unit 79/79 (new ai-provider.util.spec.ts); gym e2e gained an
   "AI model" section (scroll, model list, save, Claude switch, re-embed).
+
+## 2026-11-18 — Clinic prep: insurance per UAE branch; E-commerce/Education dropped
+- `Outlet.insurance: string[]` (default []). The chat prompt lists it per branch
+  ("Insurance accepted: …", anything else → say it's not listed, offer the team).
+- E-commerce and Education chatbots removed from the services seed (so they
+  aren't recreated after the owner deletes them in Compass) and the template
+  slug map. Catalog is now 20 services / 7 chatbots.
+- Clinic pricing (Basic 99/79, Pro 149/119) is set by hand in the Service
+  Catalog — owner asked that nothing new go into the seed.
+- Production admin login removed from CLAUDE.md (still in git history —
+  owner to rotate the password).
+- Verified: unit 80/80 (new insurance prompt test); real-stack check of the
+  Locations form (8/8); gym + restaurant e2e.

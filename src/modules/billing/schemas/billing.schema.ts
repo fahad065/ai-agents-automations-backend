@@ -73,6 +73,33 @@ export class Billing {
   @Prop({ default: () => new Date() })
   billingDate: Date;
 
+  // What a chatbot payment was for (setup fee, a month, the Basic → Pro
+  // upgrade) and the customer's bank-transfer reference.
+  @Prop({ enum: ['setup', 'monthly', 'upgrade'] })
+  kind?: 'setup' | 'monthly' | 'upgrade';
+
+  @Prop()
+  transactionRef?: string;
+
+  // Set when the admin confirms the payment (BillingService.issueInvoice):
+  // a sequential number (LM-2026-0001), the issue date, the period the
+  // payment covers and the line printed on the invoice — frozen at issue
+  // time so a later rename doesn't change an invoice already sent.
+  @Prop()
+  invoiceNumber?: string;
+
+  @Prop()
+  invoiceIssuedAt?: Date;
+
+  @Prop()
+  invoiceLine?: string;
+
+  @Prop()
+  periodStart?: Date;
+
+  @Prop()
+  periodEnd?: Date;
+
   @Prop({ default: false })
   isDeleted: boolean;
 }
@@ -83,3 +110,5 @@ BillingSchema.index({ userId: 1, billingDate: -1 });
 BillingSchema.index({ userId: 1, status: 1 });
 BillingSchema.index({ billingDate: -1 });
 BillingSchema.index({ isDeleted: 1 });
+BillingSchema.index({ invoiceNumber: 1 }, { unique: true, sparse: true });
+BillingSchema.index({ userserviceId: 1, status: 1 });

@@ -1,7 +1,7 @@
 import { ServicesService } from './services.service';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
-import { ServiceStatus, ServiceType, SERVICE_FIELD_GROUPS } from './schemas/service.schema';
+import { ServiceStatus, ServiceType } from './schemas/service.schema';
 
 describe('legacyModuleToService', () => {
   const base = { slug: 'x', name: 'X', moduleType: 'agent' };
@@ -68,61 +68,22 @@ describe('LEGACY_SEED_MODULES', () => {
   });
 });
 
-describe('ServicesService.dropRetiredFields', () => {
-  it('unsets the retired fields through the raw collection (bypassing strict mode)', async () => {
-    const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 22 });
-    const svc = new ServicesService({ collection: { updateMany } } as any);
-    await (svc as any).dropRetiredFields();
-    const [filter, update] = updateMany.mock.calls[0];
-    expect(filter.$or).toHaveLength(3);
-    expect(Object.keys(update.$unset).sort()).toEqual(['availableIn', 'category', 'estimatedCostPerRun']);
-  });
-});
+describe('ServicesService.onModuleInit (seed only an empty database)', () => {
+  const build = (count: number) => {
+    const model: any = { estimatedDocumentCount: jest.fn().mockResolvedValue(count), insertMany: jest.fn().mockResolvedValue([]) };
+    return { svc: new ServicesService(model), model };
+  };
 
-describe('ServicesService.groupFlatFields (2026-11-16)', () => {
-  function build() {
-    const updateMany = jest.fn().mockResolvedValue({ modifiedCount: 0 });
-    const dropIndex = jest.fn().mockRejectedValue(new Error('index not found'));
-    const svc = new ServicesService({ collection: { updateMany, dropIndex } } as any);
-    return { svc, updateMany, dropIndex };
-  }
-  const allOld = [...Object.values(SERVICE_FIELD_GROUPS).flatMap((g) => Object.values(g)), 'badge'].sort();
-
-  it('first turns an active service whose badge said Coming Soon into coming_soon', async () => {
-    const { svc, updateMany } = build();
-    await (svc as any).groupFlatFields();
-    expect(updateMany.mock.calls[0]).toEqual([
-      { badge: 'Coming Soon', status: ServiceStatus.ACTIVE },
-      { $set: { status: ServiceStatus.COMING_SOON } },
-    ]);
+  it('seeds the whole catalog into an empty database', async () => {
+    const { svc, model } = build(0);
+    await svc.onModuleInit();
+    expect(model.insertMany).toHaveBeenCalledTimes(1);
+    expect(model.insertMany.mock.calls[0][0]).toHaveLength(LEGACY_SEED_MODULES.length);
   });
 
-  it('only matches docs that still have an old flat field (or badge)', async () => {
-    const { svc, updateMany } = build();
-    await (svc as any).groupFlatFields();
-    const [filter] = updateMany.mock.calls[1];
-    expect(filter.$or.map((c: any) => Object.keys(c)[0]).sort()).toEqual(allOld);
-  });
-
-  it('moves fields into their groups, pricingTiers into pricing.tiers, existing values winning', async () => {
-    const { svc, updateMany } = build();
-    await (svc as any).groupFlatFields();
-    const [, pipeline] = updateMany.mock.calls[1];
-    const set = pipeline[0].$set;
-    expect(Object.keys(set).sort()).toEqual(['content', 'display', 'pipeline', 'pricing', 'seo']);
-    expect(set.pricing.$mergeObjects).toEqual([
-      { tiers: '$pricingTiers', stripePriceId: '$stripePriceId' },
-      { $ifNull: ['$pricing', {}] },
-    ]);
-    expect(set.display.$mergeObjects[0]).toEqual({
-      icon: '$icon', color: '$color', sortOrder: '$sortOrder', platforms: '$platforms',
-    });
-    expect([...pipeline[1].$unset].sort()).toEqual(allOld);
-  });
-
-  it('survives the old index already being gone', async () => {
-    const { svc, dropIndex } = build();
-    await expect((svc as any).groupFlatFields()).resolves.toBeUndefined();
-    expect(dropIndex).toHaveBeenCalledWith('type_1_status_1_isDeleted_1_sortOrder_1');
+  it('writes nothing once the catalog has any document', async () => {
+    const { svc, model } = build(1);
+    await svc.onModuleInit();
+    expect(model.insertMany).not.toHaveBeenCalled();
   });
 });

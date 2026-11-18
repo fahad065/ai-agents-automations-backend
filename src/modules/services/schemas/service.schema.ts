@@ -93,9 +93,7 @@ class ServiceFaq {
 // Grouped sub-documents (2026-11-16, user-approved): marketing copy under
 // `content`, SEO under `seo`, card styling under `display`, how the Python
 // service runs it under `pipeline`, and all pricing (incl. chatbot tiers)
-// under `pricing`. Old flat docs are migrated by
-// ServicesService.groupFlatFields(). `badge` was dropped the same day —
-// the "Live" / "Coming Soon" pill is derived from `status`.
+// under `pricing`. The "Live" / "Coming Soon" pill is derived from `status`.
 @Schema({ _id: false })
 export class ServiceContent {
   @Prop() tagline?: string;
@@ -195,24 +193,3 @@ export const ServiceSchema = SchemaFactory.createForClass(Service);
 
 ServiceSchema.index({ type: 1, status: 1, isDeleted: 1, 'display.sortOrder': 1 });
 ServiceSchema.index({ nicheSlug: 1 });
-
-// Old flat field → grouped location, used by the one-time 2026-11-16
-// migration (ServicesService.groupFlatFields()). group → { newKey: oldField }.
-export const SERVICE_FIELD_GROUPS: Record<string, Record<string, string>> = {
-  content: {
-    tagline: 'tagline', tagline_ar: 'tagline_ar', description: 'description', description_ar: 'description_ar',
-    capabilities: 'capabilities', capabilities_ar: 'capabilities_ar', heroStats: 'heroStats',
-    featureCards: 'featureCards', howItWorks: 'howItWorks', faq: 'faq',
-    demoVideoUrl: 'demoVideoUrl', brochureUrl: 'brochureUrl',
-  },
-  seo: {
-    metaTitle: 'metaTitle', metaTitle_ar: 'metaTitle_ar',
-    metaDescription: 'metaDescription', metaDescription_ar: 'metaDescription_ar',
-  },
-  display: { icon: 'icon', color: 'color', sortOrder: 'sortOrder', platforms: 'platforms' },
-  pipeline: {
-    pipelineType: 'pipelineType', pipelineCategory: 'pipelineCategory', components: 'components',
-    requiredApiKeys: 'requiredApiKeys', defaultConfig: 'defaultConfig',
-  },
-  pricing: { tiers: 'pricingTiers', stripePriceId: 'stripePriceId' },
-};

@@ -1120,3 +1120,24 @@ and reported the page jumping to the top when opening a provider dropdown.
   owner to rotate the password).
 - Verified: unit 80/80 (new insurance prompt test); real-stack check of the
   Locations form (8/8); gym + restaurant e2e.
+
+## 2026-11-18 — Startup migrations removed; invoices; one API key form
+- **Startup**: every one-time migration hook deleted (UsersService,
+  ApiKeysService, ServicesService regroup/retired-field cleanup,
+  UserServicesMigration, CmsService About backfill) — production was already
+  migrated. The services seed now runs only when `services` is empty
+  (`estimatedDocumentCount() === 0` → insertMany). The chatbots→userservices
+  converter lives on as a test fixture (`test/fixtures/chatbot-row.ts`).
+  Migration check scripts in test/e2e removed.
+- **Bug fixed**: Confirm payment never passed `billingRecordId`, so a
+  customer's "I've paid" record stayed PENDING forever. `confirmPayment` now
+  finds the latest PENDING row of that kind (or creates a PAID one when the
+  customer never submitted), marks it PAID and issues an invoice.
+- **Invoices** (owner-approved: LogicMate Dubai as issuer, no VAT, email PDF +
+  Billing tab): fields on `billings` + `invoicecounters`; pdfkit PDF;
+  `GET /billing/:id/invoice` (owner/admin); `EmailService.sendInvoiceEmail()`
+  attaches it. Issuer config in `billing/invoice-issuer.ts`.
+- **Docs**: CLAUDE.md rewritten to the current code; the dated feature
+  write-ups moved to `ai/feature-history.md`.
+- Open: `PIPELINE_SECRET` / `CRON_SECRET` have hard-coded fallbacks in code —
+  must be set on Railway.

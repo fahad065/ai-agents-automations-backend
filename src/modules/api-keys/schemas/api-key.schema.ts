@@ -44,9 +44,7 @@ export enum ApiKeyStatus {
 // written by any real code path. `isActive: boolean` -> `status` enum
 // + a real `isDeleted` soft-delete flag — same status-enum-not-boolean,
 // isDeleted-everywhere convention used across every other collection in
-// this redesign. See ApiKeysService.onModuleInit() for the one-time
-// backfill that migrates existing documents (old `isActive` -> `status`,
-// adds `isDeleted: false`) without a manual script or DB access.
+// this redesign.
 @Schema({ timestamps: true })
 export class ApiKey {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })

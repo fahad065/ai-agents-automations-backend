@@ -2,15 +2,13 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  OnModuleInit,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Cms, CmsDocument, CmsType, CmsStatus, CmsPageSlug } from './schemas/cms.schema';
 
-// Shared between seed() (the full POST /cms/admin/seed reseed) and the
-// onModuleInit() backfill below, so the two never drift out of sync.
+// About page content used by seed() (the admin POST /cms/admin/seed reseed).
 const SEED_ABOUT_PAGE = {
   content: `
     <h2>Our mission</h2>
@@ -105,46 +103,12 @@ const autoSlug = (title: string) =>
     .replace(/^-|-$/g, '');
 
 @Injectable()
-export class CmsService implements OnModuleInit {
+export class CmsService {
   private readonly logger = new Logger(CmsService.name);
 
   constructor(
     @InjectModel(Cms.name) private cmsModel: Model<CmsDocument>,
   ) {}
-
-  async onModuleInit() {
-    await this.backfillAboutGlobalMarketContent();
-  }
-
-  // One-time-per-doc backfill: the About page's content used to frame
-  // LogicMate as GCC/UAE-and-Kenya-only. The platform now targets
-  // international markets too. Gated on `lastEditedBy` not being set —
-  // that field is only ever written by a real admin edit (adminUpdate()),
-  // never by seed() or the CMS migration, so its absence reliably means
-  // "no admin customization to protect".
-  private async backfillAboutGlobalMarketContent() {
-    const seed = SEED_ABOUT_PAGE;
-    const result = await this.cmsModel.updateOne(
-      {
-        type: CmsType.PAGE,
-        slug: CmsPageSlug.ABOUT,
-        lastEditedBy: { $exists: false },
-        $or: [
-          { content: { $ne: seed.content } },
-          { content_ar: { $exists: false } },
-        ],
-      },
-      { $set: { content: seed.content, content_ar: seed.content_ar } },
-    );
-    if (result.modifiedCount) {
-      this.logger.log('About page content backfilled to global-market copy');
-    }
-  }
-
-  // ─── Public ──────────────────────────────────────────────────
-  // One unified read surface over the `cms` collection — a single document
-  // by {type, slug}, or a filtered/paginated list (used for the blog
-  // index; a page is always fetched individually by its fixed slug).
 
   async getPublic(type: CmsType, slug: string) {
     const doc = await this.cmsModel

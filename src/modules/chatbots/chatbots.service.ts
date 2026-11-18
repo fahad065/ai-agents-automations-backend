@@ -709,6 +709,8 @@ export class ChatbotsService {
       description: `${kindLabel} — ${chatbot.name} — ref ${dto.transactionRef}${dto.notes ? ` — ${dto.notes}` : ''}`,
       type: dto.kind === 'setup' ? BillingType.SETUP : BillingType.SUBSCRIPTION,
       status: BillingStatus.PENDING,
+      kind: dto.kind,
+      transactionRef: dto.transactionRef,
     });
 
     await this.emailService.sendAdminAlert(
@@ -753,11 +755,72 @@ export class ChatbotsService {
       chatbot.status = UserServiceStatus.ACTIVE;
     }
 
-    if (dto.billingRecordId) {
-      await this.billingService.updateStatus(dto.billingRecordId, BillingStatus.PAID);
-    }
+    const saved = await chatbot.save();
+    await this.recordPaymentAndInvoice(saved, dto.kind, dto.billingRecordId, now);
+    return toChatbotView(saved, true);
+  }
 
-    return toChatbotView(await chatbot.save(), true);
+  // The admin saw the money arrive: mark the customer's "I've paid" record
+  // PAID — or, if they never submitted one, record the payment now — then
+  // issue its invoice and email it. Invoicing is best-effort: a failure
+  // there never undoes the confirmation itself.
+  private async recordPaymentAndInvoice(
+    chatbot: ChatbotUserServiceDocument, kind: 'setup' | 'monthly' | 'upgrade', billingRecordId: string | undefined, now: Date,
+  ): Promise<void> {
+    const id = String(chatbot._id);
+    const tierName = chatbot.plan?.tier === 'pro' ? 'Pro' : chatbot.plan?.tier === 'custom' ? 'Custom' : 'Basic';
+    const amount = kind === 'setup' ? chatbot.plan?.setupFee || 0 : chatbot.plan?.monthlyFee || 0;
+
+    let record = billingRecordId ? await this.billingService.findById(billingRecordId) : await this.billingService.findPending(id, kind);
+    if (record && String(record.userserviceId) !== id) record = null;
+    if (record) {
+      await this.billingService.updateStatus(String(record._id), BillingStatus.PAID);
+    } else {
+      if (!amount) return;
+      record = await this.billingService.create({
+        userId: chatbot.userId.toString(),
+        userserviceId: id,
+        moduleType: 'chatbot',
+        moduleName: chatbot.name,
+        amount,
+        description: `${kind === 'setup' ? 'Setup fee' : kind === 'upgrade' ? 'Tier upgrade (Basic → Pro)' : 'Monthly fee'} — ${chatbot.name} — confirmed by admin`,
+        type: kind === 'setup' ? BillingType.SETUP : BillingType.SUBSCRIPTION,
+        status: BillingStatus.PAID,
+        kind,
+      });
+    }
+    if (!record.amount) return;
+
+    try {
+      const serviceName = await this.serviceNameFor(chatbot);
+      const line = kind === 'setup'
+        ? `${serviceName} "${chatbot.name}" — one-time setup fee`
+        : kind === 'upgrade'
+          ? `${serviceName} "${chatbot.name}" — upgrade to the Pro plan, first month`
+          : `${serviceName} "${chatbot.name}" — ${tierName} plan, monthly fee`;
+      const periodEnd = kind === 'setup' ? undefined : chatbot.nextRenewalDate || undefined;
+      const issued = await this.billingService.issueInvoice(String(record._id), {
+        line, periodStart: periodEnd ? now : undefined, periodEnd,
+      });
+      const owner = await this.userModel.findById(chatbot.userId).select('name email').lean();
+      if (!owner) return;
+      const { filename, pdf } = await this.billingService.invoicePdf(String(issued._id), { userId: '', isAdmin: true });
+      await this.emailService.sendInvoiceEmail(owner as any, {
+        chatbotId: id, serviceName, invoiceNumber: issued.invoiceNumber!, amount: issued.amount,
+        currency: issued.currency || 'USD', filename, pdf,
+      });
+    } catch (err: any) {
+      this.logger.error(`Invoice for chatbot ${id} (${kind}) failed: ${err?.message || err}`);
+    }
+  }
+
+  private async serviceNameFor(chatbot: ChatbotUserServiceDocument): Promise<string> {
+    try {
+      const svc: any = await this.servicesService.findOne(String(chatbot.serviceId));
+      return svc?.name || 'Chatbot';
+    } catch {
+      return 'Chatbot';
+    }
   }
 
   async getBillingHistory(chatbotId: string, userId: string, isAdmin: boolean) {

@@ -3,12 +3,11 @@ import {
     Logger,
     NotFoundException,
     BadRequestException,
-    OnModuleInit,
   } from '@nestjs/common';
   import { InjectModel } from '@nestjs/mongoose';
   import { Model, Types } from 'mongoose';
   import * as bcrypt from 'bcryptjs';
-  import { User, UserDocument, UserStatus, USER_PUBLIC_PROJECTION, USER_FIELD_GROUPS } from './schemas/user.schema';
+  import { User, UserDocument, UserStatus, USER_PUBLIC_PROJECTION } from './schemas/user.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 import {
@@ -18,7 +17,7 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
 
   @Injectable()
-  export class UsersService implements OnModuleInit {
+  export class UsersService {
     private readonly logger = new Logger(UsersService.name);
 
     constructor(
@@ -27,114 +26,6 @@ import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log
       @InjectModel(ChatbotUserService.name) private chatbotModel: Model<ChatbotUserServiceDocument>,
       private activityLogsService: ActivityLogsService,
     ) {}
-
-    // Self-heals every pre-existing doc still on the old shape — same
-    // aggregation-pipeline updateMany() pattern as
-    // ApiKeysService.onModuleInit(). No manual migration script, since
-    // this sandbox has no network path to the real MongoDB Atlas instance.
-    // See ai/architecture.md's "users" section.
-    async onModuleInit() {
-      const statusResult = await this.userModel.updateMany(
-        { status: { $exists: false } } as any,
-        [
-          {
-            $set: {
-              status: {
-                $cond: [{ $eq: ['$isActive', false] }, UserStatus.INACTIVE, UserStatus.ACTIVE],
-              },
-            },
-          },
-          { $unset: ['isActive', 'facebookId', 'appleId', 'totalAgents', 'totalAutomations'] },
-        ] as any,
-      );
-      if (statusResult.modifiedCount) {
-        this.logger.log(`Backfilled status on ${statusResult.modifiedCount} user(s)`);
-      }
-
-      const notifyResult = await this.userModel.updateMany(
-        { notifyPreferences: { $exists: false } } as any,
-        [
-          {
-            $set: {
-              notifyPreferences: {
-                onComplete: { $ifNull: ['$notifyOnComplete', true] },
-                onFail: { $ifNull: ['$notifyOnFail', true] },
-                trialExpiry: { $ifNull: ['$notifyTrialExpiry', true] },
-                billing: { $ifNull: ['$notifyBilling', true] },
-                emailUpdates: { $ifNull: ['$emailUpdates', false] },
-              },
-            },
-          },
-          {
-            $unset: [
-              'notifyOnComplete', 'notifyOnFail', 'notifyTrialExpiry',
-              'notifyBilling', 'emailUpdates',
-            ],
-          },
-        ] as any,
-      );
-      if (notifyResult.modifiedCount) {
-        this.logger.log(`Backfilled notifyPreferences on ${notifyResult.modifiedCount} user(s)`);
-      }
-
-      // Fields confirmed dead (never read anywhere) and removed from the
-      // schema, plus `onboarding: {}` for users created while the schema
-      // still minimized it away. Raw collection: Mongoose strict mode would
-      // drop an $unset of paths no longer on the schema. Matches nothing
-      // once cleaned, so it's free on later boots.
-      const retired = [
-        'totalVideosGenerated', 'totalCreditsUsed', 'onboardingCompleted', 'trialReminderSent',
-        'freeForeverGrantedBy', 'trialExtendedUntil', 'trialExtendedBy',
-      ];
-      const retiredResult = await this.userModel.collection.updateMany(
-        { $or: retired.map((f) => ({ [f]: { $exists: true } })) },
-        { $unset: Object.fromEntries(retired.map((f) => [f, ''])) },
-      );
-      if (retiredResult.modifiedCount) {
-        this.logger.log(`Removed retired fields from ${retiredResult.modifiedCount} user(s)`);
-      }
-      await this.userModel.collection.updateMany(
-        { onboarding: { $exists: false } },
-        { $set: { onboarding: {} } },
-      );
-
-      await this.groupFlatFields();
-    }
-
-    // One-time move of the old flat fields into profile/auth/plan/
-    // welcomeEmails/deletion (2026-11-16, user-approved). Only matches docs
-    // that still have at least one old flat field, so it's a no-op after the
-    // first boot. If a doc already has a grouped value (e.g. written by new
-    // code mid-deploy), that value wins over the old flat one.
-    private async groupFlatFields() {
-      const groups = USER_FIELD_GROUPS;
-      const oldFields = Object.values(groups).flatMap((g) => Object.values(g));
-
-      const setStage: Record<string, any> = {};
-      for (const [group, map] of Object.entries(groups)) {
-        // A field missing on the doc evaluates to "missing" and is simply
-        // left out of the object literal — no nulls get written.
-        const fromFlat = Object.fromEntries(Object.entries(map).map(([to, from]) => [to, '$' + from]));
-        setStage[group] = { $mergeObjects: [fromFlat, { $ifNull: ['$' + group, {}] }] };
-      }
-
-      // Raw collection: the old paths are no longer on the schema, so
-      // Mongoose strict mode would strip them from the filter and $unset.
-      const result = await this.userModel.collection.updateMany(
-        { $or: oldFields.map((f) => ({ [f]: { $exists: true } })) },
-        [{ $set: setStage }, { $unset: oldFields }],
-      );
-      if (result.modifiedCount) {
-        this.logger.log(`Grouped profile/auth/plan/welcomeEmails/deletion on ${result.modifiedCount} user(s)`);
-      }
-
-      // Indexes on the old flat paths are dead weight now; the schema
-      // creates auth.googleId / plan.planType / plan.trialEndDate /
-      // deletion.pendingAt instead.
-      for (const name of ['googleId_1', 'planType_1', 'trialEndDate_1', 'pendingDeletionAt_1']) {
-        await this.userModel.collection.dropIndex(name).catch(() => undefined);
-      }
-    }
 
     async findById(id: string) {
       const user = await this.userModel.findById(id);

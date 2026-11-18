@@ -1,6 +1,7 @@
 import {
-    Controller, Get, Post, Query, Body, Req, UseGuards,
+    Controller, Get, Post, Query, Body, Req, Res, Param, UseGuards,
   } from '@nestjs/common';
+  import type { Response } from 'express';
   import { BillingService } from './billing.service';
   import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
   
@@ -79,5 +80,19 @@ import {
         userId: req.user._id.toString(),
         ...body,
       });
+    }
+  
+    // Invoice PDF for a paid record — its owner or an admin.
+    @Get(':id/invoice')
+    async invoice(@Req() req: any, @Param('id') id: string, @Res() res: Response) {
+      const { filename, pdf } = await this.service.invoicePdf(id, {
+        userId: req.user._id.toString(), isAdmin: req.user.role === 'admin',
+      });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(pdf.length),
+      });
+      res.end(pdf);
     }
   }

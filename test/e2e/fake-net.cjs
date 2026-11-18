@@ -97,7 +97,7 @@ global.fetch = async (input, init = {}) => {
     return json({ content: [{ type: 'text', text: content }] });
   }
   if (url.startsWith('https://api.resend.com/emails')) {
-    log({ kind: 'email', to: body.to, subject: body.subject, reply_to: body.reply_to });
+    log({ kind: 'email', to: body.to, subject: body.subject, reply_to: body.reply_to, attachments: (body.attachments || []).map((a) => ({ filename: a.filename, bytes: Buffer.from(a.content || '', 'base64').length })) });
     return json({ id: 'fake-email-id' });
   }
   if (/^https:\/\/graph\.(facebook|instagram)\.com\//.test(url)) {

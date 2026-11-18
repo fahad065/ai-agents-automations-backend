@@ -398,7 +398,7 @@ config: {}                                  -- shape depends on type AND the spe
   --                   schedule{frequency: manual|daily|weekly, time "HH:MM" UAE, days[]}, customPrompt?, useCustomPrompt, youtubeChannelId?,
   --                   videoModel, apiKeyMode, lastRunAt? (also the cron's once-a-day claim), totalRuns, totalCost
   -- chatbot: botStatus (draft|active|inactive — is the bot live; separate from the subscription status), description, persona, language,
-  --          embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]?,
+  --          embedKey (unique), channels{website,whatsapp,instagram}, humanHandoff, fallbackMessage(_ar), bookingUrl?, outlets[]? (name, city, country, address, hours, phone, facilities[], areaTags[], deliveryPlatforms[], insurance[], mapUrl, isOnlineOnly, notes),
   --          chatModelConfig {provider, model: 'auto' | a model id from GET /chatbots/:id/models}
 ```
 Agents/automations (2026-11-17, no data to migrate — `usermodules` had no
@@ -536,20 +536,22 @@ LogicMate's own AI-API spend, not money the customer paid — it belongs on
 `pipeline_runs`, see below), `paddleTransactionId`/`paddleSubscriptionId`
 (replaced by the `stripe*` fields).
 
-### `invoices` — NEW. One per confirmed `billing` record.
+### Invoices — DONE 2026-11-18, as fields on the `billings` row (not a separate collection)
+Planned as its own `invoices` collection (1:1 with a confirmed billing row);
+built as fields on that row instead, since a 1:1 second collection only adds
+a join. Set when the admin confirms a chatbot payment:
 ```
-_id, invoiceNumber (unique, sequential — e.g. INV-2026-0042)
-billingId  -- 1:1 with billing
-userId, userserviceId?/bundleId?
-lineItems: [{description, amount}]           -- for a bundle, can list each included service for clarity even though billing itself has one amount
-subtotal, total, currency
-billingPeriodStart, billingPeriodEnd
-issuedAt, issuedBy (admin)
-sentAt?                                      -- when emailed to the customer as a receipt
+billings.kind: setup | monthly | upgrade      -- what the payment was for
+billings.transactionRef                       -- customer's bank-transfer reference
+billings.invoiceNumber (unique, sparse)       -- LM-<year>-0001, counted per year
+billings.invoiceIssuedAt
+billings.invoiceLine                          -- frozen text printed on the invoice
+billings.periodStart / periodEnd              -- service period (monthly/upgrade)
+invoicecounters: { _id: 'invoice-<year>', seq } -- atomic $inc, never reused
 ```
-Created in the same action as a `billing` record when an admin manually
-confirms a payment (enters the amount + service details, hits save) — see
-`implementation-guide.md` for the renew→billing→invoice→email flow design.
+The PDF isn't stored: `GET /billing/:id/invoice` renders it from the row
+(pdfkit, `billing/invoice-pdf.ts`), and the same PDF is emailed on confirm.
+Issuer details: `billing/invoice-issuer.ts` (LogicMate, Dubai; no VAT/TRN yet).
 
 ### `activity_logs` — DONE, 2026-11-09. Visible to the account owner (own
 entries only) AND admin (every entry, filterable) — corrected from this

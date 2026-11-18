@@ -110,8 +110,10 @@ async function openTab(page, label) {
     const dlg = page.getByRole('dialog');
     await dlg.waitFor({ timeout: 8000 });
     ok('"add your AI key" prompt shown for a bot with no key', /key/i.test(await dlg.innerText()));
-    await dlg.locator('input').first().fill('sk-owner-test-key-1234567890');
-    await dlg.getByRole('button', { name: /Save Key/ }).click();
+    const dtext = await dlg.innerText();
+    ok('same form as the API Keys page, OpenAI preselected', /Create API key/.test(dtext) && /Service \/ Provider/.test(dtext) && /OpenAI/.test(dtext) && /API key value/.test(dtext), dtext.slice(0, 120).replace(/\n/g, ' '));
+    await dlg.locator('#key-value').fill('sk-owner-test-key-1234567890');
+    await dlg.getByRole('button', { name: /Save key/ }).click();
     await page.waitForTimeout(1200);
     ok('key saved (encrypted, not plain text)', mongo(`db.apikeys.countDocuments({provider:"openai"})`) === '1' && !mongo(`JSON.stringify(db.apikeys.findOne())`).includes('sk-owner-test-key'));
   }, page);
@@ -314,6 +316,29 @@ async function openTab(page, label) {
     await ap.waitForTimeout(1500);
     const bot = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).plan)`));
     ok('bot is now Pro at the Pro price', bot.tier === 'pro' && bot.monthlyFee === 120, `tier=${bot.tier} fee=${bot.monthlyFee}`);
+
+    // Invoice: the customer's pending upgrade payment is now PAID, numbered,
+    // emailed as a PDF and downloadable — by the owner only.
+    const rec = JSON.parse(mongo(`JSON.stringify(db.billings.findOne({userserviceId:ObjectId("${botId}"),kind:"upgrade"}))`));
+    ok('pending upgrade payment marked PAID', rec?.status === 'paid', rec?.status);
+    ok('invoice numbered LM-<year>-0001', rec?.invoiceNumber === `LM-${new Date().getUTCFullYear()}-0001`, rec?.invoiceNumber);
+    ok('invoice line names the service, bot and plan', /Gym .*Pro plan/.test(rec?.invoiceLine || ''), rec?.invoiceLine);
+    const mail = calls().filter((c) => c.kind === 'email' && JSON.stringify(c.to).includes(OWNER.email) && /invoice/i.test(c.subject)).pop();
+    ok('invoice emailed to the owner with the PDF attached', !!mail && mail.attachments?.[0]?.filename === `LogicMate-Invoice-${rec?.invoiceNumber}.pdf` && mail.attachments[0].bytes > 1000, JSON.stringify(mail?.attachments));
+    const pdfRes = await fetch(`${API}/billing/${rec._id}/invoice`, { headers: { authorization: `Bearer ${token}` } });
+    const pdfBytes = Buffer.from(await pdfRes.arrayBuffer());
+    ok('owner downloads the invoice PDF', pdfRes.status === 200 && pdfRes.headers.get('content-type') === 'application/pdf' && pdfBytes.subarray(0, 5).toString() === '%PDF-');
+    const stranger = { name: 'Stranger', email: `stranger.${Date.now()}@gym.test`, password: 'Owner@12345' };
+    await api(null, 'POST', '/auth/register', stranger);
+    const sTok = (await api(null, 'POST', '/auth/login', { email: stranger.email, password: stranger.password })).data.accessToken;
+    const sRes = await fetch(`${API}/billing/${rec._id}/invoice`, { headers: { authorization: `Bearer ${sTok}` } });
+    ok('another customer cannot download it', sRes.status === 403, `${sRes.status}`);
+    await ap.goto(`${FE}/dashboard/chatbots/${botId}?tab=billing`, { waitUntil: 'networkidle' });
+    await ap.keyboard.press('Escape').catch(() => {});
+    await ap.waitForTimeout(800);
+    const [dl] = await Promise.all([ap.waitForEvent('download', { timeout: 10000 }), ap.getByRole('button', { name: /^Invoice$/ }).first().click()]);
+    ok('Billing tab "Invoice" button downloads the PDF', dl.suggestedFilename() === `LogicMate-Invoice-${rec.invoiceNumber}.pdf`, dl.suggestedFilename());
+    fs.writeFileSync(path.join(SHOTS, 'invoice.pdf'), pdfBytes);
 
     // Admin services form: chatbot shows no Pipeline tab, Niche on Basic tab.
     await ap.goto(`${FE}/dashboard/cms-modules`, { waitUntil: 'networkidle' });

@@ -2,7 +2,6 @@ import {
     Injectable,
     Logger,
     NotFoundException,
-    OnModuleInit,
   } from '@nestjs/common';
   import { InjectModel } from '@nestjs/mongoose';
   import { Model, Types } from 'mongoose';
@@ -31,7 +30,7 @@ function normalizeProvider(raw: string): string {
 }
 
   @Injectable()
-  export class ApiKeysService implements OnModuleInit {
+  export class ApiKeysService {
     private readonly logger = new Logger(ApiKeysService.name);
 
     constructor(
@@ -40,34 +39,6 @@ function normalizeProvider(raw: string): string {
       private notificationsService: NotificationsService,
       private activityLogsService: ActivityLogsService,
     ) {}
-
-    // Self-healing backfill (same pattern as ModulesService/ChatbotsService
-    // elsewhere in this codebase) — migrates documents written before the
-    // isActive -> status/isDeleted schema change, with no manual script or
-    // DB access needed. Matched purely on `status` not existing yet, so a
-    // doc already migrated (or newly created, which always sets `status`
-    // itself) is never touched twice. `isActive`/`agentId`/`expiresAt` are
-    // no longer declared on the schema but still physically present on
-    // untouched old documents — this is what actually reads and clears them.
-    async onModuleInit() {
-      const result = await this.apiKeyModel.updateMany(
-        { status: { $exists: false } } as any,
-        [
-          {
-            $set: {
-              status: {
-                $cond: [{ $eq: ['$isActive', false] }, ApiKeyStatus.INACTIVE, ApiKeyStatus.ACTIVE],
-              },
-              isDeleted: false,
-            },
-          },
-          { $unset: ['isActive', 'agentId', 'expiresAt'] },
-        ] as any,
-      );
-      if (result.modifiedCount) {
-        this.logger.log(`Backfilled status/isDeleted on ${result.modifiedCount} api key(s)`);
-      }
-    }
 
     private get encryptionKey() {
       return this.config.get('ENCRYPTION_KEY');

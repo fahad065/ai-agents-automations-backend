@@ -1,13 +1,29 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Billing, BillingDocument, BillingStatus, BillingType } from './schemas/billing.schema';
+import { InvoiceCounter, InvoiceCounterDocument } from './schemas/invoice-counter.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { renderInvoicePdf } from './invoice-pdf';
+
+export type PaymentKind = 'setup' | 'monthly' | 'upgrade';
+
+// Records written before `kind` existed only say it in the description.
+const LEGACY_KIND_PREFIX: Record<PaymentKind, RegExp> = {
+  setup: /^Setup fee/,
+  monthly: /^Monthly fee/,
+  upgrade: /^Tier upgrade/,
+};
 
 @Injectable()
 export class BillingService {
   constructor(
     @InjectModel(Billing.name)
     private billingModel: Model<BillingDocument>,
+    @InjectModel(InvoiceCounter.name)
+    private counterModel: Model<InvoiceCounterDocument>,
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
   ) {}
 
   // Record a billing event
@@ -22,6 +38,8 @@ export class BillingService {
     pipelineRunId?: string;
     subscriptionId?: string;
     userserviceId?: string;
+    kind?: PaymentKind;
+    transactionRef?: string;
     apiCosts?: { openai?: number; seedance?: number; atlas?: number };
   }): Promise<BillingDocument> {
     return this.billingModel.create({
@@ -35,9 +53,80 @@ export class BillingService {
       pipelineRunId: data.pipelineRunId ? new Types.ObjectId(data.pipelineRunId) : undefined,
       subscriptionId: data.subscriptionId ? new Types.ObjectId(data.subscriptionId) : undefined,
       userserviceId: data.userserviceId ? new Types.ObjectId(data.userserviceId) : undefined,
+      kind: data.kind,
+      transactionRef: data.transactionRef,
       apiCosts: data.apiCosts || {},
       billingDate: new Date(),
     });
+  }
+
+  // The customer's latest "I've paid" record for this kind of payment, if
+  // any, that's still waiting for the admin.
+  async findPending(userserviceId: string, kind: PaymentKind): Promise<BillingDocument | null> {
+    return this.billingModel
+      .findOne({
+        userserviceId: new Types.ObjectId(userserviceId),
+        status: BillingStatus.PENDING,
+        isDeleted: false,
+        $or: [{ kind }, { kind: { $exists: false }, description: LEGACY_KIND_PREFIX[kind] }],
+      })
+      .sort({ billingDate: -1 });
+  }
+
+  // Gives a paid record its invoice number (LM-<year>-0001, counting per
+  // year) and freezes what the invoice says. Calling it again on a record
+  // that already has a number changes nothing.
+  async issueInvoice(
+    id: string,
+    details: { line: string; periodStart?: Date; periodEnd?: Date },
+  ): Promise<BillingDocument> {
+    const existing = await this.billingModel.findById(id);
+    if (!existing) throw new NotFoundException('Billing record not found');
+    if (existing.invoiceNumber) return existing;
+    const issuedAt = new Date();
+    const year = issuedAt.getUTCFullYear();
+    const counter = await this.counterModel.findOneAndUpdate(
+      { _id: `invoice-${year}` },
+      { $inc: { seq: 1 } },
+      { upsert: true, new: true },
+    );
+    const invoiceNumber = `LM-${year}-${String(counter!.seq).padStart(4, '0')}`;
+    const updated = await this.billingModel.findOneAndUpdate(
+      { _id: existing._id, invoiceNumber: { $exists: false } },
+      { $set: { invoiceNumber, invoiceIssuedAt: issuedAt, invoiceLine: details.line, periodStart: details.periodStart, periodEnd: details.periodEnd } },
+      { new: true },
+    );
+    return updated || (await this.billingModel.findById(id))!;
+  }
+
+  // The invoice PDF for one record — its owner or an admin only.
+  async invoicePdf(id: string, viewer: { userId: string; isAdmin: boolean }): Promise<{ filename: string; pdf: Buffer }> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Invoice not found');
+    const record = await this.billingModel.findOne({ _id: id, isDeleted: false }).lean();
+    if (!record || !record.invoiceNumber) throw new NotFoundException('Invoice not found');
+    if (!viewer.isAdmin && String(record.userId) !== viewer.userId) throw new ForbiddenException();
+    const user: any = await this.userModel.findById(record.userId).select('name email profile.company profile.country').lean();
+    const pdf = await renderInvoicePdf({
+      invoiceNumber: record.invoiceNumber,
+      issuedAt: record.invoiceIssuedAt || record.billingDate,
+      customer: {
+        name: user?.name || 'Customer',
+        email: user?.email || '',
+        company: user?.profile?.company,
+        country: user?.profile?.country,
+      },
+      line: record.invoiceLine || record.moduleName,
+      periodStart: record.periodStart,
+      periodEnd: record.periodEnd,
+      amount: record.amount,
+      currency: record.currency || 'USD',
+      transactionRef: record.transactionRef,
+    });
+    return { filename: `LogicMate-Invoice-${record.invoiceNumber}.pdf`, pdf };
+  }
+
+  async findById(id: string): Promise<BillingDocument | null> {
+    return Types.ObjectId.isValid(id) ? this.billingModel.findById(id) : null;
   }
 
   async updateStatus(id: string, status: BillingStatus): Promise<BillingDocument | null> {

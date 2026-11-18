@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { ChatService } from './chat.service';
-import { toUserServiceRow } from '../userservices/userservices.migration';
+import { toUserServiceRow } from '../../../test/fixtures/chatbot-row';
 import { toChatbotView } from '../userservices/chatbot-view';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 

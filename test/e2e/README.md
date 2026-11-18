@@ -38,24 +38,11 @@ runs the suite. Screenshots land in `test/e2e/shots/`.
 **Never point this at Atlas.** It creates users, chatbots and payments and
 drops its database at the start of every run.
 
-## Migration check (one-off)
-
-`seed-old-shape.js` inserts users/services in the pre-2026-11-16 flat shape;
-start the backend once, then run `check-migration.js` with `mongosh` to
-confirm the grouping migrations.
-
 ## Adding a service
 
 Copy `restaurant-e2e.cjs` to `<service>-e2e.cjs`, change the knowledge base
 and questions, and add `docs/test-cases/<service>.md` with the same table
 layout as the restaurant one.
 
-## Checking the chatbots → userservices migration
-```bash
-docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").dropDatabase()'
-# boot the backend once (seeds services), stop it, then:
-docker exec -i lm-mongo mongosh --quiet < test/e2e/seed-old-chatbots.js
-# boot the backend again (runs the migration), then:
-docker exec -i lm-mongo mongosh --quiet < test/e2e/check-userservices-migration.js
-```
-
+The backend seeds the service catalog only into an empty database, which
+every run starts with (the suite drops `lm_e2e` first).

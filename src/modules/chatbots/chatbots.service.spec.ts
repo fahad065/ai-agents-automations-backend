@@ -1,6 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ChatbotsService } from './chatbots.service';
-import { toUserServiceRow } from '../userservices/userservices.migration';
+import { toUserServiceRow } from '../../../test/fixtures/chatbot-row';
 
 // Tests describe bots in the familiar chatbot shape; this turns that into a
 // userservices row with the same converter the real migration uses, plus

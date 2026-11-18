@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Service, ServiceDocument, ServiceStatus, SERVICE_FIELD_GROUPS } from './schemas/service.schema';
+import { Service, ServiceDocument, ServiceStatus } from './schemas/service.schema';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
 
@@ -21,84 +21,14 @@ export class ServicesService implements OnModuleInit {
     @InjectModel(Service.name) private serviceModel: Model<ServiceDocument>,
   ) {}
 
+  // Fills the catalog on a brand-new (empty) database only — a local or test
+  // database. Once the collection has any document, nothing runs: the
+  // catalog is edited by hand in Service Catalog, and a service deleted
+  // there never comes back.
   async onModuleInit() {
-    // Regroup before seeding: the seed's upsert-by-slug must see the
-    // existing docs in their final shape.
-    await this.groupFlatFields();
-    await this.seed();
-    await this.dropRetiredFields();
-  }
-
-  // One-time move of the old flat fields into content/seo/display/
-  // pipeline/pricing (2026-11-16, user-approved), plus removal of `badge`.
-  // Only matches docs still carrying an old field, so it's a no-op after
-  // the first boot. An already-grouped value wins over the old flat one.
-  private async groupFlatFields() {
-    const groups = SERVICE_FIELD_GROUPS;
-    const oldFields = [...Object.values(groups).flatMap((g) => Object.values(g)), 'badge'];
-
-    // badge used to drive the pill and some buttons ("Live" vs anything
-    // else). Status now does — so a doc whose pill said "Coming Soon" while
-    // its status was active becomes coming_soon, keeping the site as is.
-    const comingSoon = await this.serviceModel.collection.updateMany(
-      { badge: 'Coming Soon', status: ServiceStatus.ACTIVE },
-      { $set: { status: ServiceStatus.COMING_SOON } },
-    );
-    if (comingSoon.modifiedCount) {
-      this.logger.log(`Set status coming_soon on ${comingSoon.modifiedCount} service(s) whose badge said Coming Soon`);
-    }
-
-    const setStage: Record<string, any> = {};
-    for (const [group, map] of Object.entries(groups)) {
-      // A field missing on the doc is "missing" and left out of the object
-      // literal — no nulls get written.
-      const fromFlat = Object.fromEntries(Object.entries(map).map(([to, from]) => [to, '$' + from]));
-      setStage[group] = { $mergeObjects: [fromFlat, { $ifNull: ['$' + group, {}] }] };
-    }
-
-    // Raw collection: the old paths are no longer on the schema, so
-    // Mongoose strict mode would strip them from the filter and $unset.
-    const result = await this.serviceModel.collection.updateMany(
-      { $or: oldFields.map((f) => ({ [f]: { $exists: true } })) },
-      [{ $set: setStage }, { $unset: oldFields }],
-    );
-    if (result.modifiedCount) {
-      this.logger.log(`Grouped content/seo/display/pipeline/pricing on ${result.modifiedCount} service(s)`);
-    }
-
-    // The old compound index sorted on the flat sortOrder.
-    await this.serviceModel.collection
-      .dropIndex('type_1_status_1_isDeleted_1_sortOrder_1')
-      .catch(() => undefined);
-  }
-
-  // The first services release carried category/availableIn/
-  // estimatedCostPerRun over from `modules`; they were then removed to match
-  // architecture.md. Goes through the raw collection because Mongoose strict
-  // mode silently drops $unset of paths that aren't on the schema anymore.
-  // Matches nothing once cleaned, so it's free on every later boot.
-  private async dropRetiredFields() {
-    const retired = ['category', 'availableIn', 'estimatedCostPerRun'];
-    const result = await this.serviceModel.collection.updateMany(
-      { $or: retired.map((f) => ({ [f]: { $exists: true } })) },
-      { $unset: Object.fromEntries(retired.map((f) => [f, ''])) },
-    );
-    if (result.modifiedCount) this.logger.log(`Removed retired fields from ${result.modifiedCount} service(s)`);
-  }
-
-  // Same insert-only, upsert-by-slug seeding the old ModulesService did —
-  // fills in any catalog entry missing on a fresh database, never overwrites.
-  private async seed() {
-    let seeded = 0;
-    for (const m of LEGACY_SEED_MODULES) {
-      const result = await this.serviceModel.updateOne(
-        { slug: m.slug },
-        { $setOnInsert: compact(legacyModuleToService(m)) },
-        { upsert: true },
-      );
-      if (result.upsertedCount) seeded++;
-    }
-    if (seeded) this.logger.log(`Services seeded: ${seeded} new / ${LEGACY_SEED_MODULES.length} total`);
+    if (await this.serviceModel.estimatedDocumentCount()) return;
+    await this.serviceModel.insertMany(LEGACY_SEED_MODULES.map((m) => compact(legacyModuleToService(m))));
+    this.logger.log(`Empty database: seeded ${LEGACY_SEED_MODULES.length} services`);
   }
 
   // ── Read ──────────────────────────────────────────────────

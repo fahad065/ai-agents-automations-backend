@@ -778,6 +778,40 @@ export class EmailService {
     await this.send(user.email, `"${data.chatbotName}" is paused — payment needed to resume`, html, undefined, undefined, this.replyTo.billing);
   }
 
+  // ── Invoice (sent when the admin confirms a payment) ─────────
+  // The PDF is attached; it's also downloadable from the bot's Billing tab.
+  async sendInvoiceEmail(
+    user: { name: string; email: string },
+    data: { chatbotId: string; serviceName: string; invoiceNumber: string; amount: number; currency: string; filename: string; pdf: Buffer },
+  ): Promise<void> {
+    const billingUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots/${data.chatbotId}?tab=billing`;
+    const html = this.base(`
+      <div style="padding:40px 36px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">🧾</div>
+        <h1 style="color:#e5e5e5;font-size:22px;font-weight:700;margin:0 0 8px;">Payment received — thank you</h1>
+        <p style="color:#737373;font-size:14px;margin:0 0 28px;">Invoice ${data.invoiceNumber}</p>
+        <p style="color:#a3a3a3;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          Hi ${user.name || 'there'}, we've received your payment of <strong style="color:#e5e5e5;">${this.formatMoney(data.amount, data.currency)}</strong> for ${data.serviceName}. Your invoice is attached as a PDF, and you can download it again any time from the Billing tab.
+        </p>
+        <a href="${billingUrl}"
+           style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;">
+          Go to Billing →
+        </a>
+        <p style="color:#525252;font-size:12px;margin:20px 0 0;">
+          Questions about this invoice? Reply to this email or contact billing@logicmate.io
+        </p>
+      </div>
+    `);
+    await this.send(
+      user.email,
+      `Your LogicMate invoice ${data.invoiceNumber}`,
+      html,
+      undefined,
+      [{ filename: data.filename, content: data.pdf.toString('base64') }],
+      this.replyTo.billing,
+    );
+  }
+
   // ── Account deletion requested (sent immediately, day 0) ───
   async sendAccountDeletionRequestedEmail(
     user: { name: string; email: string },

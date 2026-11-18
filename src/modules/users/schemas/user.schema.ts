@@ -27,7 +27,6 @@ export enum PlanType {
 // Status enum instead of a boolean — matches the convention applied
 // across every collection in this redesign (users/services/cms/apikeys/
 // userservices/billing all get `status`, not an `isActive` flag). Old
-// `isActive: boolean` docs are migrated by UsersService.onModuleInit().
 export enum UserStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
@@ -46,8 +45,7 @@ class OnboardingData {
 
 // Replaces 5 separate top-level booleans (notifyOnComplete/notifyOnFail/
 // notifyTrialExpiry/notifyBilling/emailUpdates) with one nested object,
-// per ai/architecture.md's finalized `users` shape. Old flat-boolean docs
-// are migrated by UsersService.onModuleInit().
+// per ai/architecture.md's finalized `users` shape.
 @Schema({ _id: false })
 class NotifyPreferences {
   @Prop({ default: true }) onComplete: boolean;
@@ -60,7 +58,6 @@ class NotifyPreferences {
 // Grouped sub-documents (2026-11-16, user-approved): personal details,
 // auth state, plan/trial, welcome-email guards and the deletion flow each
 // live in their own object. name/email/password/role/status stay top level.
-// Old flat docs are migrated by UsersService.onModuleInit().
 @Schema({ _id: false })
 export class UserProfile {
   @Prop() phoneNumber?: string;
@@ -189,21 +186,3 @@ export function sanitizeUser<T extends Record<string, any>>(obj: T): T {
 // Mongoose projection that leaves out the same secrets as sanitizeUser().
 export const USER_PUBLIC_PROJECTION =
   '-password -auth.refreshToken -auth.emailVerificationToken -auth.emailVerificationExpires -auth.passwordResetToken -auth.passwordResetExpires';
-
-// Old flat field → grouped location, used by UsersService.groupFlatFields()
-// (the one-time 2026-11-16 migration). group → { newKey: oldFlatField }.
-export const USER_FIELD_GROUPS: Record<string, Record<string, string>> = {
-  profile: { phoneNumber: 'phoneNumber', country: 'country', avatar: 'avatar', timezone: 'timezone', company: 'company' },
-  auth: {
-    provider: 'provider', googleId: 'googleId', isEmailVerified: 'isEmailVerified',
-    emailVerificationToken: 'emailVerificationToken', emailVerificationExpires: 'emailVerificationExpires',
-    passwordResetToken: 'passwordResetToken', passwordResetExpires: 'passwordResetExpires',
-    refreshToken: 'refreshToken',
-  },
-  plan: {
-    planType: 'planType', trialStartDate: 'trialStartDate', trialEndDate: 'trialEndDate',
-    isFreeForever: 'isFreeForever', totalBilled: 'totalBilled',
-  },
-  welcomeEmails: { day1Sent: 'welcomeDay1Sent', day3Sent: 'welcomeDay3Sent', day7Sent: 'welcomeDay7Sent' },
-  deletion: { requestedAt: 'deletionRequestedAt', pendingAt: 'pendingDeletionAt', reminderSent: 'deletionReminderSent' },
-};

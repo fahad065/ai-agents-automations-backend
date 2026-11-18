@@ -1,576 +1,158 @@
 # LogicMate — Backend
 
 ## Platform overview
-LogicMate is a B2B AI automation marketplace targeting UAE and Kenya markets. This NestJS API powers the frontend (Next.js on Vercel) and communicates with the Python pipeline service for AI job execution.
+LogicMate is a B2B AI automation marketplace (UAE, Kenya and international). Businesses subscribe to ready-made **chatbots**, **AI agents** and **automations**. This NestJS API powers the Next.js frontend (Vercel) and calls the Python pipeline service for agent/automation runs.
+
+Where to read more:
+- `ai/architecture.md` — authoritative collection/field reference
+- `ai/rules.md` — working rules (e.g. #13: confirm field lists before any data-writing migration)
+- `ai/traces.md` — dated log of every change and why
+- `ai/feature-history.md` — older long-form feature write-ups (historical field names)
+- `docs/test-cases/*.md` + `test/e2e/` — per-service test cases and the end-to-end harness
 
 ## CRITICAL: bring-your-own-key (BYOK) — never add a platform-wide fallback key
-This is the core business model, not an implementation detail. Every customer must add their own API keys (OpenAI, Atlas Seedance, YouTube OAuth, etc.) via **Dashboard → API Keys** before any module — agents, automations, or chatbots — can run AI calls on their behalf. LogicMate itself holds no shared/platform API keys and pays for none of the customer's AI usage; that's the point of the product.
+This is the core business model, not an implementation detail. Every customer adds their own API keys (OpenAI, Anthropic, Gemini, Atlas Seedance, YouTube OAuth, …) under **Dashboard → API Keys** before any service can make AI calls for them. LogicMate holds no shared AI keys and pays for none of a customer's AI usage.
 
-**Concretely:** `ApiKeysService.getDecryptedKey(userId, provider)` is the only way any service should obtain a provider key. If it throws (no key on file), the correct behavior is to degrade gracefully — return the chatbot's `fallbackMessage`, skip the pipeline step, whatever fits — never to fall back to a key from `process.env` or any other shared source, even for local testing convenience.
+**Concretely:** `ApiKeysService.getDecryptedKey(userId, provider)` is the only way to obtain a provider key, always for the **owner** of the bot/service (never the caller — an admin acting for a client still bills the client's key). If there's no key, degrade gracefully (fallback message, skip the step) — never fall back to `process.env` or any shared key, not even for local testing. A `process.env.OPENAI_API_KEY` fallback was tried once and explicitly rejected by the platform owner. If a task seems to need a shared key ("demo mode", testing), stop and ask.
 
-This was tried once during chatbot development: a `process.env.OPENAI_API_KEY` fallback was added to `chat.service.ts` / `chatbots.service.ts` (`resolveOpenAiKey()`) purely to unblock local testing, and was explicitly rejected and reverted by the platform owner — BYOK is the product, not a rough edge to smooth over. If a future task seems to call for a shared/platform key again (testing convenience, a "demo mode", etc.), that is a signal to stop and ask rather than add one.
+## Repos
+- Frontend (Next.js): https://github.com/fahad065/ai-agents-automations-frontend.git
+- Backend (this repo): https://github.com/fahad065/ai-agents-automations-backend.git
+- Python pipelines: https://github.com/fahad065/logicmate-python-services.git
 
-## GitHub repos (all three services)
-- **Frontend (Next.js):** https://github.com/fahad065/ai-agents-automations-frontend.git
-- **This repo (backend):** https://github.com/fahad065/ai-agents-automations-backend.git
-- **Python pipelines:** https://github.com/fahad065/logicmate-python-services.git
+Branches: backend works on `fahad-development` and is pushed to both `fahad-development` and `main`; Railway deploys `main`.
 
 ## Stack
-- **Framework:** NestJS
-- **Database:** MongoDB Atlas via Mongoose
-- **Auth:** JWT (access + refresh tokens) + Google OAuth (Passport)
-- **Deployment:** Railway — `Procfile: web: node dist/main.js`
-- **Base API prefix:** `/api/v1`
-- **Port:** 4000 (dev)
+NestJS · MongoDB Atlas (Mongoose) · JWT access + refresh tokens + Google OAuth (Passport) · Resend (email) · Sentry (`@sentry/nestjs`) · pdfkit (invoices) · Railway (`Procfile: web: node dist/main.js`, `railway.json` health check on `/health`). API prefix `/api/v1`, port 4000 in dev.
 
 ## Running locally
 ```bash
 npm install
 npm run start:dev   # watch mode on port 4000
-npm run build       # compile to /dist
-npm run start:prod  # run compiled output
+npm run build       # compile to dist/
+npm test            # unit tests (jest, *.spec.ts under src/)
 ```
+End-to-end: see `test/e2e/README.md` (local Docker Mongo + faked outbound network; **never point it at Atlas**).
 
-## Environment variables (copy .env.example to .env)
-```
-PORT=4000
-MONGODB_URI=mongodb+srv://...
-JWT_SECRET=<64-char random string>
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_SECRET=<64-char random string>
-JWT_REFRESH_EXPIRES_IN=7d
-ENCRYPTION_KEY=<exactly 32 chars>
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback
-FRONTEND_URL=http://localhost:3000
-PYTHON_SERVICE_URL=http://localhost:8001
-```
+## Environment variables
+Read by the code (see `.env.example`): `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN`, `ENCRYPTION_KEY` (exactly 32 chars, encrypts API keys), `GOOGLE_CLIENT_ID/SECRET/CALLBACK_URL`, `FRONTEND_URL`, `BACKEND_URL` / `PUBLIC_API_URL` (this API's public origin, used in embed code + webhook URLs), `PYTHON_SERVICE_URL`, `PIPELINE_SECRET` (shared with the Python service, sent as `x-pipeline-secret`), `CRON_SECRET`, `RESEND_API_KEY`, `SMTP_FROM`, `REPLY_TO_EMAIL`, `ADMIN_NOTIFY_EMAIL` (defaults to hello@logicmate.io), `SENTRY_DSN`, `BLOB_READ_WRITE_TOKEN`, `ATLAS_API_KEY`.
 
-**NEVER commit .env — it is in .gitignore. .env.save and .env.prod are also gitignored.**
+**`PIPELINE_SECRET` and `CRON_SECRET` must be set in production** — the code has hard-coded fallbacks for both, which are public in this repo.
 
-## Production DB
-- MongoDB Atlas: `ai-agents-automations-prod` database
+**Never commit `.env`** (`.env.save` and `.env.prod` are gitignored too).
+
+## Production
+- MongoDB Atlas database `ai-agents-automations-prod`.
 - Admin login: not stored in the repo — ask the platform owner.
 
-## Module structure
-All modules live in `src/modules/`:
+## What runs on startup
+Only one thing: `ServicesService.onModuleInit()` seeds the service catalog (`seed-services.ts`) **if the `services` collection is empty** (a fresh local/test database). A populated database is never touched — the catalog is edited by hand in the admin Service Catalog, and a deleted service never comes back. All one-time migrations (users/services regrouping, api-key status, chatbots → userservices, About-page backfill) ran in production and were removed on 2026-11-18. Don't add new boot-time data writes; if data needs changing, agree the field list with the owner first (`ai/rules.md` #13).
 
+## Modules (`src/modules/`)
 | Module | Purpose |
 |---|---|
-| `auth` | JWT + Google OAuth, login, register, refresh, guards |
-| `users` | User schema, profile update, user management |
-| `admin` | Admin-only endpoints, promote users |
-| `modules` | The AI module catalog (what's for sale) |
-| `usermodules` | User's subscribed/active modules, trial management |
-| `cms` | CMS pages + blog posts, bilingual content |
-| `niches` | Industry niche catalog (12 niches) |
-| `industries` | Industry data (same concept as niches, used in marketing) |
-| `subscriptions` | Subscription records |
-| `billing` | Billing/payment records |
-| `pipeline-runs` | Pipeline execution logs |
-| `api-keys` | Encrypted API key storage |
-| `notifications` | User notification system |
-| `industry-subscriptions` | Users subscribing to industries |
-| `content-ideas` | AI-generated content idea records |
-| `trends` | Trend data records |
-| `email` | Email sending service (Nodemailer) |
-| `feedback` | User feedback collection |
+| `auth` | Register/login/refresh/logout, Google OAuth (with `redirect` round-trip via OAuth `state`), email verification, forgot/reset password, YouTube + Instagram account connect |
+| `users` | Profile, change password, deactivate; admin user management (grant free, extend trial) |
+| `admin` | Platform overview, revenue, user list, per-tenant usage, admin email sender |
+| `services` | The catalog of everything for sale (chatbots, agents, automations) |
+| `userservices` | Every customer subscription — one collection, three Mongoose models (see below); agent/automation routes + crons |
+| `chatbots` | Chatbot CRUD, knowledge base, conversations, analytics, model list, embed code, chatbot billing + trial cron |
+| `chat` | The public chatbot engine + WhatsApp/Instagram webhooks (no auth) |
+| `billing` | Payment ledger, invoices (numbered PDFs) |
+| `api-keys` | Encrypted customer API keys + the provider adapter (`ai-provider.util.ts`) |
+| `pipeline-runs` | Agent/automation run records (Python reports progress here) |
+| `cms` | Pages + blog posts, bilingual (`cms` collection) |
+| `notifications` | In-dashboard notifications |
+| `activity-logs` | Append-only audit trail |
+| `account-deletion` | Data export, 7-day deletion request/cancel + cron |
+| `documents` | Uploaded files (Vercel Blob) |
+| `feedback` | Testimonials/feedback |
+| `email` | All email templates (Resend) |
 
-## Key schemas
+## Collections
+`users`, `services`, `userservices`, `knowledgebases`, `conversations`, `billings`, `invoicecounters`, `apikeys`, `pipelineruns`, `notifications`, `activitylogs`, `cms`, `documents`, `feedbacks`. Field lists: `ai/architecture.md`.
 
-### User (`users/schemas/user.schema.ts`)
-```
-_id, email, password (hashed), name, role ("user" | "admin"),
-googleId, avatar, isEmailVerified, country ("UAE" | "Kenya"),
-youtubeChannelId, instagramAccountId, instagramAccessToken,
-createdAt, updatedAt
-```
+- **users** — name/email/password/role/status at the top; the rest grouped into `profile`, `auth` (e.g. `auth.isEmailVerified`), `plan`, `welcomeEmails`, `deletion`. Always return users through `sanitizeUser()` / `USER_PUBLIC_PROJECTION`.
+- **services** — grouped into `content`, `seo`, `display`, `pipeline`, `pricing` (`pricing.tiers` = chatbot Basic/Pro). `status` (active/coming_soon/inactive) drives the "Live"/"Coming Soon" pill. Create/update use Mongoose `strict: 'throw'` → an unknown field is a 400, never silently dropped. The frontend reads services through `src/lib/service-view.ts`.
+- **userservices** — shared top-level fields: `userId`, `type` (chatbot|agent|automation), `serviceId`, `name`, `status` (trial|active|past_due|suspended|cancelled), `isFreeForever`, `isDeleted`, `trialEndDate`, `nextRenewalDate`, `cancelledAt`, `plan {tier, monthlyFee, setupFee, currency}`, `adminNotes`, `trialReminderSentAt`, and a type-specific `config`:
+  - `ChatbotUserService` (`CHATBOT_FILTER`): `config.botStatus` (draft/active/inactive — is the bot live), description, persona, language, fallbackMessage(_ar), humanHandoff, bookingUrl, `embedKey` (unique), `channels.{website,whatsapp,instagram}`, `outlets[]` (branches: address, hours, facilities, area tags, delivery apps, `insurance[]`), `chatModelConfig {provider, model}`.
+  - `PipelineUserService` (`PIPELINE_FILTER`): pipelineType, niche, schedule, paused, customPrompt, videoModel, lastRunAt/totalRuns/totalCost.
+  - `UserService`: untyped `config` — used for the admin subscription actions that work on any type.
+- **knowledgebases / conversations / billings** link to a chatbot via `userserviceId`.
+- **billings** — ledger rows; chatbot payments carry `kind` (setup|monthly|upgrade), `transactionRef`, and once confirmed `invoiceNumber` (`LM-<year>-0001`), `invoiceIssuedAt`, `invoiceLine`, `periodStart/End`.
 
-### Module / CMS template (`modules/schemas/module.schema.ts`)
+## API routes (all under `/api/v1`, JWT unless noted)
 ```
-_id, name, name_ar, slug, type ("agent" | "automation" | "chatbot"),
-pipelineCategory ("standalone" | "niche_pipeline"),
-nicheSlug, tagline, tagline_ar, description, description_ar,
-capabilities[], capabilities_ar[], availableIn["UAE","Kenya"],
-price, trialDays, isActive, createdAt
-```
-**nicheSlug values (12):** `content_social`, `real_estate`, `healthcare`, `hr_recruitment`, `ecommerce_retail`, `marketing`, `hospitality`, `education`, `logistics`, `agriculture`, `finance`, `internal_copilot`
-
-### UserModule (`modules/schemas/user-module.schema.ts`)
-```
-_id, userId, moduleId, status ("trial" | "active" | "expired" | "cancelled"),
-trialStartDate, trialEndDate, activatedAt, expiresAt,
-youtubeChannelId, instagramAccountId, instagramAccessToken,
-pipelineConfig{}, lastRunAt, runCount, createdAt
-```
-
-### CMS Page (`cms/schemas/page.schema.ts`)
-```
-slug (unique), title, title_ar, subtitle, subtitle_ar,
-content (HTML), content_ar (HTML),
-faqItems[{question,answer,order}], faqItems_ar[{question,answer,order}],
-contactInfo{email,phone,address,address_ar,hours,social{}},
-updatedAt
-```
-
-### BlogPost (`cms/schemas/blog-post.schema.ts`)
-```
-slug (unique), title, title_ar, excerpt, excerpt_ar,
-content (HTML), content_ar (HTML), author, category,
-tags[], coverImage, published, createdAt, updatedAt
+auth            POST register | login | refresh | logout | forgot-password | reset-password | resend-verification
+                GET  me | verify-email/:token | google | google/callback (public)
+                GET/DELETE youtube/* , instagram/* (account connect)
+users           GET/PATCH profile · PATCH change-password · DELETE deactivate · admin: GET / , GET/PATCH/DELETE :id, PATCH :id/grant-free | :id/extend-trial | :id/pause-modules
+admin           GET overview | revenue | users | usage · POST email/send            (inline role check)
+services        GET / (public catalog) · GET :idOrSlug · admin: GET admin/all, POST, PATCH :idOrSlug, DELETE :idOrSlug
+userservices    POST subscribe · GET my | billing-summary | / (admin: everyone) | atlas-models | :id | :id/run-status
+                PATCH :id | :id/toggle | :id/schedule | :id/prompt · DELETE :id · POST :id/run
+                admin: PATCH :id/extend-trial | :id/free-forever | :id/cancel  (work on ANY type, chatbots included)
+                PATCH :id/record-run (Python, x-pipeline-secret) · POST cron/trigger (CRON_SECRET)
+chatbots        POST / · GET / · GET admin/all (admin; needs-setup flags + usage) · GET/PUT/DELETE :id
+                POST/GET :id/knowledge · PUT/DELETE :id/knowledge/:kId
+                GET :id/conversations | :id/analytics (Pro+) | :id/models?provider= | :id/embed-code | :id/billing
+                PUT :id/pricing (admin) · POST :id/notify-payment (owner) · POST :id/confirm-payment (admin)
+chat (public)   POST chat/:embedKey (per-bot throttle) · GET chat/:embedKey/config
+                GET/POST webhooks/whatsapp/:embedKey · GET/POST webhooks/instagram/:embedKey
+billing         GET / | summary | api-costs | profit-loss · POST / · GET :id/invoice (PDF; owner or admin)
+api-keys        POST / (admin may pass userId) · GET / (admin may pass ?userId) · PATCH/DELETE :id · POST :provider/test
+pipeline-runs   GET active | recent | stats | / | my | :runId · PATCH :runId/status | :runId/log · POST :runId/notify-complete | notify-failed · DELETE :runId
+cms             GET content | content/:type/:slug (public) · admin: GET admin | admin/:id, POST admin, PUT/DELETE admin/:id, POST admin/seed
+notifications   GET / | unread-count · PATCH :id/read | read-all · DELETE :id | clear-all
+activity-logs   GET my | admin
+account         GET export | deletion/status · POST deletion/request | deletion/cancel
+documents       POST / · GET / · DELETE :id
+feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 ```
 
-## CMS API routes
-```
-GET  /api/v1/cms/pages/:slug           — public, returns full doc with _ar fields
-PUT  /api/v1/cms/admin/pages/:slug     — admin only, upserts all fields
-GET  /api/v1/cms/blog                  — public list (published only)
-GET  /api/v1/cms/blog/:slug            — public single post
-POST /api/v1/cms/admin/blog            — admin create post
-GET  /api/v1/cms/admin/blog            — admin list (all posts)
-GET  /api/v1/cms/admin/blog/:id        — admin get post by ID (for edit modal)
-PUT  /api/v1/cms/admin/blog/:id        — admin update post
-DELETE /api/v1/cms/admin/blog/:id      — admin delete post
-```
+## Guards & conventions
+- `JwtAuthGuard` everywhere; `@Public()` opts out. Admin checks are inline (`req.user.role === 'admin'` / `assertAdmin()`) in most controllers — follow whichever pattern the controller already uses.
+- `PipelineSecretGuard` checks the `x-pipeline-secret` header against `PIPELINE_SECRET`.
+- Customer-editable chatbot fields go through the `CUSTOMER_EDITABLE_FIELDS` whitelist in `chatbots.service.ts` (`plan`/billing and `embedKey` are never customer-writable). Add a new editable field there explicitly.
+- Bilingual: Arabic in `_ar` fields (UAE Gulf dialect); the API always returns both languages.
+- Crons claim work atomically (`findOneAndUpdate` with the dedupe condition in the filter) before acting, so a second replica never double-sends.
+- Swallowed errors in the chat engine and pipeline paths are reported to Sentry with tenant tags.
 
-## Auth routes
-```
-POST /api/v1/auth/register
-POST /api/v1/auth/login          → { accessToken, refreshToken, user }
-POST /api/v1/auth/refresh
-GET  /api/v1/auth/google         → redirect to Google
-GET  /api/v1/auth/google/callback → redirect to frontend /auth/callback?token=...
-```
+## Chatbots
+- **Every chatbot is a subscription to a catalog service** (no blank bots). `POST /chatbots` takes `moduleSlug` (marketing page / Browse Services) or `template` (admin "build for a client", optional `userId`). Each new bot starts a 30-day trial; `tier` basic|pro sets `plan` from `pricing.tiers`. A setup-guide email (PDF attached) and a trial email go to the owner.
+- **Tiers:** Basic = website widget, knowledge base, lead capture, hand-off, history. Pro adds WhatsApp, Instagram, analytics — enforced server-side (`update()` rejects enabling WhatsApp/Instagram on Basic, `getAnalytics()` rejects Basic). Custom = contact us.
+- **Engine (`chat.service.ts`):** find bot by `config.embedKey`, require `botStatus === 'active'` and `isChatbotBillingActive()` (trial not lapsed / active / free forever). Rank knowledge by embeddings (cosine, top 4) or by keywords, build a prompt that only allows answers from the knowledge base + all branches, call the bot's provider with the owner's key. Lead capture (name/phone/email → owner email + notification, every tier), human hand-off (opt-in `humanHandoff`, on fallback or "talk to a person"), booking link.
+- **AI provider:** one per bot (`config.chatModelConfig.provider` = openai|anthropic|gemini, `model` = `auto` or an id from `GET :id/models`, listed live with the owner's key). Embeddings use the same provider's default embedding model (`embeddingProviderFor()`); Claude has no embeddings API, so a Claude bot ranks by keywords. Switching provider re-embeds the knowledge base in the background.
+- **Channels:** website widget (`chatbot-widget.js`, served by the frontend; CORS-open `/chat`). WhatsApp/Instagram need the client's Meta app: phone number id / account id, access token, **App Secret** (every webhook POST must carry a valid `X-Hub-Signature-256`) and the per-bot Verify Token shown in the Channels tab.
+- **Embed code** uses `PUBLIC_API_URL` or `BACKEND_URL` (+`/api/v1`); if the widget can't reach the API in prod, check `BACKEND_URL`/`FRONTEND_URL` on Railway first.
 
-## Guards
-- `JwtAuthGuard` — default on all routes, use `@Public()` decorator to bypass
-- `AdminGuard` — checks `user.role === "admin"`, add after JwtAuthGuard
-- `PipelineSecretGuard` — verifies `NESTJS_SERVICE_TOKEN` header from Python service
-- Several controllers (admin.controller.ts, chatbots.controller.ts) instead do an inline `if (req.user.role !== 'admin') throw new ForbiddenException()` per-route rather than a route-level guard — same effect, just check which pattern a given controller uses before adding a new admin route to it.
+## Billing & invoices (manual bank transfer, no card payments yet)
+1. Admin sets/edits prices (`PUT /chatbots/:id/pricing`); Basic→Pro can be requested by the customer.
+2. The customer transfers money and submits the reference (`POST :id/notify-payment` → PENDING `billings` row with `kind` + `transactionRef`, admin alert email).
+3. The admin clicks Confirm (`POST :id/confirm-payment`): the subscription becomes active (+30 days renewal, Pro for upgrades), the matching PENDING row is marked PAID — or a PAID row is created if the customer never submitted one — and an invoice is issued: next `LM-<year>-NNNN` number (atomic counter in `invoicecounters`), PDF rendered with pdfkit (`billing/invoice-pdf.ts`), emailed to the owner as an attachment, downloadable from the Billing tab (`GET /billing/:id/invoice`).
+- Issuer details (name, address, TRN, VAT rate) live in `billing/invoice-issuer.ts` — currently "LogicMate, Dubai", no VAT. Update it when the LLC / VAT registration is in place.
+- `chatbot-billing.cron.ts` (10:00 UTC daily) emails the 5-days-left warning and moves a lapsed trial to `past_due`; the chat engine's real-time gate doesn't wait for the cron.
 
-## Admin routes (`admin.controller.ts` / `admin.service.ts`)
-```
-GET  /api/v1/admin/overview        — platform stats (users, agents, videos, pipeline runs, cost)
-GET  /api/v1/admin/revenue         — cost-by-module + top users by spend
-GET  /api/v1/admin/users           — {_id, name, email} for every user — used to populate the Email Sender "To" dropdown
-POST /api/v1/admin/email/send      — {to: string[], subject, html} → sends via EmailService.sendEmail() to each recipient, returns {sent, failed, total}
-```
-All four check `req.user.role === 'admin'` inline. `admin/email/send` backs the frontend's Settings → Email Sender tab (multi-select recipients, rich text editor) — see the frontend CLAUDE.md.
-
-## Modules API routes
-```
-GET  /api/v1/modules              — public catalog (filter with ?moduleType=agent|automation|chatbot)
-GET  /api/v1/modules/:slug        — public single module
-POST /api/v1/admin/cms-modules    — admin create
-PUT  /api/v1/admin/cms-modules/:id — admin update
-```
-
-**`moduleType: 'chatbot'`** — added so the 6 chatbot marketing/detail pages (`/chatbots/[slug]`) can reuse the exact same catalog + admin CMS editor (`/dashboard/cms-modules`) as agents/automations, rather than a parallel content model. `SEED_MODULES` in `modules.service.ts` seeds 6 chatbot template docs on boot (`restaurant-chatbot`, `real-estate-chatbot`, `clinic-chatbot`, `ecommerce-chatbot`, `gym-chatbot`, `education-chatbot`) with real heroStats/features/faq content **and** real per-vertical `pricing` (monthly/annual/features/hasCustomPlan) — same upsert-by-slug seeding as everything else in that array, so admin edits afterward are never overwritten. Pricing is admin-editable from this same form's Pricing tab, exactly like an agent or automation module — see "Chatbot self-serve pricing" below for why this replaced an earlier separate pricing system.
-
-## UserModules (subscriptions)
-```
-POST /api/v1/usermodules/activate   — start trial or activate module
-GET  /api/v1/usermodules/my         — user's active modules
-PUT  /api/v1/usermodules/:id/config — save pipeline config (YouTube channel, etc.)
-```
-
-## Pipeline runs
-```
-POST /api/v1/pipeline-runs/trigger  — NestJS calls Python service, creates run record
-GET  /api/v1/pipeline-runs/my       — user's run history
-```
-Python service is called at `PYTHON_SERVICE_URL/pipeline/run` with bearer `NESTJS_SERVICE_TOKEN`.
-
-## Bilingual architecture
-All Arabic content stored in `_ar` suffix fields. The backend returns the full document — the frontend decides which field to display based on `localStorage("lm_lang")`. Backend never filters by language — always return both.
+## Agents & automations
+`userservices` rows of type agent/automation (`pipeline-services.*`). Subscribe is catalog-driven (refuses chatbots, duplicates, coming-soon). `POST :id/run` calls `PYTHON_SERVICE_URL/pipeline/run`; the Python service reports progress to `pipeline-runs` and costs to `PATCH /userservices/:id/record-run`. Pause = `config.paused`; an unpaid trial becomes `past_due`. Crons in `pipeline-services.cron.ts`: every minute (scheduled runs), 09:00 UTC (trial reminders/expiry), 10:00 UTC (welcome emails). Agents/automations have no payment flow yet.
 
 ## Cron jobs
-- `usermodules/usermodules.cron.ts` — daily check, expires trials past `trialEndDate`
-- `usermodules/trial-expiry.cron.ts` — related expiry handling
-- `chatbots/chatbot-billing.cron.ts` — daily (10 AM UTC, staggered from the 9 AM usermodules cron), warns at 5 days left then flips `billing.status` once a chatbot trial actually expires — see Chatbot pricing & billing below
-
-## Chatbot module (implemented)
-
-Two NestJS modules power chatbots:
-
-### `src/modules/chatbots/` — admin/owner CRUD (all routes behind JwtAuthGuard)
-Schemas in `src/modules/chatbots/schemas/`:
-- `chatbot.schema.ts` — `Chatbot` doc: name, description, persona, language ('en'|'ar'|'both'), template, status ('draft'|'active'|'inactive'), fallbackMessage (+`_ar`), humanHandoff, unique `embedKey` (32-char hex), nested `channels.website/whatsapp/instagram` config
-- `knowledge-base.schema.ts` — `KnowledgeBase` doc: chatbotId, type ('text'|'faq'|'url'), question/answer/content/sourceUrl, `embedding` vector (`select: false`)
-- `conversation.schema.ts` — `Conversation` doc: chatbotId, sessionId, channel, embedded `messages[]` ({role, content, timestamp}), status
-
-Routes (`chatbots.controller.ts`):
-```
-POST   /api/v1/chatbots                          — create
-GET    /api/v1/chatbots                          — list user's bots
-GET    /api/v1/chatbots/:id                      — get one
-PUT    /api/v1/chatbots/:id                      — update (status, channels, fallback msgs, etc.)
-DELETE /api/v1/chatbots/:id                      — delete (cascades knowledge + conversations)
-POST   /api/v1/chatbots/:id/knowledge            — add knowledge entry (embeds via OpenAI if user has a key)
-GET    /api/v1/chatbots/:id/knowledge            — list entries
-DELETE /api/v1/chatbots/:id/knowledge/:kId       — delete entry
-GET    /api/v1/chatbots/:id/conversations        — recent conversations
-GET    /api/v1/chatbots/:id/analytics            — {totalConversations, totalMessages, avgMessagesPerConversation, handoffs, byChannel}
-GET    /api/v1/chatbots/:id/embed-code           — returns ready-to-paste <script> snippet
-```
-
-`ChatbotsService.addKnowledge()` looks up the bot owner's OpenAI key via `ApiKeysService.getDecryptedKey(userId, 'openai')` — BYOK, no fallback (see the CRITICAL note near the top of this file) — embeds the text with `text-embedding-3-small`. If no key is present, the entry is stored with an empty embedding — the bot still works via keyword fallback, just without semantic ranking, and every reply is the `fallbackMessage` until the owner adds a key.
-
-### `src/modules/chat/` — the public AI engine (NO auth — these are customer-facing)
-`chat.service.ts` is the actual chatbot brain:
-1. Look up chatbot by `embedKey`, require `status === 'active'`
-2. Find/create `Conversation` by `sessionId`
-3. Embed the incoming message (if OpenAI key available) and rank knowledge entries by cosine similarity — top 4 go into the system prompt
-4. Call `gpt-4o-mini` with a system prompt that hard-constrains the model to only answer from the knowledge base, falling back to `chatbot.fallbackMessage` otherwise
-5. Persist both messages, return `{reply, sessionId}`
-
-Routes (`chat.controller.ts`) — all `@Public()`:
-```
-POST /api/v1/chat/:embedKey                      — @SkipThrottle() — the widget calls this
-GET  /api/v1/webhooks/whatsapp/:embedKey          — Meta webhook verification handshake
-POST /api/v1/webhooks/whatsapp/:embedKey          — incoming WhatsApp messages → chat()
-GET  /api/v1/webhooks/instagram/:embedKey         — Meta webhook verification handshake
-POST /api/v1/webhooks/instagram/:embedKey         — incoming Instagram DMs → chat()
-```
-
-### Embed code generation
-`ChatbotsService.getEmbedCode()` builds the `<script>` snippet the user pastes on their site. It reads `BACKEND_URL` (or `PUBLIC_API_URL` if set, which takes priority) — must be this backend's real public URL, no path/trailing slash, e.g. `https://web-production-07643.up.railway.app` — and appends `/api/v1` itself. **Confirmed set correctly on Railway** (`BACKEND_URL=https://web-production-07643.up.railway.app`, `FRONTEND_URL=https://www.logicmate.io`) as of the chatbot module going live. Falls back to `'https://www.logicmate.io'` if unset, which would be wrong — if the widget ever silently fails to reach the API in prod, check these two vars first.
-
-The widget file itself (`chatbot-widget.js`) lives in the **frontend** repo's `public/` folder and is served from `FRONTEND_URL`.
-
-### WhatsApp / Instagram — code is ready, needs manual Meta setup
-The webhook handlers exist and will work once the bot owner:
-1. Creates a Meta Business App, adds WhatsApp product, gets a Phone Number ID + permanent access token
-2. Pastes those into the bot's Channels tab in the dashboard (`PUT /chatbots/:id` → `channels.whatsapp.phoneNumberId/accessToken`)
-3. In Meta's webhook config, points to `PUBLIC_API_URL/webhooks/whatsapp/:embedKey`
-4. Same flow for Instagram, except Instagram DM permissions (`instagram_manage_messages`) require Meta App Review — can take days
-
-### Chatbot pricing & billing (implemented)
-No fixed public tiers — every chatbot's price is set by hand from the dashboard, per deal, since early customers don't fit a single tier yet. Reuses the existing `Billing` ledger collection (`src/modules/billing/`) and the same manual bank-transfer "notify us, we confirm" pattern already used for agents/automations (`payment-instructions-page.tsx` on the frontend), rather than building a parallel payment system.
-
-`Chatbot.billing` sub-document (added to `chatbot.schema.ts`):
-```
-setupFee, monthlyFee, currency ("USD"),
-status ("trial" | "awaiting_setup_payment" | "active" | "past_due" | "suspended"),
-trialEndsAt?, setupPaidAt?, lastBillingDate?, nextBillingDate?, notes?
-```
-`notes` is admin-only deal context (e.g. "multi-location discount agreed via call"), never shown to the customer.
-
-Routes added to `chatbots.controller.ts`:
-```
-GET  /api/v1/chatbots/admin/all          — admin only: every customer's chatbots, userId populated with {name,email}. Must be declared before the ':id' routes so Nest doesn't match "admin" as an :id param.
-PUT  /api/v1/chatbots/:id/pricing        — admin only: set setupFee/monthlyFee/currency/trialEndsAt/notes. First time a real price is set, billing.status auto-flips 'trial' → 'awaiting_setup_payment'.
-POST /api/v1/chatbots/:id/notify-payment — owner: {kind:'setup'|'monthly', transactionRef, notes} → creates a PENDING Billing record (chatbotId-linked) + emails the admin alert
-POST /api/v1/chatbots/:id/confirm-payment — admin only: {kind, billingRecordId?} → flips billing.status to 'active', computes nextBillingDate (+30 days), marks the Billing record PAID
-GET  /api/v1/chatbots/:id/billing        — {billing, history} — either the owner or an admin can read it
-```
-
-**Security fix that shipped alongside this:** `ChatbotsService.update()` used to do a raw `Object.assign(chatbot, dto)` — once `billing` existed on the schema, a customer could have overwritten their own `setupFee`/`monthlyFee`/`status` through the ordinary `PUT /chatbots/:id` they already had access to. Fixed with a `CUSTOMER_EDITABLE_FIELDS` whitelist (name, description, persona, language, template, status, fallbackMessage(+_ar), humanHandoff, channels) — `billing` and `embedKey` are deliberately excluded and only reachable through the admin-gated routes above. If you ever add a new field to the `Chatbot` schema that a customer should be able to edit, add it to that whitelist explicitly — don't revert to `Object.assign(chatbot, dto)`.
-
-`Billing` schema (`src/modules/billing/schemas/billing.schema.ts`) gained a `chatbotId?: Types.ObjectId` (links a ledger entry back to the bot that generated it) and a `SETUP` `BillingType` (alongside the existing `SUBSCRIPTION`/`USAGE`/`REFUND`) for the one-time fee specifically.
-
-### Chatbot self-serve pricing + automatic 30-day trial (implemented)
-**Superseded design, kept here so a future session doesn't reinvent it:** this used to be a separate `src/modules/chatbot-plans/` module — a standalone `ChatbotPlan` collection with its own admin-only CRUD API (`/admin/chatbot-plans`) and Basic/Pro/Enterprise tiers gating which channels a customer could enable. It was removed. The problem wasn't the per-template market pricing (that part was right and is kept) — it was that this pricing had **no admin UI at all**, while agents/automations already have a perfectly good one (the Pricing tab on `/dashboard/cms-modules`, described in the Modules API section above). Maintaining two parallel pricing systems — one dashboard-editable, one API-only — was real debt for no benefit. Chatbots now use the exact same mechanism agents/automations do.
-
-**How it works now:** each chatbot template is a `ModuleTemplate` doc (`moduleType: 'chatbot'`, see `SEED_MODULES` in `modules.service.ts`) with its own `pricing.monthly`/`pricing.annual`/`pricing.features[]`/`pricing.hasCustomPlan`/`pricing.customLabel` — admin-edited from `/dashboard/cms-modules` exactly like a `youtube-agent` module. Pricing still varies by vertical (a qualified real-estate lead is worth far more than a restaurant reservation) — e.g. `real-estate-chatbot` is $79/mo vs `restaurant-chatbot` at $39/mo — but that's now just a starting number in the seed data, freely admin-editable per template rather than hardcoded in a separate collection. `hasCustomPlan` is **not** currently exposed in the admin form (only `pricingMonthly`/`pricingAnnual`/`pricingFeatures` are — see `admin-modules.tsx`'s Pricing tab on the frontend); it's set directly in `SEED_MODULES` for now, same as `youtube-agent`'s custom-plan card. Because these 6 chatbot docs may already exist in the database from before this pricing was added, `ModulesService.onModuleInit()` runs a one-time `backfillChatbotPricing()` after the normal seed — it `$set`s `pricing` on any chatbot doc still sitting at the schema default (`pricing.monthly === 0`), so it self-heals in production without a manual migration step, and never overwrites a price an admin already edited.
-
-There is no more per-tier channel gating — one plan, everything included (website + WhatsApp + Instagram), same as agents/automations never having per-tier feature gating either. `ChatbotsService.update()` no longer blocks enabling any channel.
-
-**`ChatbotsService.create()`** accepts an optional `dto.moduleSlug` (the marketing detail page's pricing section passes it) — when set, looks up that `ModuleTemplate` via `ModulesService.findOne()` and copies `pricing.monthly` onto `billing.monthlyFee` (`setupFee` stays 0, `currency` is `'USD'`). `billing.trialEndsAt` is always set to `now + 30 days` regardless — every chatbot gets a real trial window, not just ones an admin manually dated. Omitting `moduleSlug` (the dashboard's own "+ New Chatbot" modal) keeps the hand-negotiated-deal flow: admin sets `setupFee`/`monthlyFee` later via `PUT /:id/pricing`.
-
-**`Chatbot.billing.trialReminderSent`** (bool) still exists — set once the 5-day-left reminder email goes out so it never double-sends.
-
-**Billing-status gate is unaffected by this change** — `ChatService.chat()` (the live public engine) checks `isChatbotBillingActive(chatbot)` (`src/modules/chatbots/billing-status.util.ts`) right after the `status === 'active'` check, independent of where the price came from; a lapsed trial or `past_due`/`suspended` chatbot still can't answer for free. This check is real-time (re-derives from `trialEndsAt` directly) so it doesn't depend on `chatbot-billing.cron.ts` having already run today — the cron's job is just the reminder emails and moving `billing.status` forward, not the actual gate.
-
-### 9 chatbot templates, fully bilingual (implemented, 2026-09)
-Extended `SEED_MODULES`' chatbot section from 6 templates to 9: added `salon-chatbot` ($39/mo), `hotel-chatbot` ($79/mo), and `auto-dealership-chatbot` ($79/mo) — same shape as the existing 6 (heroStats/features/faq/pricing, `sortOrder` 7-9). `Chatbot.template` enum on `chatbot.schema.ts` extended with `'salon' | 'hotel' | 'auto_dealership'` to match. No demo videos for these 3 yet — recording one requires the real puppeteer/TTS/ffmpeg pipeline described below (a bot needs to actually exist and answer real questions first); `demoVideoUrl` is optional everywhere it's rendered, so the template pages degrade gracefully without one.
-
-Also found and fixed a real content gap while touching this: the schema has supported bilingual content on every chatbot template field since it was built (`name_ar`, `tagline_ar`, `description_ar`, `capabilities_ar`, `heroStats[].label_ar`, `features[].title_ar`/`description_ar`, `faq[].question_ar`/`answer_ar`, `pricing.features_ar`/`customLabel_ar`) — but the seed data for all 6 original chatbot templates never actually populated any of it, so the chatbot detail pages were silently English-only for a platform whose bilingual support is a stated requirement. All 9 templates now carry real UAE Gulf Arabic content for every one of those fields.
-
-Because `seedModules()`'s `$setOnInsert` only reaches brand-new documents, the 6 pre-existing chatbot docs already in the DB needed a backfill to actually pick up their new `_ar` content — same self-healing pattern as `backfillChatbotPricing()` (see above): `backfillChatbotArabicContent()` runs after it in `onModuleInit()`, `$set`s the AR content on any chatbot doc where `name_ar` is still empty, and never touches a doc where an admin has already filled in `name_ar` by hand from `/dashboard/cms-modules`.
-
-### Admin can build/manage a chatbot on a client's behalf (implemented, 2026-09)
-Real gap until now: `POST /chatbots` always created under the caller's own `req.user._id`, and `ChatbotsService.findOne()` threw `ForbiddenException` for anyone but the bot's owner — every other route (`update`, knowledge base, channels via `update`, conversations, analytics, embed code, delete) calls `findOne()` internally, so an admin had **zero** way to configure a client's bot. The only admin access at all was the read-only `GET /chatbots/admin/all` list.
-
-Given the platform's actual sales motion (cold outreach → you close the deal → the client is often not technical enough to build their own knowledge base) rather than pure self-serve signup, the right onboarding shape is hybrid: admin does the initial setup, client gets a login afterward to handle day-to-day content changes themselves. That needs admin to be able to fully drive a client's bot, not just view it.
-
-- `ChatbotsService.findOne(id, userId, isAdmin = false)` gained the `isAdmin` bypass — mirrors the pattern `getBillingHistory()` already used (`isAdmin ? findOneAdmin() : findOne()`), just pushed down into `findOne()` itself so every method built on top of it (`update`, `delete`, `addKnowledge`, `listKnowledge`, `deleteKnowledge`, `getConversations`, `getAnalytics`, `getEmbedCode`) picks it up by adding one `isAdmin` parameter each, forwarded from `chatbots.controller.ts` as `req.user.role === 'admin'` on every route.
-- `POST /chatbots`: an admin can now pass `{ userId: '<clientId>', ...rest }` in the body to create the bot under that client's account instead of their own; a non-admin's `userId` field is ignored (controller strips it before checking `req.user.role`).
-- **Real correctness bug caught while wiring this up, not a hypothetical:** `addKnowledge()` used to resolve the OpenAI key via `resolveOpenAiKey(userId)` where `userId` was whoever called the route. Once admin can call this route for a client's bot, that would have looked up the *admin's* API key (or failed) instead of the bot owner's — silently breaking BYOK's per-customer billing. Fixed by resolving the key from `chatbot.userId` (the bot's actual owner) after `findOne()`, never from the caller.
-- `notifyPayment()` intentionally did **not** get an `isAdmin` param — it's the customer-facing "I've paid" action; an admin doing this on a client's behalf isn't a real scenario the platform needs.
-
-### OpenAI key gate on chatbot setup + admin-on-behalf-of-client API keys (implemented, 2026-09)
-Every chatbot capability — knowledge-base embedding, the live `/chat/:embedKey` engine itself — needs the bot **owner's** own OpenAI key on file (BYOK, see the CRITICAL note at the top of this file). Previously that only surfaced as a silent failure at chat time (empty embeddings, every reply falling back to `fallbackMessage`) with no prompt anywhere to actually add one. The frontend now checks for it up front and blocks into a dialog before setup — see frontend CLAUDE.md.
-
-To support that (and the admin-onboarding flow above, where the admin may be the one adding the client's key on their behalf during setup), `api-keys.controller.ts` gained the same admin-bypass shape as `chatbots.controller.ts`:
-- `POST /api-keys`: admin can pass `{ userId: '<clientId>', ...rest }` to save the key under that client's account instead of their own. Ignored for non-admins.
-- `GET /api-keys`: admin can pass `?userId=<clientId>` to read a specific client's keys (e.g. checking whether the chatbot's owner has an OpenAI key). Ignored for non-admins — meaningfully, this makes it safe for the frontend to *always* pass `?userId=<bot.userId>` regardless of who's viewing, since it's a no-op for a non-admin client checking their own bot (resolves to their own id either way).
-
-`ApiKeysService.saveKey()`/`getKeys()` needed no changes — both already took `userId` as a plain parameter; only the controller was hardcoded to `req.user._id`.
-
-### Email verification: go-live gate instead of a full account lock (implemented, 2026-09)
-User tested the signup flow and, after landing on the "check your inbox" wait screen, asked to redesign it — proposed skipping straight to the dashboard post-signup with a persistent reminder banner (like the existing profile-completion banner), backed by a hard account lock/deadline (2–24h) if the user never verifies. The redirect-immediately + banner part is implemented on the frontend (see frontend CLAUDE.md) — `setAuth()` already grants a fully valid session at registration, before verification, so there was never a real reason to gate navigation on it.
-
-The deadline/lock part was deliberately built differently. Two things already existed that made a *second* deadline mechanism redundant: `AuthService.register()` already sets `emailVerificationExpires` to `now + 24h`, and `resendVerification()` already reissues a fresh 24h-valid token — the verification link itself already has a natural expiry with a one-click way to renew it. Building a *separate* account-level lock on top would mean a new deadline field, a cron sweeping every unverified user account, and a lock/unlock state machine — real complexity — while also risking trapping a legitimate user mid-setup just because their inbox was slow.
-
-Instead, verification is required at exactly the one point where it actually matters: `ChatbotsService.update()` now throws a `BadRequestException` if a `PUT /chatbots/:id` tries to set `status: 'active'` (i.e. take a chatbot live) while the bot owner's `isEmailVerified` is still `false` — checked via a fresh `userModel.findById(chatbot.userId)` lookup, not a cached value, so it reflects verification the moment it happens. The error message is phrased differently depending on `isAdmin` (an admin configuring a client's bot on their behalf sees "This chatbot's owner needs to verify their email...", not "verify your email"). Everything else — creating a bot, editing persona/knowledge base/channels, everything short of flipping the switch to live — stays open to an unverified account. If a similar "must be verified to go live" gate is ever wanted for agents/automations (`usermodules` activation), the same pattern applies: look up the owner's `isEmailVerified` before letting the status change through, nothing new needed on the User schema since the field already exists.
-
-### Google OAuth: auto-verify + redirect preservation (implemented, 2026-09)
-User asked whether the Google sign-in path had the same fixes as the email path — it didn't, and both gaps were real:
-
-1. **`AuthService.googleLogin()` never set `isEmailVerified`.** It defaulted to the schema's `false`, and nothing ever sends a verification email or token for this path (`resendVerification()` would, but only if the user discovered and clicked it) — so every Google signup would sit permanently "unverified" despite Google having already proven they own that email, tripping the go-live gate above for no real reason. Fixed: `isEmailVerified: true` is set both when creating a brand-new Google user and when linking Google to an existing (possibly still-unverified) email/password account — in both cases, successfully authenticating via Google *is* proof of email ownership.
-2. **The `redirect` param never survived the OAuth round trip.** Unlike the email flow (client-side `router.push`, same JS context throughout), Google sign-in is a full page redirect through Google's own domain (`window.location.href` → this backend's `/auth/google` → Google's consent screen → `/auth/google/callback` → frontend `/auth/callback`) with no shared client state across those hops. Fixed by using OAuth's own `state` param for exactly what it's designed for — opaque data round-tripped through the provider unmodified: `GET /auth/google` now accepts `?redirect=` and forwards it as `state` to Google; `GET /auth/google/callback` reads `state` back and appends it as `&redirect=` on the final redirect to `frontend/auth/callback`. Each hop decodes-then-re-encodes exactly once (`URLSearchParams` auto-encodes when building the outbound Google URL; `encodeURIComponent` when hand-building the callback redirect string), so a value like `/chatbots/restaurant-chatbot?autostart=1` survives intact. This isn't chatbot-specific — it's the same generic mechanism the email flow already used, so it also fixes the agents/automations `openModule` deep-link (see frontend CLAUDE.md's "Signup/login redirect preservation" and "Agents/automations 'Get started'" sections) for anyone who signs up via Google instead of email.
-
-Facebook/Apple were checked too — `AuthService.facebookLogin()` exists but has no controller route wired to it (dead code, unreachable), and there's no Apple integration at all, so neither needed a fix; Google is the only live social-auth path today.
-
-### Forgot / reset password (implemented, 2026-09)
-Was entirely fake until now — the frontend's forgot-password form was a `setTimeout` mock with a comment saying the real API call would come later, and no `/reset-password` frontend page or backend endpoint existed at all. `EmailService.sendPasswordResetEmail()` already existed and was fully correct (built ahead of the rest of the flow, never called by anything).
-
-- `User` schema: `passwordResetToken?`/`passwordResetExpires?`, same shape as the existing `emailVerificationToken`/`emailVerificationExpires` pair.
-- `AuthService.forgotPassword(email)`: generates a 32-byte hex token, 1-hour expiry (matches the email copy's own promise), saves it, calls `sendPasswordResetEmail()`. **Always returns the same generic message** regardless of whether the email exists — a differing response here would let a caller enumerate registered users.
-- `AuthService.resetPassword(token, newPassword)`: looks up by token + unexpired only, `BadRequestException('Invalid or expired reset link')` otherwise. On success: rehashes with bcrypt cost 12 (matching `register()`), clears the token, and clears `refreshToken` too — forces re-login on every other session, since a password reset is exactly the moment a stolen refresh token should stop working.
-- Two new routes, same 5-req/60s throttle as `register`, no guard (public like `register`/`login`): `POST /auth/forgot-password`, `POST /auth/reset-password`.
-- Fixed the reset email's link target — it pointed at a bare `/reset-password`, which doesn't match this app's actual convention (every other auth page lives under `/auth/*`); now `/auth/reset-password`, matching the new frontend page.
-
-**Verification note:** this sandbox has no network path to MongoDB Atlas, the Resend API, or the production site (confirmed via direct connection attempts — all rejected by the egress policy), so this was verified via a clean `nest build` plus a careful line-by-line trace against the already-proven `emailVerificationToken`/`resendVerification` pattern it mirrors, not a live database-backed run. Worth a real signup + forgot-password test against the deployed environment to confirm actual email delivery end to end.
-
-## Global-market repositioning: About page + real_estate industry copy (implemented, 2026-09)
-User asked (after visiting the live site on iPhone) to broaden LogicMate's marketing framing from UAE/Kenya/GCC-exclusive to international — most of the concrete asks were frontend-only copy (see frontend CLAUDE.md), but the About page's body content and the "Qualify leads..." real-estate industry description are genuinely DB-backed, and this sandbox has no network path to MongoDB Atlas or the production site (same confirmed limitation as every prior session — direct connection attempts get a 403 from the egress policy), so live content couldn't be edited directly.
-
-Followed the same self-healing backfill pattern already established for `ModulesService` (`backfillChatbotPricing`/`backfillChatbotArabicContent`) rather than requiring a manual DB touch:
-
-- **`CmsService`** gained `OnModuleInit` — `backfillAboutGlobalMarketContent()` runs on every boot and `$set`s the About page's `content`/`content_ar` to new copy (drops "in the GCC" framing from the mission line, "Why we built this" now explicitly says "made available to businesses everywhere — not limited to any single region or market"), gated on `lastEditedBy` not being set. That field is only ever written by `updatePage()` (a real `PUT /cms/admin/pages/:slug` from the dashboard), never by `seedPages()` — so its absence reliably means "still exactly what the seed wrote, safe to update" without needing to guess at exact live wording via string matching. The seed's `content`/`content_ar` were extracted into a shared `SEED_ABOUT_PAGE` constant so `seedPages()` (the admin-only `POST /cms/seed` full-reseed endpoint) and this backfill can never drift apart.
-- The About page's seed also **gained `content_ar` for the first time** — it never had one before (a real bilingual-architecture gap: Arabic visitors were silently seeing the English CMS content block on `/about`, since the frontend's `cmsContent` fallback has nothing to fall back *to* when `content_ar` is undefined). Filled in properly rather than left as a gap while already touching this content.
-- **`IndustriesService`** gained a similar `backfillRealEstateGlobalMarketDescription()` — the `real_estate` industry doc's `description`/`description_ar` ("Qualify leads on WhatsApp and follow up 24/7 across UAE and Kenyan markets") is duplicated as hardcoded copy in the frontend (`niches-section.tsx`, `industries-list-page.tsx` — both updated to "UAE, Kenya and international markets") but is *also* seeded here and served live via `GET /industries`. `seedIndustries()` uses `$setOnInsert` (only reaches brand-new docs, same limitation `ModulesService.seedModules()` has), so a backfill was needed here too. Gated on an exact match of the old description string rather than a `lastEditedBy`-style field (the `Industry` schema has no such marker) — an admin edit since seeding won't match and is left alone.
-- **`SEED_MODULES` GCC copy — now also broadened (implemented, 2026-09, same session), after being flagged-not-touched above.** User confirmed the go-ahead. Distinguished the two things this copy was actually doing, and kept one while removing the other: Gulf-dialect Arabic *language* capability (native Gulf-dialect scriptwriting/TTS, "primary dialect focus" in FAQ answers) is a real, legitimate product capability and was left alone; the *market-restriction* framing layered on top of it ("Market: GCC+", "resonates with GCC audiences", "UAE & GCC Targeting", capabilities literally named `'UAE/GCC targeting'`) was the actual problem, since it reads as "we only serve this region" rather than "we also do this region well" — removed or reworded to "global"/"worldwide"/"Arabic-speaking audiences anywhere" instead.
-  - **Arabic Content Agent** (`arabic-content-agent`): `capabilities` — `'GCC cultural adaptation'` → `'Gulf dialect cultural adaptation'` (same change in `pricing.features`); `heroStats`' `{label: 'Market', value: 'GCC+'}` → `{value: 'Global'}`; the "GCC Cultural Adaptation" feature card retitled "Gulf Dialect Adaptation" with its description reworded off "UAE, Saudi Arabia, Kuwait and wider GCC sensibilities" onto Gulf-dialect nuance for "Arabic-speaking audiences anywhere"; the scriptwriting feature's "resonates with GCC audiences" → "resonates with Arabic-speaking audiences worldwide"; the trend-discovery `howItWorks` step's "across UAE, Saudi Arabia and wider GCC" → "across the Arabic-speaking world"; the cultural-appropriateness FAQ's "respect GCC cultural norms... for the region" → "respect Gulf-dialect cultural norms... for Arabic-speaking audiences everywhere". Two smaller call-outs on other agent/automation FAQs found via the same `GCC` grep and fixed identically (Gulf-dialect capability kept, region-restriction framing dropped): TikTok Agent's Arabic-caption FAQ, Podcast Agent's Arabic-podcast FAQ, WhatsApp Sales Agent's language feature card, Email Marketing Automation's Arabic-copywriting FAQ.
-  - **Real Estate Agent** (`real-estate-agent`): `heroStats`' `{label: 'Market', value: 'UAE + GCC'}` → `{value: 'Global'}` — found via the same sweep, not in the original two-module estimate, but the identical bug shape (an agent already available in the UAE/Kenya `availableIn` sense, but with a hero stat implying it's *also* geographically capped to GCC specifically).
-  - **Lead Generation Automation** (`lead-generation-automation`): `capabilities` — `'UAE/GCC targeting'` → `'Global market targeting'` (same in `pricing.features`, was `'UAE & GCC targeting'`); `heroStats`' `{label: 'Market', value: 'GCC + Global'}` → `{value: 'Global'}` (the old value was self-contradictory — claiming both a GCC restriction and global reach at once); the "UAE & GCC Targeting" feature card (icon 🇦🇪) retitled "Global Market Targeting" (icon 🌍), description now leads with "international markets" and keeps "dedicated Gulf-region targeting for UAE, Saudi Arabia and Kuwait where needed" as one specific offering rather than the whole claim.
-  - **Backfill added** — `ModulesService.backfillGlobalMarketModuleCopy()`, same self-healing `onModuleInit` pattern as `backfillChatbotPricing`/`backfillChatbotArabicContent` above. `ModuleTemplate` has no `lastEditedBy`-style marker (unlike `Page`), so — same approach as `IndustriesService`'s real-estate backfill — it's gated on an exact match of each module's *old* `heroStats` `Market` value as a precise, unlikely-to-be-manually-retyped sentinel (`'GCC+'` for the Arabic Content Agent, `'GCC + Global'` for Lead Generation, `'UAE + GCC'` for the Real Estate Agent); only matching docs get the full `$set` (capabilities/pricing/heroStats/features/howItWorks/faq) — an admin who's already hand-edited a module's Market stat away from the old value is left untouched. For the Real Estate Agent this `$set` is a no-op on every field except `heroStats` (its capabilities/pricing/features text never had GCC-restrictive copy to begin with), which is harmless since it re-sets those fields to their current seed values.
-- **Deliberately still not touched:** every `Industry`/`ModuleTemplate` doc's `availableIn: ['UAE', 'Kenya']` field remains a structural/functional field (used for country-based filtering), not copy — broadening the platform's market reach for real would eventually need this touched too, but that's a data-model decision flagged in an earlier session (frontend CLAUDE.md's "Navbar language-only selector" section), not part of this copy pass.
-- **Verification note, same sandbox caveat as every prior backend change:** verified via a clean `nest build` (including after this follow-up) and by tracing the backfill logic step-by-step against the already-proven `ModulesService` pattern it mirrors — not a live database-backed run. The backfills take effect automatically the next time this service boots (Railway redeploy on push to `main`, matching the frontend's Vercel auto-deploy); no manual migration step needed, but worth a real visit to `/agents/arabic-content-agent`, `/agents/real-estate-agent`, `/automations/lead-generation-automation`, `/about` and `/industries/real-estate` after the next deploy to confirm all the new copy actually landed.
-
-## Chatbot onboarding model: admin-managed Meta setup + setup-guide email/PDF (implemented, 2026-09)
-User asked (after walking through the "+ New Chatbot" flow) who's responsible for each tab in `chatbot-config-page.tsx`, then — once told WhatsApp/Instagram setup needs a real Meta Business App per client — asked directly what to recommend for onboarding 5-10 clients/day. Landed on: **client is fully hands-off technically** — they fill in Overview + Knowledge Base and hand over an OpenAI key, but WhatsApp/Instagram Meta setup is done *by the platform operator*, not the client, communicated via **async intake** (an email + an always-available in-dashboard guide) rather than live per-client calls, since live calls don't scale at that volume.
-
-Implemented the communication half of that (the actual "admin does the Meta App setup" part is an operating procedure, not code — nothing to build there beyond what `isAdmin`-gated routes already support):
-
-- **`EmailService.sendChatbotSetupGuideEmail(user, {chatbotName})`** — new template (12th in the file), same `base()` wrapper/style as every other email. Explains the same client/admin split as this section's heading, with a "Reply to this email with the WhatsApp/Instagram account you'd like connected" call to action. Attaches a static `LogicMate-Chatbot-Setup-Guide.pdf` via Resend's `attachments` field (`{filename, content: base64}` — `send()` gained an optional 5th `attachments` param for this). The PDF itself lives at `src/assets/chatbot-setup-guide.pdf` (a one-time, non-per-client-dynamic document — same content for every chatbot) and is read via `fs.readFileSync`, cached in-memory after the first read (`setupGuidePdfCache`) so it's not re-read from disk on every send.
-- **`nest-cli.json` gained `compilerOptions.assets: ["assets/**/*"]`** — without this, `nest build` only compiles `.ts` files and the PDF would never reach `dist/`. Verified via a clean rebuild that `dist/assets/chatbot-setup-guide.pdf` lands correctly, and that `email.service.ts`'s `path.join(__dirname, '..', '..', 'assets', ...)` (compiled to `dist/modules/email/email.service.js`, two levels up to `dist/`) resolves correctly against it.
-- **Triggered from `ChatbotsService.create()`**, right alongside the existing `sendTrialStartedEmail` call, using the same already-fetched `user` doc — so it goes to the bot's actual **owner**, not the caller, which matters when an admin creates the bot on a client's behalf (`userId` in `create()`'s signature is already the resolved owner id in that case, per the controller's `isAdmin && targetUserId` logic). Wrapped in the same try/catch as the trial email — a failed send never blocks bot creation.
-- **Frontend**: `chatbot-config-page.tsx` gained a 7th tab, **"Guide to Setup"** (`GuideTab` component, icon `HelpCircle`) — the same content as the email/PDF, always available, no save button needed since it's pure reference. Copy adapts slightly for an admin configuring a client's bot (`isAdmin && !isOwnBot`) vs. the client viewing their own. `chatbots-page.tsx`'s `CreateChatbotModal` now shows a brief "Check your email for setup guidance" confirmation screen (mail icon, matches the ask literally) for ~5 seconds after a successful `POST /chatbots`, before handing off to the redirect into the config page — implemented via a `createdId` state that swaps the dialog's content and a `setTimeout(() => onCreated(id), 5000)`, with a manual "Taking you to your chatbot..." button to skip the wait. See frontend CLAUDE.md for the full tab content.
-
-**Nothing built for the "admin does the Meta setup" side itself** — that's the existing `isAdmin`-gated `PUT /chatbots/:id` (channels sub-object) and `POST /api-keys` (`userId` override) routes, already fully wired from earlier sessions; the missing piece was purely "how does the client know this is coming and who to contact," which this closes. The user separately asked about a "needs setup" queue/filter on the admin chatbot list (to track which of many clients are still waiting on WhatsApp/OpenAI-key setup) — **not built in this pass**, flagged as a real next step if the 5-10/day volume materializes and admin needs to triage a queue rather than remembering per-client status.
-
-## Admin needs-setup queue on GET /chatbots/admin/all (implemented, 2026-09)
-Closes the gap flagged in the "Chatbot onboarding model" section above — at 5-10 client onboardings/day, an admin can't reliably remember or dig through every bot's tabs to see who's still blocked on setup. `ChatbotsService.findAllAdmin()` now computes and returns, per bot:
-```
-setupFlags: { noOpenAiKey, whatsappPending, instagramPending }
-needsSetup: boolean   // OR of the three flags above
-```
-- `noOpenAiKey` — the bot owner has no active `openai` `ApiKey` document at all.
-- `whatsappPending` / `instagramPending` — the channel's `enabled` flag is `true` but its credentials (`phoneNumberId` / `accountId`) are still empty — i.e. the client has signaled intent (toggled it on) but admin hasn't finished the Meta setup yet. A channel that was never enabled isn't flagged — not every chatbot needs WhatsApp, so "never turned on" isn't a pending task.
-- **Batched, not N+1**: `ApiKeysService` gained `getUserIdsWithActiveKey(userIds[], provider)` — one `$in` query returning a `Set<string>` of owner ids that have an active key for that provider, computed once across every bot in the list rather than one `getKeys()` call per bot. `findAllAdmin()` now does exactly 2 queries total (bots + the batched key check) regardless of list size.
-
-Frontend renders this as a filterable queue (`chatbots-page.tsx` admin view) — see frontend CLAUDE.md.
-
-## Tiered chatbot pricing: Basic/Pro/Custom + real feature gating (implemented, 2026-09)
-User asked to confirm whether Analytics/WhatsApp/Instagram were actually gated by plan (they weren't — every chatbot got every feature regardless of what was paid, since no tier concept existed at all) and proposed a 3-tier structure. Confirmed via `AskUserQuestion` before building: the proposed **Basic / Pro / Custom** split, with all changes shipped together in one pass rather than phased.
-
-**Pricing, derived from what was already live** — every template's *existing* single-plan price became its **Basic** tier price unchanged (no surprise increase on what any early customer might already expect); Pro is a clean tier-up per niche value band, ~20% annual discount matching the site's existing convention:
-
-| Niche band | Basic /mo | Pro /mo |
+| Cron | When (UTC) | What |
 |---|---|---|
-| Restaurant, Gym, Salon | $39 | $79 |
-| E-commerce | $49 | $99 |
-| Clinic, Education | $59 | $119 |
-| Real Estate, Hotel, Auto Dealership | $79 | $149 |
+| `pipeline-services.cron.ts` | every minute | run due scheduled agents/automations |
+| `pipeline-services.cron.ts` | 09:00 | agent/automation trial reminders + expiry |
+| `pipeline-services.cron.ts` | 10:00 | welcome email sequence (day 1/3/7) |
+| `chatbot-billing.cron.ts` | 10:00 | chatbot trial 5-day warning + expiry |
+| `account-deletion.cron.ts` | 03:00 | day-7 reminder, day-8 deletion |
 
-**Feature split** (resolves the Basic-should-not-show-Analytics question directly): **Basic** = website widget + knowledge base + email notifications only. **Pro** = adds WhatsApp + Instagram + Analytics/insights dashboard + priority support. **Custom** = everything in Pro + custom integrations (CRM/POS) + multiple bots on one account + dedicated onboarding — "Contact us," no fixed price, reuses the existing `pricing.hasCustomPlan`/`customLabel(_ar)` fields agents/automations already use for the same purpose.
-
-**Schema** — `ModuleTemplate` (`module.schema.ts`) gained `pricingTiers: PricingTier[]` (`{key: 'basic'|'pro', monthly, annual, features[], features_ar[]}`), chatbot-only; agents/automations leave it empty and keep using the existing single-plan `pricing` field untouched. Deliberately kept **both** fields on chatbot docs: `pricing.monthly/annual/features` still holds the Basic tier's numbers (kept in sync, not removed) so every pre-existing reader of the old single-plan shape — the admin CMS Pricing tab, `pricing-page.tsx`'s card grid — keeps working with zero changes, showing what is now correctly the Basic/entry price. `Chatbot.billing` (`chatbot.schema.ts`) gained `tier: 'basic'|'pro'|'custom'` (default `'basic'`) — this is the actual gate, admin-only (never in `CUSTOMER_EDITABLE_FIELDS`), changed the same way `monthlyFee`/`setupFee` already are: by hand, via `PUT /:id/pricing`, which gained a `tier` field.
-
-**All 9 chatbot `SEED_MODULES` entries restructured** with the table above (`pricingTiers` array added, `pricing.features` trimmed to the Basic set). Backfills added, same self-healing `onModuleInit` pattern as everything else in this file: `ModulesService.backfillChatbotPricingTiers()` (gated on `pricingTiers` still empty — an admin form to edit tiers doesn't exist yet, so this is really about idempotency and future-proofing) and a new `ChatbotsService.onModuleInit()` that backfills `billing.tier` to `'pro'` on any existing chatbot doc that already has WhatsApp or Instagram credentials configured — without this, a bot with a working WhatsApp integration would have silently lost it the moment this deployed, since the schema default is `'basic'`.
-
-**Real server-side enforcement, not just a hidden UI tab** — the user specifically asked "are we disabling it?", so this isn't UI-only:
-- `ChatbotsService.getAnalytics()` throws `ForbiddenException` if `billing.tier === 'basic'`.
-- `ChatbotsService.update()` throws if a Basic-tier chatbot's `PUT` body tries to set `channels.whatsapp.enabled` or `channels.instagram.enabled` to `true`. The frontend already prevents this UI action entirely for Basic (the toggle is replaced with a locked card), so this is defense-in-depth against a direct API call, not the primary UX.
-
-**`ChatbotsService.create()`** now accepts `dto.tier` (`'basic'|'pro'`, defaults to `'basic'` for anything else including `'custom'` — Custom has no self-serve purchase flow, its "Contact us" card is a `mailto:` link, never a POST here) and resolves the chosen tier's `monthly` from `module.pricingTiers` onto `billing.monthlyFee`, alongside setting `billing.tier`.
-
-**Superseded note from the earlier "self-serve pricing" section**: that section's claim that there's "no more per-tier channel gating" is no longer accurate — this pass reintroduces real tier-based gating, deliberately, per this explicit user request. Kept the earlier section's text as historical record rather than editing it, since it was correct at the time.
-
-See frontend CLAUDE.md for the config-page gating UI, the 3-tier pricing cards, and the admin tier editor.
-
-## Admin notification emails: destination fix + redesign (implemented, 2026-09)
-User reported the platform's internal signup/verification alerts were landing at a personal Gmail address (`knowledgetruth2023@gmail.com`) instead of `hello@logicmate.io`, and asked for the templates to look more attractive.
-
-- **`EmailService.adminEmail`** — the hardcoded fallback (used whenever `ADMIN_NOTIFY_EMAIL` isn't set in the environment) changed from `knowledgetruth2023@gmail.com` to `hello@logicmate.io`. This is the address every internal admin notification goes to: new-signup alerts, payment success/failure, and any ad-hoc `sendAdminAlert()` call.
-- **Real duplication found while tracing the two emails the user saw**: `AuthService.register()` fires `sendAdminAlert('New signup: ${name}', ...)` immediately at registration, and `AuthService.verifyEmail()` calls `sendWelcomeEmail()`, which *also* sent its own hardcoded `[LogicMate] New signup: name (email)` admin email — so every signup produced two separately-worded "new signup" admin emails, the second one firing at verification time, not at signup, which reads as a second/different person signing up. Fixed by renaming the second one to `[LogicMate Admin] Email verified: name` — accurate to when it actually fires, and no longer a confusing duplicate of the first.
-- **New shared `adminNotificationCard(emoji, title, accent, bodyHtml)` + `adminInfoRows(rows)` helpers** replace three separate crude `<p style="font-family:sans-serif;padding:20px;">` blocks (the two signup emails above, plus `sendPaymentSuccessEmail`'s and `sendPaymentFailedEmail`'s admin copies) with one consistent, on-brand card — wrapped in the same dark `base()` template every customer-facing email already uses (LogicMate wordmark header, dark card, accent-colored title/emoji, footer), instead of unstyled inline HTML that looked out of place next to the rest of the email system.
-- `sendAdminAlert()` (still the general-purpose one-off alert method, used by `AuthService.register()`'s new-signup notification) now renders through the same card.
-
-**Not touched**: the actual `sendAdminAlert('New signup: ...')` call site in `AuthService.register()` and its wording — only the destination address and template design changed, per what was asked. If `ADMIN_NOTIFY_EMAIL` is already set on Railway to something else, that env var still wins over the new `hello@logicmate.io` fallback — worth checking Railway's env vars if admin alerts still don't land at `hello@logicmate.io` after this deploys.
-
-Verified via a clean `nest build`; no live-email send was possible in this sandbox (no network path to the Resend API, same limitation noted throughout this file), so the HTML was traced against the already-proven `base()`/`sendVerificationEmail()` pattern it now shares.
-
-## Chatbot lead capture — name/phone/email, notification + email, every tier (implemented, 2026-09)
-User decided against the WhatsApp Business API route for the "notify me about a customer" use case (that thread started because they hit Meta's real-number/trade-license setup friction while onboarding — see the earlier "chatbot onboarding" sections) and asked instead for the chatbot itself to naturally ask a customer for their name/phone/email mid-conversation, then surface it to the owner so they can follow up manually — explicitly on **every pricing tier**, not gated to Pro/Custom like Analytics/WhatsApp/Instagram are.
-
-- **`Conversation` schema** (`conversation.schema.ts`) gained `visitorPhone?: string` (joining the existing `visitorName?`/`visitorEmail?`, which were declared but never actually populated by anything) and `leadNotifiedAt?: Date` — a guard so the owner gets notified once per conversation, not once per newly-captured field.
-- **`ChatService.buildSystemPrompt()`** gained one instruction: ask for name/phone/email naturally when it fits (especially booking/order/contact intent), spread over a message or two, never blocking the actual answer to collect them.
-- **`ChatService.extractLeadInfo()`** — a second, cheap `gpt-4o-mini` call (JSON mode, `temperature: 0`) run after the main reply, decoupled from whether the model actually followed the prompt instruction above — it just looks at recent messages and pulls out `{name, email, phone}` if the customer stated them. Only runs while at least one of the three is still missing on the conversation, so it naturally stops making extra calls once a lead is fully captured; uses the same BYOK OpenAI key as everything else in this file, so it's a no-op (skipped) if the owner has no key on file.
-- **WhatsApp conversations get `visitorPhone` for free** — since `sessionId` on that channel already *is* the customer's WhatsApp number (see `handleWhatsappWebhook()`), `chat()` now sets it directly at conversation creation instead of relying on extraction to (re-)discover something already known with certainty.
-- **`ChatService.notifyLead()`** fires the first time a conversation has a phone or email (guarded by `leadNotifiedAt`) — creates a `NotificationType.CHATBOT_LEAD` dashboard notification for the bot owner (`NotificationsService.create()`, not `notifyUserAndAdmin()` — a customer's business lead has no reason to also alert every LogicMate admin) and sends `EmailService.sendChatbotLeadEmail()`, a new on-brand template with a `wa.me/<phone>` "Message on WhatsApp" button (opens the **owner's own personal WhatsApp**, zero Meta API involved) and a `mailto:` button, plus a link back into the dashboard's Conversations tab. Both are fire-and-forget — a failure here never blocks or degrades the customer's actual reply.
-- **Deliberately not tier-gated** — unlike Analytics/WhatsApp/Instagram (see "Tiered chatbot pricing" above), this whole feature runs identically regardless of `billing.tier`. A Basic-plan client following up on a lead by hand needs a real phone/email just as much as a Pro client with WhatsApp automation does; gating it would undercut the actual ask.
-- `chat.module.ts` gained the `User` schema (to look up the owner's name/email for the email) — `NotificationsService`/`EmailService` needed no module wiring since both `NotificationsModule`/`EmailModule` are `@Global()`.
-
-**Frontend**: `chatbot-config-page.tsx`'s Conversations tab renders a small "🛈 Lead" badge on any conversation row that has a phone or email, plus a pinned "Lead captured" strip (name/phone/email, phone links to `wa.me`, email to `mailto:`) shown even when the row is collapsed — see frontend CLAUDE.md.
-
-**Not built**: this doesn't touch or depend on the WhatsApp/Instagram Meta integration at all — it's the alternative path for chatbot owners who don't want to (or can't yet) go through Meta Business verification. If Meta channels get set up later, both mechanisms coexist fine (a WhatsApp-channel conversation still gets `visitorPhone` set immediately, same as before, and can still trigger `notifyLead()`).
-
-Verified via a clean `nest build`; no live email/OpenAI call was possible in this sandbox, so `extractLeadInfo()`'s JSON-mode parsing and `notifyLead()`'s call shape were traced against the already-proven `chat()`/`sendChatbotSetupGuideEmail()` patterns they extend.
-
-**Verified with a real test suite, not just tracing** — right after this shipped, the user asked to actually test Basic vs Pro tier behavior on a restaurant bot with dummy WhatsApp/Instagram credentials. Since this sandbox still has no path to a live Mongo or OpenAI, installed `jest`/`ts-jest`/`@nestjs/testing` (none were in the repo before — Nest's default scaffold apparently never got them added) and added `chatbots.service.spec.ts` + `chat.service.spec.ts`, driving the real service methods against mocked Mongoose models: confirms Basic blocks WhatsApp/Instagram/Analytics with dummy-but-valid-looking credentials, Pro accepts and persists them, and lead capture (phone auto-capture on WhatsApp, notify-once guard, graceful no-key degrade) behaves identically on both tiers. 15/15 passing — this is now real, permanent test coverage for both features, not a one-off script.
-
-## Booking link (implemented, 2026-09)
-Follow-up once the user was ready to onboard real restaurant clients: they wanted a "Calendly-style" booking system across all tiers. Investigated first rather than building Calendly integration directly — Calendly's whole model is 1:1 calendar-slot booking (good fit for salons/clinics/real-estate viewings), but a restaurant reservation isn't calendar-slot-shaped: it's party size + a requested time the owner typically wants to *confirm*, not auto-accept, and the real vertical tools for that are OpenTable/Resy/SevenRooms, not Calendly. Rather than build a real booking-platform API integration speculatively (real OAuth/function-calling work, no client asking for it yet), shipped the cheap, universally-useful piece: a link the bot shares when a customer wants to book, falling back to the lead-capture flow above (see previous section) when there isn't one.
-
-- `Chatbot` schema (`chatbot.schema.ts`) gained `bookingUrl?: string` — added to `CUSTOMER_EDITABLE_FIELDS` in `chatbots.service.ts` so it saves through the existing `PUT /chatbots/:id`, no new route needed.
-- `ChatService.buildSystemPrompt()` branches on whether it's set: if present, instructs the model to share the link (and still collect name/phone in case the team needs to follow up); if absent, instructs it to handle the whole booking request in-conversation (name, phone, date/time, party size) — exactly the lead-capture behavior that already existed, now explicitly framed as booking-request handling rather than just "contact info collection."
-- Deliberately **not** a real booking-platform integration (no availability checking, no direct booking) — that's flagged as a genuine Pro/Custom-tier feature for later (real OAuth + function-calling against Calendly's or a reservation platform's API), not built speculatively ahead of actual client demand.
-- Test coverage extended: `chat.service.spec.ts` gained a case confirming `buildSystemPrompt()` includes the link when set and falls back to the "no separate booking link" instruction when not. 15/15 tests passing.
-
-## Chatbot Setup Guide: Distributed Meta model + full tab tour (implemented, 2026-09)
-Companion to the frontend's "Guide to Setup" tab rework (see frontend CLAUDE.md) — the setup-guide email and its attached PDF both still said WhatsApp/Instagram setup was purely "reply to this email with the number, we'll handle it," with no mention that the client could instead set up their own Meta Business and grant the platform Partner/Admin access — the **Distributed model** the platform owner adopted for onboarding (see the "Meta Business Setup" internal ops artifact this session updated with the same model). Updated both to match, and to explain what every dashboard tab does, not just Overview/Knowledge Base/OpenAI key.
-
-- **`EmailService.sendChatbotSetupGuideEmail()`** — the "What our team handles for you" card is now "Connecting WhatsApp & Instagram (Pro plan and up)" and presents both paths: **Option A (recommended)** — the client creates their own free Meta Business Portfolio + app and grants the platform Partner/Admin access (never a password, revocable any time), with WhatsApp/Instagram then configured inside the client's own app; **Option B** — reply to the email and the platform team does the entire setup on a call instead. A new "🗂️ What each tab does" card was added between the existing "what you'll do" and Meta cards, briefly covering Channels/Conversations/Analytics/Billing (the email stays concise; the PDF and the frontend's Guide to Setup tab carry the full-length version).
-- **`src/assets/chatbot-setup-guide.pdf` regenerated** — no generator script existed in the repo (it was a one-time static asset from an earlier session), so this session built a fresh HTML source (mirroring the original's LogicMate-purple, rounded-card visual style) and rendered it via headless Chromium's print-to-pdf, the same tool this session used to verify the "Meta Business Setup" ops artifact. Now 3 pages instead of 2: page 1-2 covers "What you'll do" + a full "What each tab does" walkthrough (Overview through Billing, matching the frontend tab's depth), page 3 covers "Connecting WhatsApp & Instagram" with both options plus the Website-widget callout and footer. `break-inside: avoid` added to every card so a step never visually splits across a page boundary. Verified via `nest build` that `dist/assets/chatbot-setup-guide.pdf` matches the new `src/assets/` copy byte-for-byte (the existing `nest-cli.json` asset-copy config needed no changes).
-- The doc comment above `sendChatbotSetupGuideEmail()` was updated to point at this section and the "Meta Business Setup" artifact instead of describing the old single-path admin-handles-everything model.
-
-**Verification note, same sandbox caveat as every prior session:** no live Resend send was possible (no network path to the Resend API), so the email HTML and PDF were both verified by direct visual inspection (the PDF via the `pdf` reading tool, page by page) rather than a live send — both traced cleanly against the frontend `GuideTab` component's now-matching content.
-
-## Chatbot trial-expiry billing emails: chatbot-specific + correctly linked (implemented, 2026-09)
-User confirmed the platform is ready for its first real client and described the intended billing flow: every new chatbot (any tier) gets a 30-day trial regardless of what the client picked; at 5 days left (day 25) the client should get an email prompting a manual bank transfer so the bot doesn't stop answering customers live; and for now — until the trade license/LLC lands and Stripe gets wired up — payment stays manual bank-transfer-to-the-UAE-account, recorded by hand in the `Billing` ledger, matching what the pricing page's own CMS copy already tells visitors.
-
-The 5-day-warning mechanism itself **already existed** — `chatbot-billing.cron.ts` (see "Cron jobs" above) has run daily at 10 AM UTC since the tiered-pricing pass, warning at exactly `trialEndsAt - 5 days` and flipping `billing.status` once a trial actually lapses. Nothing new needed there. What was wrong, found while verifying this end-to-end rather than just tracing the cron logic: **the two emails it sends were the generic agents/automations ones** (`sendTrialExpiringEmail`/`sendTrialExpiredEmail`, shared with `usermodules/trial-expiry.cron.ts`) — copy talked about a "pipeline" stopping, and both linked to `/dashboard/payment-instructions`, the generic hardcoded-`PLANS` agents/automations bank-transfer page. That page has no concept of a specific chatbot, its tier, or its actual fee — a chatbot client following that link would land on the wrong self-serve flow entirely, unable to actually submit a transaction reference against their bot's real `Billing` record.
-
-- **Two new `EmailService` methods**, chatbot-specific, added right after `sendChatbotLeadEmail()`: `sendChatbotTrialExpiringEmail(user, {chatbotId, chatbotName, daysLeft, trialEndDate, monthlyFee, setupFee, currency})` and `sendChatbotTrialExpiredEmail(user, {chatbotId, chatbotName, monthlyFee, setupFee, currency})`. Both link to `/dashboard/chatbots/${chatbotId}?tab=billing` (this bot's real Billing tab, bank details + "I've paid" form) instead of the generic page, and both state the actual amount due (`$79/mo`, or `$50 setup fee + $79/mo` when a setup fee is set) via a small `formatMoney()` helper — not a vague "upgrade to continue." Copy is chatbot-specific throughout ("stopped answering customers," "your website widget/WhatsApp/Instagram will keep showing up but stop replying") rather than the generic "pipeline" language. The original generic emails are untouched — `usermodules/trial-expiry.cron.ts` still needs them for agents/automations.
-- **`chatbot-billing.cron.ts` updated** to call the new methods, passing `chatbot._id`/`billing.monthlyFee`/`billing.setupFee`/`billing.currency` through on both the 5-day-warning pass and the expiry pass.
-- **Real, live bug caught while wiring the `?tab=billing` link, not hypothetical:** `chatbot-config-page.tsx` never actually read a `?tab=` query param at all — meaning the *existing* lead-capture notification's `actionUrl: '/dashboard/chatbots/${chatbotId}?tab=conversations'` (see "Chatbot lead capture" above) has been silently landing on the Overview tab instead of Conversations since that feature shipped. Fixed on the frontend — see frontend CLAUDE.md's "chatbot-config-page.tsx now reads `?tab=` deep links" section — which also makes this new billing email's link actually work.
-- **Verified without a live send**: instantiated the compiled `EmailService`, monkey-patched `send()` to capture the rendered HTML instead of hitting Resend, and asserted both emails contain the correct `?tab=billing` URL and the correct formatted amount, and do *not* contain the old generic `/dashboard/payment-instructions` link. `nest build` clean, and the existing Jest suite still 15/15 passing (untouched by this change). The frontend half (the `?tab=` fix) was verified live against a real production build via Playwright — see frontend CLAUDE.md.
-- **Deliberately not built**: Stripe/automatic billing — explicitly deferred by the user until the trade license/LLC is in place; manual bank transfer + admin `confirm-payment` stays the only path for now, exactly as the pricing page's CMS copy already states.
-
-## Self-serve Basic->Pro upgrade payment flow (implemented, 2026-09)
-Closes the gap flagged in "Tiered chatbot pricing" above. Mirrors the existing `notifyPayment`/`confirmPayment` pattern exactly rather than building a parallel mechanism — a client on Basic can now request an upgrade themselves instead of it always being an admin hand-set change.
-
-- Both methods' `kind` union widened from `'setup' | 'monthly'` to `'setup' | 'monthly' | 'upgrade'`.
-- `notifyPayment(kind:'upgrade')` — throws `BadRequestException` if the chatbot isn't currently on Basic (nothing to upgrade to). Creates the same PENDING `Billing` record + admin alert email as setup/monthly, described as `Tier upgrade (Basic → Pro)`.
-- `confirmPayment(kind:'upgrade')` (admin only, same guard as every `confirm-payment` call) — sets `billing.tier = 'pro'` and, best-effort, updates `billing.monthlyFee` to the template's real Pro price.
-- **New `resolveProMonthlyPrice(chatbot)` private helper** + a `TEMPLATE_TO_MODULE_SLUG` map (`Chatbot.template` enum value → the matching `ModuleTemplate` slug, e.g. `restaurant` → `restaurant-chatbot`) — looks up `module.pricingTiers.find(t => t.key === 'pro').monthly` via `ModulesService.findOne()`. If the template has no mapping (`'custom'`) or the module/pricingTiers lookup fails, returns `null` and the caller leaves `monthlyFee` untouched rather than guessing — same defensive fallback pattern `create()`'s `moduleSlug` lookup already uses. The tier still flips to `'pro'` in that case (the business intent — approve the upgrade — is unambiguous even if the exact new price needs an admin's manual correction via the pricing editor).
-- The amount stated back to the client in `notifyPayment`'s admin-alert email is this same resolved Pro price (falling back to the current `monthlyFee` if unresolved) — so the admin sees a real number to expect, not a guess.
-
-See frontend CLAUDE.md for the client-facing "Request upgrade" mini-form and the admin's "Confirm Pro Upgrade" button, both on the Billing tab.
-
-Verified via `nest build` (clean) and the existing Jest suite (still 15/15 passing, untouched by this change — no new spec was added since this reuses `notifyPayment`/`confirmPayment`'s already-tested shape with one more `kind` branch).
-
-## Knowledge-base editing + human escalation — built for the Wok On Fire demo (implemented, 2026-09)
-A prospective client ("Wok On Fire," a restaurant) approached the user directly asking for a live demo this week, with a specific 10-item checklist covering menu Q&A, out-of-scope decline, lead capture, live notifications, human escalation, the widget embedded on a real page, Pro-tier analytics, and live knowledge-base edits. Auditing the checklist against the actual code (not assumed) surfaced two real gaps — everything else on the list was already built.
-
-**1. Knowledge-base entry editing.** `chatbots.controller.ts`/`chatbots.service.ts` only ever had add/list/delete on knowledge entries — no edit route at all, so the admin's only way to change an existing FAQ answer was delete-and-recreate. This was specifically the checklist item flagged as the strongest live-demo moment ("edit an FAQ, then immediately ask the widget the same question"), so doing it as a clumsy delete+recreate wasn't acceptable.
-- `ChatbotsService.updateKnowledge(chatbotId, knowledgeId, userId, dto, isAdmin)` — verifies ownership the same way `addKnowledge` does, patches whichever fields are provided (`question`/`answer`/`content`/`sourceUrl`), and **re-embeds** the entry with the bot owner's OpenAI key (same BYOK resolution as `addKnowledge` — never the caller's key) so the edit is immediately searchable by the live chat engine, not just saved. If no key is on file, the text change still saves; only the re-embedding step is skipped (same graceful-degrade pattern as everywhere else BYOK is involved).
-- New route: `PUT /api/v1/chatbots/:id/knowledge/:kId`, mirroring the existing `DELETE` route's shape.
-- Test coverage added to `chatbots.service.spec.ts`: edits + re-embeds with a key present, still saves the text change with no key present, throws `NotFoundException` for a knowledge id that doesn't belong to the chatbot.
-
-**2. Human escalation — was a complete no-op until now.** Traced `chat.service.ts` line by line rather than assuming: `handoff` was hardcoded `false` on every single return path, and `Chatbot.humanHandoff` (a toggle that's been settable via `PUT /chatbots/:id` since early in the chatbot module) was never actually read anywhere in the code — it did nothing at all. The checklist's "show what happens when the bot can't help and how it hands off" had no real behavior to demo.
-- `ChatService.chat()` now computes `isHandoff = chatbot.humanHandoff && (reply === chatbot.fallbackMessage || looksLikeHumanRequest(message))` — escalates either when the bot genuinely couldn't answer from its knowledge base, or when the customer explicitly asks for a person (`looksLikeHumanRequest()` — a cheap keyword regex, no extra LLM call, so it adds no latency). **Opt-in via the existing `humanHandoff` toggle** — a chatbot that hasn't enabled it keeps today's exact behavior (fallback message only, no status change, no notification), so this is additive, not a behavior change for every existing bot.
-- When it fires: `conversation.status` flips to `'handoff'` (this already fed `getAnalytics()`'s `handoffs` count — that stat has been silently stuck at 0 for every chatbot until now, since nothing ever set the status; it'll start reporting real numbers going forward) and, once per conversation (`handoffNotifiedAt` guard, same pattern as `leadNotifiedAt`), `ChatService.notifyHandoff()` fires a dashboard notification (new `NotificationType.CHATBOT_HANDOFF`) + `EmailService.sendChatbotHandoffEmail()` (new template, same wa.me/mailto action-button shape as `sendChatbotLeadEmail`) to the owner — the same "wow, it landed in my inbox in real time" moment the lead-capture notification already provides, deliberately mirrored rather than inventing a different UX for it.
-- The `chat()` response's `handoff` field (previously always `false`) now reflects reality, so a customer-facing surface (the widget) can render it differently.
-- Test coverage added to `chat.service.spec.ts`: no escalation when `humanHandoff` is off (regression safety for every pre-existing chatbot), escalates + notifies once on the fallback path, escalates on an explicit human-request phrase even when the bot could otherwise answer, and doesn't re-notify on a second message in an already-escalated conversation.
-
-**Frontend companion pieces** — see frontend CLAUDE.md's matching section: a real Edit button/form on the Knowledge Base tab (reusing the existing Add form, `PUT` instead of `POST`), and a small amber-tinted visual treatment in `chatbot-widget.js` for a handoff reply (`data.handoff` was already returned by the API and simply never read by the widget).
-
-Verified via `nest build` (clean) and the expanded Jest suite (22/22 passing, up from 15 — 7 new cases covering both features, zero regressions).
-
-## Generic multi-location ("outlets") support (implemented, 2026-09)
-Follow-up to the Wok On Fire demo prep: the client turned out to have 13+ real locations (one online-only delivery kitchen in Dubai, plus a dine-in/delivery chain across 7 cities in Gujarat, India). The earlier "just write good FAQ content" content-workaround was reconsidered — the user explicitly asked for a real, reusable platform feature ("global branch option," not specific to this one client), since any future multi-branch restaurant (or salon, clinic, auto-dealership chain, etc.) will hit the same need. Built generically, not WokOnFire-specific.
-
-- **New `Outlet` sub-schema** (`chatbot.schema.ts`) + `Chatbot.outlets: Outlet[]` (default `[]`). Fields: `name`, `city`, `country` (required), `address`, `areaTags[]`, `phone`, `hours` (free text, same reasoning as `persona`/`fallbackMessage` — real-world hours don't fit a structured schema cleanly), `deliveryPlatforms[]`, `mapUrl`, `isOnlineOnly`, `notes`. `areaTags` exists specifically for delivery-only/wide-coverage locations — a kitchen based in one area that delivers to several named districts via aggregators, so "do you deliver to Business Bay" can be answered correctly even though no outlet is physically *in* Business Bay.
-- **`outlets` added to `CUSTOMER_EDITABLE_FIELDS`** — same as `bookingUrl`, it's just another field saved through the existing `PUT /chatbots/:id`, no new dedicated route. (Deliberately not a separate mini-CRUD API like knowledge-base entries — outlets are edited as a whole array client-side, then saved in one PUT, since a business's location list is a much smaller, more cohesive unit than a knowledge base that can run to dozens of entries.)
-- **`ChatService.buildSystemPrompt()`** gained an `outletsSection` — every outlet is included in full, **not** run through the knowledge-base's top-4 similarity ranking, since a "which branch is near X" or "do you have a branch in Y" question needs the model reasoning over the *entire* location list at once; a similarity search could easily retrieve the wrong subset for a 13-outlet business. Explicit instruction tells the model to match a named area against each outlet's address/`areaTags` and say so plainly if nothing matches, rather than guessing. Empty `outlets` (the vast majority of chatbots — single location) means this section is a complete no-op, byte-for-byte the same prompt as before this feature existed.
-- Test coverage added to `chat.service.spec.ts`: a multi-outlet prompt includes every outlet's key details (name/city/country/area-coverage/delivery-only flag/platforms), and a single-location chatbot's prompt has no outlets section at all (regression safety — confirms zero behavior change for every existing chatbot).
-
-See frontend CLAUDE.md for the new "Locations" tab (full add/edit/delete UI) on `chatbot-config-page.tsx`.
-
-Verified via `nest build` (clean) and the expanded Jest suite (24/24 passing, up from 22).
-
-## Multi-tenant scalability audit + zero-downtime / multi-replica fixes (implemented, 2026-09)
-User asked a direct 4-point audit: is every DB query/collection actually tenant-scoped with proper indexes (not just app-level filtering), is there per-tenant rate limiting, is there per-tenant usage/error monitoring, and can Railway/Atlas scale (more replicas, bigger cluster) with no hardcoded single-tenant/single-instance assumptions. Answered with exact file:line evidence rather than assumption — full findings below, since a future session revisiting scaling should start from this rather than re-deriving it.
-
-**Findings:**
-1. **DB tenant-scoping + indexes — confirmed solid.** Every tenant-owned collection (`Chatbot`, `KnowledgeBase`, `Conversation`, `ApiKey`, `Billing`, `UserModule`, `Notification`, `Subscription`, `PipelineRun`) has an index on its owning key (`userId`/`chatbotId`/`embedKey`) and every service query filters at the DB level — no unfiltered-fetch-then-JS-filter pattern found anywhere. The one intentionally global query, `usermodules.service.ts`'s `runScheduledModules()` cron scan, is correct behavior for a batch job, not a violation.
-2. **Per-tenant rate limiting — was missing, now fixed (see below).** `ThrottlerModule.forRoot()` (`app.module.ts`) is IP-keyed by default with no custom tracker, and the public `POST /chat/:embedKey` endpoint — the one genuinely at risk of one tenant's traffic degrading another's, since every chatbot shares the same Mongo pool/event loop on one process — had `@SkipThrottle()`, meaning **zero** rate limiting on that route at all.
-3. **Per-tenant monitoring — partial.** Real per-tenant status exists (`billing.status`/`trialEndsAt`, the `needsSetup`/`setupFlags` admin queue). Missing: no per-tenant message-volume rollup, no structured per-tenant error tracking (failures are `console.error` only, no Sentry or equivalent wired in) — flagged, not built in this pass (a real feature, not a quick fix).
-4. **Railway/Atlas scaling — real single-instance hazards found, now fixed (see below).** Nothing assumes a single *client or bot* (confirmed via point 1), but the deployment assumed a single *server instance*: no graceful shutdown, no explicit health-check-gated deploy config, and — the most serious gap — every `@Cron` job (`usermodules.cron.ts`'s per-minute pipeline scheduler, `chatbot-billing.cron.ts`'s daily trial reminders, `trial-expiry.cron.ts`'s daily reminders + welcome-email sequence) fires independently on every replica with `@nestjs/schedule` having no built-in cross-instance coordination — a real double-fire hazard the moment a second backend instance exists.
-
-**Fixes shipped, same session:**
-- **`main.ts`** — added `app.enableShutdownHooks()` so Railway's SIGTERM during a rolling deploy drains in-flight requests instead of killing the process mid-request.
-- **`railway.json`** (new) — explicit `healthcheckPath: "/health"` + restart policy, so health-check-gated rollout is a checked-in config rather than relying on whatever Railway's dashboard default happens to be.
-- **`chat-throttler.guard.ts`** (new, `src/modules/chat/`) — a `ThrottlerGuard` subclass overriding `getTracker()` to key by `req.params.embedKey` instead of caller IP. `chat.module.ts` gained its own module-local `ThrottlerModule.forRoot([{name:'chat', ttl:10000, limit:40}])` (separate storage from the app-wide per-IP guard) so this bucket tracks per-**bot**, not per-IP — many real visitors to one bot can share an IP (office wifi, carrier NAT), while a single bot's traffic spike would otherwise draw down the same shared capacity every other tenant's chatbot runs on. `chat.controller.ts`'s `@Post('chat/:embedKey')` swapped `@SkipThrottle()` for `@UseGuards(ChatThrottlerGuard)` + `@Throttle({chat:{limit:40,ttl:10000}})` — the app-wide per-IP guard still applies underneath too (not skipped), so a single IP hammering many different bots is still caught by that layer.
-- **Cron race hardening — claim-before-act, not act-then-mark.** Every cron job that both mutates state and sends an email/triggers a pipeline was changed from "read candidates → act → write the dedupe flag" (a race: two replicas can both read "not yet done" before either writes) to "atomically claim via `findOneAndUpdate` with the dedupe condition in the filter → only the replica whose update actually matched proceeds":
-  - `usermodules.service.ts`'s `runScheduledModules()` — the `lastRunAt`-same-day check is now an atomic `findOneAndUpdate({_id, $or:[{lastRunAt:{$exists:false}},{lastRunAt:{$lt: startOfTodayUTC}}]}, {$set:{lastRunAt: now}})` claim before `runPipeline()` runs, instead of a plain in-memory `if (sameDay)` check against the `.find().lean()` snapshot.
-  - `chatbot-billing.cron.ts` — both the 5-day trial-reminder pass and the trial-expiry pass now claim (`trialReminderSent` false→true / `billing.status` `'trial'`→next-status) atomically before sending the email, instead of sending first and saving after.
-  - `usermodules.service.ts` gained `claimReminderSent()`/`claimExpireModule()` (atomic counterparts to the existing `markReminderSent()`/`expireModule()`), used by `trial-expiry.cron.ts`'s `checkExpiringTrials()` the same way.
-  - **`sendWelcomeSequence()`'s day1/day3/day7 emails had no dedupe guard of any kind before this** — under a single instance they naturally fired once per user (a cron that runs once/day matching a 24h-wide window), but under 2+ replicas every matching user would get every welcome email **twice**, guaranteed, not just a race. Fixed by adding `welcomeDay1Sent`/`welcomeDay3Sent`/`welcomeDay7Sent` booleans to `User` (`user.schema.ts`), claimed atomically the same way before each send.
-- **Not fixed in this pass, flagged for whoever adds the second replica:** per-tenant error tracking/Sentry (point 3 above) and per-tenant message-volume rollups — both real features, not one-line fixes; and the `chatbot.schema.ts` embedKey duplicate-index Mongoose warning (`index: true` on the field + a separate `schema.index()` call) — harmless, pre-existing, unrelated to this pass, noticed while running the test suite.
-
-**Verified**: `tsc --noEmit` clean, `nest build` clean, existing Jest suite still 24/24 passing (no spec changes needed — none of this touched code the existing suite exercises). No live Railway/Mongo Atlas in this sandbox to test actual multi-replica behavior — the fixes were verified by tracing the atomic-claim logic against MongoDB's documented single-document `findOneAndUpdate` atomicity guarantee, not a live 2-replica run. **Still open, not code changes**: confirm health-check-gated deploys are actually toggled on in the Railway dashboard (this session only checked in the `railway.json` config it reads) and configure Sentry (or equivalent) if per-tenant error tracking becomes a priority.
-
-## Per-tenant usage/error monitoring — closes the one gap flagged above (implemented, 2026-09)
-Confirmed via `AskUserQuestion` before building: real Sentry integration for error tracking (not an in-house Mongo error log), and usage rollups extended to agents/automations, not just chatbots.
-
-**Error tracking, tenant-tagged (`@sentry/nestjs@11.1.0`)**:
-- `src/instrument.ts` (new) — `Sentry.init({dsn: process.env.SENTRY_DSN, ...})`, imported as the **very first line** of `main.ts` (before any other import) — Sentry's Node SDK auto-instruments modules like `http`/`mongoose` by patching them, which only works if it runs before those modules are required elsewhere. **No `SENTRY_DSN` set → the SDK silently disables itself** (documented behavior, not a workaround) — this ships live with zero risk and zero cost until you actually create a Sentry project and set the env var on Railway; nothing else in the codebase branches on whether it's configured.
-- `app.module.ts` — `SentryModule.forRoot()` (from `@sentry/nestjs/setup`) as the first import, `SentryGlobalFilter` registered as the `APP_FILTER` (catches every otherwise-unhandled exception across the API and reports it, a no-op until `SENTRY_DSN` is set).
-- `src/tenant-sentry.interceptor.ts` (new) — a global `APP_INTERCEPTOR` that tags Sentry's current scope with `req.user._id`/`email` on every authenticated request, so an error thrown anywhere in an admin/dashboard-triggered request is attributable to that specific user, not anonymous. Only covers routes behind `JwtAuthGuard` — the two places that matter most are unauthenticated or backgrounded, so they tag explicitly instead (below).
-- **`ChatService.chat()`** — the public engine's top-level `catch` block **swallows every error and always returns the fallback message** (customer never sees a 500) — meaning it would otherwise *never* reach `SentryGlobalFilter` at all, silent by design. Added an explicit `Sentry.captureException(err, {tags: {chatbotId, tenantUserId, embedKey, channel}})` right there, tagged with the **bot owner**, not the anonymous customer (who has no identity here).
-- **`UserModulesService`** — two more swallowed-error paths that would otherwise never surface anywhere but a Railway log line: the fire-and-forget `axios.post(.../pipeline/run)` call's `.catch()`, and `runScheduledModules()`'s per-module `catch` in the cron loop. Both now also call `Sentry.captureException(..., {tags: {tenantUserId, userModuleId, ...}})`.
-- **Not done, deliberately**: Sentry on the Python pipeline service — a real future step (its own SDK, its own DSN or the same project), not built in this pass; flagged rather than half-wired.
-
-**Per-tenant usage rollups (in-house, MongoDB — this half never depended on the Sentry choice)**:
-- `ChatbotsService.findAllAdmin()` (the `GET /chatbots/admin/all` list) gained a `usage: {totalConversations, totalMessages, conversations30d, messages30d}` field per bot — two aggregate queries across the whole `Conversation` collection grouped by `chatbotId` (not one query per bot, same "batched, not N+1" rule `getUserIdsWithActiveKey` already established for the `setupFlags` computation on this same endpoint), so the list stays a fixed number of queries regardless of how many chatbots exist.
-- **New `AdminService.getUsagePerTenant()` / `GET /admin/usage`** (admin-only, same inline `req.user.role !== 'admin'` pattern every other route on this controller uses) — the agents/automations equivalent: per user, `pipelines: {totalRuns, failedRuns, runs30d, failedRuns30d, lastRunAt}` (aggregated from `PipelineRun`) and `modulesByStatus` (a count per `UserModuleStatus`, aggregated from `UserModule`), alongside the user's own `planType`/`trialEndDate`/`isActive`. 4 queries total (2 pipeline aggregates + 1 module-status aggregate + 1 user find), not per-user — same batching rule as above. This is the direct answer to "usage/monitoring per tenant, not just global" for the half of the platform `GET /admin/overview` never broke down per-user (that endpoint stays exactly as-is, global-aggregate-only, since it answers a different question — "how's the business" vs. "how's this one customer").
-- **No new frontend UI in this pass** — both are backend API additions only; ready to wire into the admin dashboard (either the existing chatbot admin list, which already renders `setupFlags`, or a new panel for `GET /admin/usage`) whenever that's wanted.
-
-**Verified**: `tsc --noEmit` clean, `nest build` clean, existing Jest suite still 24/24 passing. Additionally booted the compiled app directly (`node dist/main.js`) against a deliberately unreachable Mongo URI to confirm the new DI wiring resolves cleanly before the expected connection failure — the boot log shows `SentryModule dependencies initialized` and `AppModule dependencies initialized` (meaning the guard/filter/interceptor providers all wired correctly) before it fails, as expected, on `MongooseServerSelectionError: connect ECONNREFUSED` — no live Mongo Atlas in this sandbox to go further than that.
-
-**Live in production as of 2026-09-29** — the user created a Sentry project, set `SENTRY_DSN` on Railway, and redeployed. Verified two ways before calling it done: (1) a one-off script in this sandbox initialized the real SDK with the actual DSN (`isInitialized() === true`, not a silent no-op from a missing/empty value) and successfully delivered a tagged test exception (`Sentry.flush()` confirmed the event reached `*.ingest.de.sentry.io`); (2) the user confirmed the Railway deploy carrying `SENTRY_DSN` went out successfully. Error tracking is genuinely capturing now, not just wired-and-waiting — next real error through `ChatService.chat()`'s fallback path or either flagged `UserModulesService` catch block will show up in the Sentry dashboard tagged with the real `chatbotId`/`tenantUserId`, not a placeholder.
-
-## Users + services regrouped into sub-objects (implemented, 2026-11-16)
-`users` and `services` documents are no longer flat — see `ai/architecture.md` for the authoritative field lists and `ai/traces.md` for the migration details. In short: users keep name/email/password/role/status at the top and group the rest into `profile`, `auth`, `plan`, `welcomeEmails`, `deletion`; services group into `content`, `seo`, `display`, `pipeline`, `pricing` (with `pricing.tiers`, formerly `pricingTiers`), and **`badge` is gone — `status` drives the "Live"/"Coming Soon" pill**. Older sections of this file still mention the old flat names (`isEmailVerified`, `trialEndDate`, `pricingTiers`, `badge`, …) as historical record; read them as `auth.isEmailVerified`, `plan.trialEndDate`, `pricing.tiers`, etc. Always return users through `sanitizeUser()` / `USER_PUBLIC_PROJECTION` (strips the password and every auth token). The frontend reads services through `src/lib/service-view.ts` (`toServiceView()` flattens for page components; `toServicePayload()` regroups admin-form saves).
-
-## Restaurant chatbot verified end to end + Meta webhook security (implemented, 2026-11-16)
-Full Basic → Pro run passes 63/63 against the real backend/frontend/MongoDB — see `docs/test-cases/restaurant-chatbot.md` (inputs → expected outputs) and `test/e2e/README.md` (how to rerun; **never point it at Atlas**). Four production bugs fixed along the way (details in `ai/traces.md`): the widget was blocked by CORS on every customer site; WhatsApp/Instagram replies were never sent; webhooks accepted unsigned/forged requests; the public `/chat` endpoint trusted a caller-supplied channel. **Every WhatsApp/Instagram channel now needs the client's Meta App Secret** (Channels tab) — messages without a valid `X-Hub-Signature-256` are rejected, and the webhook handshake only succeeds with the bot's own per-channel Verify Token shown in the same tab. Any new service should get its own `docs/test-cases/<service>.md` + `test/e2e/<service>-e2e.cjs`.
-
-## Chatbots stored in `userservices` (implemented, 2026-11-17)
-Chatbots are `userservices` rows (`type: 'chatbot'`), not `chatbots` documents — see `ai/architecture.md` (userservices) and `ai/traces.md`. Settings live in `config.*` (bot live state is `config.botStatus`), the subscription in `status`/`trialEndDate`/`nextRenewalDate`, tier + prices in `plan`. Knowledge entries, conversations and billing link via `userserviceId`. The `/api/v1/chatbots/*` API still returns the old chatbot shape via `toChatbotView()`. Older sections of this file that mention `Chatbot.billing.*`, `chatbotId` or `embedKey` at the top level are historical — read them as the new paths. Every chatbot is created from a catalog service (no custom/blank bots).
-
-Agents/automations are `userservices` rows too (`type: agent|automation`, 2026-11-17 — `usermodules` code deleted, no data existed): `src/modules/userservices/pipeline-services.*`, routes `/api/v1/userservices/*` (the old `/usermodules/*` alias was removed once the Python service moved to `/userservices`). Pause is `config.paused`; an unpaid trial is `past_due`. Older sections mentioning `UserModule`/`usermodules` are historical.
+## Testing
+- Unit: `npm test`.
+- End-to-end (`test/e2e/run.sh restaurant|gym|agent`): real backend + frontend + local Mongo, outbound OpenAI/Anthropic/Gemini/Resend/Meta calls faked by `fake-net.cjs`. Each new service gets `docs/test-cases/<service>.md` + `test/e2e/<service>-e2e.cjs`.
 
 ## What is next to build
-1. ~~Chatbot module backend~~ ✅ done
-2. ~~Chatbot pricing/billing~~ ✅ done — admin-set per-deal, manual bank transfer
-3. ~~Chatbot self-serve pricing + automatic trial~~ ✅ done — see above (note: its "no per-tier gating" claim was superseded by the Tiered chatbot pricing section further below).
-4. ~~9 bilingual chatbot templates~~ ✅ done — see above
-5. ~~Admin can build/manage a chatbot for a client~~ ✅ done — see above
-6. **Channel integrations** — WhatsApp/Instagram code is done; needs live Meta Business App credentials + webhook verification tokens to actually go live. Onboarding model decided (see above): admin does the Meta setup per client, not the client — no self-serve OAuth flow (Meta Embedded Signup) built yet, revisit once manual per-client setup becomes the real bottleneck.
-7. **Subscribe flow + payment integration for agents/automations** — chatbots now have billing; agents/automations still only have the generic hardcoded `PLANS` list in `payment-instructions-page.tsx` on the frontend, not per-module pricing
-8. ~~Admin "needs setup" queue/filter on the chatbot admin list~~ ✅ done — see above
-9. ~~Tiered chatbot pricing (Basic/Pro/Custom) + plan-based feature gating~~ ✅ done — see above
-10. ~~Admin form UI for editing `pricingTiers`~~ ✅ done — `admin-modules.tsx`'s Pricing tab now has Basic/Pro sections (monthly/annual/features, EN+AR) for chatbot-type modules, saved via the existing unauthenticated `PATCH /modules/:idOrSlug` (`@Body() body: any`, no DTO stripping — `pricingTiers` passes through as-is). See frontend CLAUDE.md for the form details.
-11. ~~Self-serve Basic→Pro upgrade payment flow~~ ✅ done — see above. Admin can still hand-flip `tier` via `PUT /:id/pricing` too; both paths coexist.
-12. ~~Chatbot lead capture (name/phone/email + owner notification, every tier)~~ ✅ done — see above
-13. ~~Booking link (share-a-link, falls back to lead capture)~~ ✅ done — see above
-14. **Real booking-platform integration** (live availability + direct booking via Calendly/OpenTable/Resy API) — deliberately not built yet, flagged as a genuine Pro/Custom feature once there's actual client demand for it, not just a link
-15. **AI bot calling** (voice-based phone reservations) — discussed as a Custom-tier idea (see frontend CLAUDE.md's restaurant-bot feature-tier notes), not built — recommended approach is a turnkey platform (Vapi/Retell AI) rather than a from-scratch STT/LLM/TTS pipeline
+1. Clinic chatbot test cases + e2e suite (content, brochure and pricing done; owner records the demo), then Real Estate, Salon, Hotel, Auto Dealership.
+2. WhatsApp/Instagram go-live per client (code done; needs each client's Meta app).
+3. Agents/automations payment flow (they have no billing yet).
+4. Card payments (Stripe/Paddle) once the LLC exists; VAT on invoices once registered.
+5. Shared storage for Python pipeline output (S3/R2) before agents get real users or a second instance.
+6. Real booking-platform integration and AI voice calling — only on real client demand.

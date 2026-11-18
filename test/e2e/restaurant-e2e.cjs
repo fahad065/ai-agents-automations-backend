@@ -100,8 +100,10 @@ async function openTab(page, label) {
     const dlg = page.getByRole('dialog');
     await dlg.waitFor({ timeout: 8000 });
     ok('"add your AI key" prompt shown for a bot with no key', /key/i.test(await dlg.innerText()));
-    await dlg.locator('input').first().fill('sk-owner-test-key-1234567890');
-    await dlg.getByRole('button', { name: /Save Key/ }).click();
+    const dtext = await dlg.innerText();
+    ok('same form as the API Keys page, OpenAI preselected', /Create API key/.test(dtext) && /Service \/ Provider/.test(dtext) && /OpenAI/.test(dtext) && /API key value/.test(dtext), dtext.slice(0, 120).replace(/\n/g, ' '));
+    await dlg.locator('#key-value').fill('sk-owner-test-key-1234567890');
+    await dlg.getByRole('button', { name: /Save key/ }).click();
     await page.waitForTimeout(1200);
     ok('key saved (encrypted, not plain text)', mongo(`db.apikeys.countDocuments({provider:"openai"})`) === '1' && !mongo(`JSON.stringify(db.apikeys.findOne())`).includes('sk-owner-test-key'));
   }, page);

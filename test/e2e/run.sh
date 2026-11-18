@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test runner — see test/e2e/README.md.
-# Usage: test/e2e/run.sh [restaurant|gym|agent]   (default: restaurant)
+# Usage: test/e2e/run.sh [restaurant|gym|clinic|agent]   (default: restaurant)
 set -u
 E="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$(cd "$E/../.." && pwd)"

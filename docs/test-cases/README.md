@@ -10,8 +10,8 @@ each file lives in `test/e2e/<service>-e2e.cjs` (how to run it:
 | Restaurant chatbot | [restaurant-chatbot.md](restaurant-chatbot.md) | `test/e2e/restaurant-e2e.cjs` | 2026-11-16 — 63/63 |
 | Gym chatbot | [gym-chatbot.md](gym-chatbot.md) | `test/e2e/gym-e2e.cjs` | 2026-11-16 — 64/64 |
 | YouTube agent | [youtube-agent.md](youtube-agent.md) | `test/e2e/agent-e2e.cjs` | 2026-11-17 — 32/32 |
-| Gym chatbot | _next_ | — | — |
-| YouTube agent | [youtube-agent.md](youtube-agent.md) | `test/e2e/agent-e2e.cjs` | 2026-11-17 — 32/32 |
+| Clinic chatbot | [clinic-chatbot.md](clinic-chatbot.md) | `test/e2e/clinic-e2e.cjs` | 2026-11-18 — 97/97 |
+| Real estate chatbot | _next_ | — | — |
 
 ## Template for a new service
 

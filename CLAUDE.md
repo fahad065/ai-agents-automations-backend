@@ -147,10 +147,10 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 
 ## Testing
 - Unit: `npm test`.
-- End-to-end (`test/e2e/run.sh restaurant|gym|agent`): real backend + frontend + local Mongo, outbound OpenAI/Anthropic/Gemini/Resend/Meta calls faked by `fake-net.cjs`. Each new service gets `docs/test-cases/<service>.md` + `test/e2e/<service>-e2e.cjs`.
+- End-to-end (`test/e2e/run.sh restaurant|gym|clinic|agent`): real backend + frontend + local Mongo, outbound OpenAI/Anthropic/Gemini/Resend/Meta calls faked by `fake-net.cjs`. Each new service gets `docs/test-cases/<service>.md` + `test/e2e/<service>-e2e.cjs`.
 
 ## What is next to build
-1. Clinic chatbot test cases + e2e suite (content, brochure and pricing done; owner records the demo), then Real Estate, Salon, Hotel, Auto Dealership.
+1. Real Estate chatbot (Clinic done: content, brochure, pricing, demo site `fahad065/logicmate-clinic-website`, test cases + e2e 97/97; owner records the demo), then Salon, Hotel, Auto Dealership.
 2. WhatsApp/Instagram go-live per client (code done; needs each client's Meta app).
 3. Agents/automations payment flow (they have no billing yet).
 4. Card payments (Stripe/Paddle) once the LLC exists; VAT on invoices once registered.

@@ -1141,3 +1141,18 @@ and reported the page jumping to the top when opening a provider dropdown.
   write-ups moved to `ai/feature-history.md`.
 - Open: `PIPELINE_SECRET` / `CRON_SECRET` have hard-coded fallbacks in code —
   must be set on Railway.
+
+## 2026-11-18 — Clinic chatbot test cases + e2e; clinic demo site
+- New `docs/test-cases/clinic-chatbot.md` + `test/e2e/clinic-e2e.cjs`
+  (`run.sh clinic`): full Basic → Pro run like the gym suite, plus
+  clinic-specific cases — per-branch "Insurance accepted" (field shown only
+  for a UAE branch, hidden for Kenya, typed value kept across a country
+  switch, each branch's own list in the AI instructions, no insurance line
+  for a non-UAE branch), medical question → fallback + hand-off, emergency
+  number, appointment request → booking link (never confirms a slot),
+  $99/$149 pricing, invoice for the Pro upgrade. 97/97 passed.
+- The suite sets the clinic service to $99/$79 and $149/$119 in the e2e
+  database first (what the admin did by hand in production); the seed still
+  has the old prices, which only matter for a brand-new empty database.
+- Demo website for recording: `fahad065/logicmate-clinic-website`
+  ("Noor Family Clinic", 5 UAE branches, branch-specific insurance).

@@ -51,7 +51,7 @@ PYTHON_SERVICE_URL=http://localhost:8001
 
 ## Production DB
 - MongoDB Atlas: `ai-agents-automations-prod` database
-- Admin user: `fahad@test.com` / `Admin@123`
+- Admin login: not stored in the repo — ask the platform owner.
 
 ## Module structure
 All modules live in `src/modules/`:

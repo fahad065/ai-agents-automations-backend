@@ -59,9 +59,9 @@ describe('LEGACY_SEED_MODULES', () => {
     }
   });
 
-  it('keeps the 9 chatbot templates with Basic/Pro pricing tiers', () => {
+  it('keeps the 7 chatbot templates with Basic/Pro pricing tiers', () => {
     const chatbots = mapped.filter((m) => m.type === ServiceType.CHATBOT);
-    expect(chatbots).toHaveLength(9);
+    expect(chatbots).toHaveLength(7);
     for (const c of chatbots) {
       expect(c.pricing.tiers.map((t: any) => t.key)).toEqual(['basic', 'pro']);
     }

@@ -73,7 +73,7 @@ function makeService(opts: {
   };
   const userModel: any = {
     findById: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ name: 'Fahad', email: 'fahad@test.com' }) }),
+      select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ name: 'Owner', email: 'owner@example.com' }) }),
     }),
   };
   const apiKeysService: any = {
@@ -144,7 +144,7 @@ describe('ChatService — restaurant bot lead capture (Basic + Pro, no Meta need
     );
     expect(emailService.sendChatbotLeadEmail).toHaveBeenCalledTimes(1);
     expect(emailService.sendChatbotLeadEmail).toHaveBeenCalledWith(
-      { name: 'Fahad', email: 'fahad@test.com' },
+      { name: 'Owner', email: 'owner@example.com' },
       expect.objectContaining({ visitorPhone: '971501234567', chatbotName: 'Sunset Cafe Bot' }),
     );
   });

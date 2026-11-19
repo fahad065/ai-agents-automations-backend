@@ -1156,3 +1156,13 @@ and reported the page jumping to the top when opening a provider dropdown.
   has the old prices, which only matter for a brand-new empty database.
 - Demo website for recording: `fahad065/logicmate-clinic-website`
   ("Noor Family Clinic", 5 UAE branches, branch-specific insurance).
+
+## 2026-11-19 — Clinic demo site made international
+- Owner direction: the clinic chatbot is sold worldwide, not just the GCC.
+  The demo site is now "Meridian Family Clinic" with one clinic each in New
+  York, London, Dubai, Sydney and Toronto — local currency prices, local
+  insurance plans (Medicare, OHIP, Bupa, Aetna, Daman…), time zones and
+  emergency numbers.
+- Open question for the owner: the dashboard's "Insurance accepted" field
+  is shown only for UAE branches (`showsInsurance()` in the frontend), so a
+  US/UK/AU/CA clinic can't list its plans there yet.

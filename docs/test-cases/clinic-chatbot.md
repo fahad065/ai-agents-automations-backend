@@ -16,8 +16,9 @@ insurance Daman, AXA, NAS), "Noor Jumeirah" (UAE, added through the form;
 insurance Daman, Bupa Global, Cigna) and "Noor Nairobi" (Kenya; no
 insurance list); appointment link `https://book.example.com/noor-clinic`.
 Prices as the admin sets them in the Service Catalog: Basic $99 (annual
-$79/mo), Pro $149 (annual $119/mo). Same branches/doctors as the demo
-site `fahad065/logicmate-clinic-website`.
+$79/mo), Pro $149 (annual $119/mo). Test data only — the demo site
+`fahad065/logicmate-clinic-website` (Meridian Family Clinic) has its own
+clinics in the USA, UK, UAE, Australia and Canada.
 
 ---
 

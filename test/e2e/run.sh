@@ -12,7 +12,9 @@ if ! docker ps --format '{{.Names}}' | grep -q '^lm-mongo$'; then
   docker start lm-mongo >/dev/null 2>&1 || docker run -d --name lm-mongo -p 27017:27017 mirror.gcr.io/library/mongo:7 >/dev/null
   sleep 5
 fi
-docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").dropDatabase()' >/dev/null
+# Wait until Mongo accepts connections, then wipe; never run on yesterday's data.
+for i in $(seq 1 30); do docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").dropDatabase().ok' 2>/dev/null | grep -q 1 && break; sleep 1; done
+[ "$(docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").getCollectionNames().length' 2>/dev/null)" = "0" ] || { echo "Could not wipe the lm_e2e database — is lm-mongo up?"; exit 1; }
 rm -f "$E/calls.jsonl"; rm -rf "$E/shots"
 
 # 2. Backend from dist/ in production mode, outbound AI/email/Meta calls faked.

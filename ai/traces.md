@@ -1163,6 +1163,13 @@ and reported the page jumping to the top when opening a provider dropdown.
   York, London, Dubai, Sydney and Toronto — local currency prices, local
   insurance plans (Medicare, OHIP, Bupa, Aetna, Daman…), time zones and
   emergency numbers.
-- Open question for the owner: the dashboard's "Insurance accepted" field
-  is shown only for UAE branches (`showsInsurance()` in the frontend), so a
-  US/UK/AU/CA clinic can't list its plans there yet.
+- Owner approved: the Locations tab's "Insurance accepted" field now shows
+  for clinic branches in every country (`showsInsurance(profile)` — no
+  country check). The backend already sent any branch's list to the AI.
+  Clinic e2e updated (field shown for 6 countries; New York/Dubai lists kept
+  apart). Clinic CMS copy (EN+AR) and brochure reworded with international
+  examples (Medicare, Bupa) instead of Daman/AXA/Al Barsha.
+- Harness fix: `run.sh` now retries the `lm_e2e` wipe until Mongo accepts
+  connections and aborts if the database isn't empty — a run had silently
+  started on the previous day's data (2 API keys, invoice LM-…-0002).
+  Clinic suite: 101/101.

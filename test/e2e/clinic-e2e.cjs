@@ -179,38 +179,39 @@ async function openTab(page, label) {
   await step('branches with insurance, booking link, go live', async () => {
     await api(token, 'PUT', `/chatbots/${botId}`, {
       outlets: [
-        { name: 'Noor Al Barsha', city: 'Dubai', country: 'United Arab Emirates', address: 'Al Barsha Tower 3', areaTags: ['Barsha', 'Tecom'], hours: 'Daily 8am-11pm', facilities: ['Gynaecology', 'Physiotherapy', 'Lab'], insurance: ['Daman', 'AXA', 'NAS'] },
-        { name: 'Noor Nairobi', city: 'Nairobi', country: 'Kenya', address: 'Westlands Road', areaTags: ['Westlands'], hours: 'Mon-Sat 8am-8pm', facilities: ['General Practice'] },
+        { name: 'Meridian Dubai', city: 'Dubai', country: 'United Arab Emirates', address: 'Al Barsha Tower 3', areaTags: ['Barsha', 'Tecom'], hours: 'Sat-Thu 8am-10pm', facilities: ['Gynaecology', 'Paediatrics', 'Dental'], insurance: ['Daman', 'AXA', 'NAS'] },
+        { name: 'Meridian Sydney', city: 'Sydney', country: 'Australia', address: '120 Pitt Street', areaTags: ['CBD', 'Martin Place'], hours: 'Mon-Fri 7:30am-7pm', facilities: ['General Practice', 'Skin Checks'] },
       ],
-      bookingUrl: 'https://book.example.com/noor-clinic',
+      bookingUrl: 'https://book.example.com/meridian-clinic',
       humanHandoff: true,
-      channels: { website: { enabled: true, customColor: '#0d9488', welcomeMessage: 'Welcome to Noor Family Clinic!' } },
+      channels: { website: { enabled: true, customColor: '#0d9488', welcomeMessage: 'Welcome to Meridian Family Clinic!' } },
     });
     await page.reload({ waitUntil: 'networkidle' }); await page.keyboard.press('Escape').catch(() => {});
     await openTab(page, 'Locations');
     const main = () => page.locator('main').last();
-    ok('existing UAE branch shows its insurance list', /Insurance accepted: Daman, AXA, NAS/.test(await main().innerText()));
+    ok('existing branch shows its insurance list', /Insurance accepted: Daman, AXA, NAS/.test(await main().innerText()));
     await page.getByRole('button', { name: /^Add Location$/ }).first().click();
     await page.waitForTimeout(400);
     let lf = await main().innerText();
     ok('clinic form: "Services / specialities", no delivery fields', /Services \/ specialities/.test(lf) && !/delivery apps|Delivery-only/i.test(lf));
     ok('neutral placeholder "Enter clinic name"', (await page.getByPlaceholder('Enter clinic name').count()) === 1);
-    ok('no insurance field before a country is picked', !/Insurance accepted \(comma/.test(lf));
+    const insField = () => page.getByPlaceholder('Enter insurance providers or cards, separated by commas');
+    ok('insurance field shown for a clinic before any country is picked', (await insField().count()) === 1);
     const pickCountry = async (name) => {
       await main().getByText('Country *').locator('xpath=..').locator('button').first().click();
       await page.locator('[data-slot="command-input"]').fill(name);
       await page.locator('[data-slot="command-item"]', { hasText: name }).first().click();
       await page.waitForTimeout(300);
     };
-    await page.getByPlaceholder('Enter clinic name').fill('Noor Jumeirah');
-    await pickCountry('United Arab Emirates');
-    ok('UAE branch: insurance field appears', (await page.getByPlaceholder('Enter insurance providers or cards, separated by commas').count()) === 1);
-    await page.getByPlaceholder('Enter insurance providers or cards, separated by commas').fill('Daman, Bupa Global, Cigna');
-    await pickCountry('Kenya');
-    ok('non-UAE branch: insurance field hidden', (await page.getByPlaceholder('Enter insurance providers or cards, separated by commas').count()) === 0);
-    await pickCountry('United Arab Emirates');
-    await page.getByPlaceholder('Enter city').fill('Dubai');
-    await page.getByPlaceholder('Enter full address').fill('Villa 214, Jumeirah Beach Road');
+    await page.getByPlaceholder('Enter clinic name').fill('Meridian New York');
+    await insField().fill('Aetna, Cigna, Medicare');
+    for (const c of ['United States', 'United Kingdom', 'Australia', 'Canada', 'Kenya', 'United Arab Emirates']) {
+      await pickCountry(c);
+      ok(`insurance field shown for a ${c} branch`, (await insField().count()) === 1);
+    }
+    await pickCountry('United States');
+    await page.getByPlaceholder('Enter city').fill('New York');
+    await page.getByPlaceholder('Enter full address').fill('245 W 52nd Street, Manhattan');
     await page.getByPlaceholder(/separated by commas/).first().fill('General Practice, Paediatrics, Dermatology');
     await page.screenshot({ path: path.join(SHOTS, 'clinic-location-insurance.png') });
     await main().getByRole('button', { name: /^Add Location$/ }).last().click();
@@ -218,10 +219,10 @@ async function openTab(page, label) {
     await page.getByRole('button', { name: /^Save Locations$/ }).click();
     await page.waitForTimeout(1500);
     const outs = JSON.parse(mongo(`JSON.stringify(db.userservices.findOne({_id:ObjectId("${botId}")}).config.outlets)`));
-    const jum = outs.find((o) => o.name === 'Noor Jumeirah');
+    const ny = outs.find((o) => o.name === 'Meridian New York');
     ok('3 branches saved', outs.length === 3, `${outs.length}`);
-    ok('UAE branch saved with its insurance list (typed value kept across the country switch)', JSON.stringify(jum?.insurance) === '["Daman","Bupa Global","Cigna"]', JSON.stringify(jum));
-    ok('Kenya branch has no insurance list', !(outs.find((o) => o.country === 'Kenya')?.insurance || []).length);
+    ok('US branch saved with its insurance list (kept across country switches)', ny?.country === 'United States' && JSON.stringify(ny?.insurance) === '["Aetna","Cigna","Medicare"]', JSON.stringify(ny));
+    ok('branch with no list stays empty', !(outs.find((o) => o.name === 'Meridian Sydney')?.insurance || []).length);
     const live = await api(token, 'PUT', `/chatbots/${botId}`, { status: 'active' });
     ok('verified owner can take the bot live', live.status === 200 && live.data.status === 'active', `status ${live.status}`);
   }, page);
@@ -241,7 +242,7 @@ async function openTab(page, label) {
     const embed = await api(token, 'GET', `/chatbots/${botId}/embed-code`);
     const snippet = embed.data.embedCode || embed.data.code || embed.data.snippet || embed.data;
     ok('embed code points at real frontend + backend', typeof snippet === 'string' && snippet.includes(`${FE}/chatbot-widget.js`) && snippet.includes('localhost:4000/api/v1'));
-    fs.writeFileSync(path.join(E, 'site', 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Noor Family Clinic</title></head><body><h1>Noor Family Clinic</h1>${snippet}</body></html>`);
+    fs.writeFileSync(path.join(E, 'site', 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>Meridian Family Clinic</title></head><body><h1>Meridian Family Clinic</h1>${snippet}</body></html>`);
     await guest.goto(`${SITE}/index.html`, { waitUntil: 'networkidle' });
     await guest.locator('.lm-cb-bubble').first().click();
     await guest.waitForTimeout(800);
@@ -253,20 +254,20 @@ async function openTab(page, label) {
     a = await ask('Which doctor treats children?');
     ok('names the right doctor', /Omar Farouk/.test(a), a);
     a = await ask('Can I book an appointment with a dermatologist this week?');
-    ok('appointment: shares the booking link, never confirms a slot itself', a.includes('https://book.example.com/noor-clinic') && !/you are booked|confirmed/i.test(a), a);
+    ok('appointment: shares the booking link, never confirms a slot itself', a.includes('https://book.example.com/meridian-clinic') && !/you are booked|confirmed/i.test(a), a);
     a = await ask('Where is your Jumeirah clinic located?');
     ok('answer comes with its Google Maps link', a.includes('Jumeirah Beach Road') && a.includes('https://maps.app.goo.gl/noor-jumeirah'), a);
     a = await ask('Do you have a branch near Barsha?');
     ok('answers about branches', /barsha/i.test(a), a);
     const sys = calls().filter((c) => c.kind === 'openai.chat' && !c.json).pop()?.system || '';
-    ok('every branch + booking link in the AI instructions', ['Noor Al Barsha', 'Noor Jumeirah', 'Noor Nairobi', 'book.example.com/noor-clinic'].every((s) => sys.includes(s)));
-    const barsha = sys.split('\n').find((l) => l.includes('Noor Al Barsha')) || '';
-    const jumL = sys.split('\n').find((l) => l.includes('Noor Jumeirah')) || '';
-    const nai = sys.split('\n').find((l) => l.includes('Noor Nairobi')) || '';
-    ok('insurance sent per branch (Al Barsha: Daman, AXA, NAS)', /Insurance accepted: Daman, AXA, NAS/.test(barsha), barsha.slice(0, 200));
-    ok('…Jumeirah has its own list, not Al Barsha\'s', /Insurance accepted: Daman, Bupa Global, Cigna/.test(jumL) && !/AXA/.test(jumL));
-    ok('…unlisted insurer: told to say so and offer to check', /any other insurer: not listed/.test(barsha));
-    ok('…Kenya branch carries no insurance line', !/Insurance accepted/.test(nai));
+    ok('every branch + booking link in the AI instructions', ['Meridian Dubai', 'Meridian New York', 'Meridian Sydney', 'book.example.com/meridian-clinic'].every((s) => sys.includes(s)));
+    const dxb = sys.split('\n').find((l) => l.includes('Meridian Dubai')) || '';
+    const nyL = sys.split('\n').find((l) => l.includes('Meridian New York')) || '';
+    const syd = sys.split('\n').find((l) => l.includes('Meridian Sydney')) || '';
+    ok('insurance sent per branch (Dubai: Daman, AXA, NAS)', /Insurance accepted: Daman, AXA, NAS/.test(dxb), dxb.slice(0, 200));
+    ok('…New York has its own list (Aetna, Cigna, Medicare), not Dubai\'s', /Insurance accepted: Aetna, Cigna, Medicare/.test(nyL) && !/Daman/.test(nyL));
+    ok('…unlisted insurer: told to say so and offer to check', /any other insurer: not listed/.test(dxb));
+    ok('…branch with no list carries no insurance line', !/Insurance accepted/.test(syd));
     a = await ask('What is your emergency number?');
     ok('emergency number shared', /998/.test(a), a);
     const fallbackMsg = mongo(`db.userservices.findOne({_id:ObjectId("${botId}")}).config.fallbackMessage`);

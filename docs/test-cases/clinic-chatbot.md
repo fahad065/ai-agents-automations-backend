@@ -2,7 +2,7 @@
 
 Service: `clinic-chatbot` · Tiers: **Basic** / **Pro** (Custom = contact us, not self-serve)
 Automated by: `test/e2e/clinic-e2e.cjs` (see `test/e2e/README.md`)
-Last full run: **2026-11-18 — 97 / 97 passed** (fresh database, backend in production mode)
+Last full run: **2026-11-19 — 101 / 101 passed** (fresh database, backend in production mode)
 
 How to read this: **Input** is what the owner, patient, admin or Meta does.
 **Expected** is what must happen. **Via** says how the test drives it:
@@ -11,10 +11,11 @@ Meta-style request, DB = checked in MongoDB.
 
 Test data: owner `Nadia Owner`; knowledge base of 16 entries where the
 important ones (GP price, blood-test fasting, paediatrician, emergency
-number, parking) are entries 11–15; branches "Noor Al Barsha" (UAE;
-insurance Daman, AXA, NAS), "Noor Jumeirah" (UAE, added through the form;
-insurance Daman, Bupa Global, Cigna) and "Noor Nairobi" (Kenya; no
-insurance list); appointment link `https://book.example.com/noor-clinic`.
+number, parking) are entries 11–15; branches "Meridian Dubai" (UAE;
+insurance Daman, AXA, NAS), "Meridian Sydney" (Australia; no insurance
+list) and "Meridian New York" (USA, added through the form; insurance
+Aetna, Cigna, Medicare); appointment link
+`https://book.example.com/meridian-clinic`.
 Prices as the admin sets them in the Service Catalog: Basic $99 (annual
 $79/mo), Pro $149 (annual $119/mo). Test data only — the demo site
 `fahad065/logicmate-clinic-website` (Meridian Family Clinic) has its own
@@ -68,14 +69,13 @@ clinics in the USA, UK, UAE, Australia and Canada.
 
 | # | Case | Input | Expected | Via |
 |---|---|---|---|---|
-| 5.1 | Existing UAE branch | Locations tab | "Insurance accepted: Daman, AXA, NAS" shown on Al Barsha | UI |
+| 5.1 | Existing branch | Locations tab | "Insurance accepted: Daman, AXA, NAS" shown on Dubai | UI |
 | 5.2 | Clinic wording | Add Location | "Services / specialities" field, no delivery fields, placeholder "Enter clinic name" | UI |
-| 5.3 | No country yet | — | No insurance field | UI |
-| 5.4 | UAE branch | Country → United Arab Emirates | "Insurance accepted" field appears | UI |
-| 5.5 | Other country | Country → Kenya | Insurance field hidden | UI |
-| 5.6 | Save | Back to UAE, fill city/address/specialities → Add Location → **Save Locations** | 3 branches; Jumeirah insurance = Daman, Bupa Global, Cigna | UI + DB |
-| 5.7 | Kenya branch | — | No insurance list stored | DB |
-| 5.8 | Go live | Verified owner sets status = active | 200, `status=active` | API |
+| 5.3 | Any country | Before picking a country, then United States, United Kingdom, Australia, Canada, Kenya, United Arab Emirates | "Insurance accepted" field shown every time | UI |
+| 5.4 | Value kept | Type "Aetna, Cigna, Medicare", switch countries, end on United States | Typed list kept | UI |
+| 5.5 | Save | Fill city/address/specialities → Add Location → **Save Locations** | 3 branches; New York insurance = Aetna, Cigna, Medicare | UI + DB |
+| 5.6 | No list | Sydney saved without insurance | Stays empty | DB |
+| 5.7 | Go live | Verified owner sets status = active | 200, `status=active` | API |
 
 ## 6. Basic — website widget (patient on the clinic's own site)
 
@@ -92,10 +92,10 @@ production mode, so the cross-site browser check (CORS) is real.
 | 6.6 | Map link | "Where is your Jumeirah clinic located?" | Address + the Google Maps link |
 | 6.7 | Branches | "Do you have a branch near Barsha?" | Mentions Barsha |
 | 6.8 | Branch data sent to AI | — | All 3 branches + booking link in the AI instructions |
-| 6.9 | Insurance per branch | — | Al Barsha line: "Insurance accepted: Daman, AXA, NAS" |
-| 6.10 | Lists kept apart | — | Jumeirah line has its own list, no AXA |
+| 6.9 | Insurance per branch | — | Dubai line: "Insurance accepted: Daman, AXA, NAS" |
+| 6.10 | Lists kept apart | — | New York line has its own list (Aetna, Cigna, Medicare), no Daman |
 | 6.11 | Unlisted insurer | — | Instructions say: not listed → say so and offer to check with the team |
-| 6.12 | Non-UAE branch | — | Nairobi line has no insurance |
+| 6.12 | No list | — | Sydney line has no insurance |
 | 6.13 | Emergency | "What is your emergency number?" | Mentions 998 |
 | 6.14 | Medical question | "I have chest pain, what medicine should I take?" | Exactly the fallback message — no advice |
 | 6.15 | Handed to staff | (same) | Reply tagged "Connecting you with our team" |

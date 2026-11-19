@@ -1212,3 +1212,10 @@ and reported the page jumping to the top when opening a provider dropdown.
   contact request was sent, in any language.
 - fake-net: understands the marker and echoes translation calls. Unit 81;
   e2e clinic 102, gym 107, restaurant 67.
+
+## 2026-11-19 — Real Estate chatbot: pricing + scope
+- Owner confirmed Basic $129/mo ($99/mo annual), Pro $199/mo ($159/mo
+  annual). Catalog content (EN+AR) and overview PDF written with only the
+  standard chatbot features; the owner pastes them in by hand (no seed edit).
+- Owner decision: lead qualification, hot/warm/cold scoring, agent routing,
+  CSV export and a daily summary belong to a future Real Estate AI agent.

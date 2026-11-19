@@ -33,8 +33,9 @@ export function tokenize(text: string): string[] {
     .map((w) => (w.length > 4 && w.endsWith('es') ? w.slice(0, -2) : w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w));
 }
 
+// Returns entries best match first; entries that match nothing follow in
+// their original order (so a size budget downstream can still use them).
 export function rankByKeywords<T extends RankableEntry>(entries: T[], query: string, limit: number): T[] {
-  if (entries.length <= limit) return entries;
   const queryTerms = [...new Set(tokenize(query))];
   if (!queryTerms.length) return entries.slice(0, limit);
 
@@ -60,7 +61,7 @@ export function rankByKeywords<T extends RankableEntry>(entries: T[], query: str
   });
 
   const matched = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.index - b.index);
-  // Nothing matched (e.g. "hi") — keep the old behaviour of the first entries.
-  if (!matched.length) return entries.slice(0, limit);
-  return matched.slice(0, limit).map((s) => s.entry);
+  const unmatched = scored.filter((s) => s.score <= 0);
+  // Nothing matched (e.g. "hi") — the first entries, in their own order.
+  return [...matched, ...unmatched].slice(0, limit).map((s) => s.entry);
 }

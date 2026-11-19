@@ -1219,3 +1219,17 @@ and reported the page jumping to the top when opening a provider dropdown.
   standard chatbot features; the owner pastes them in by hand (no seed edit).
 - Owner decision: lead qualification, hot/warm/cold scoring, agent routing,
   CSV export and a daily summary belong to a future Real Estate AI agent.
+
+## 2026-11-19 — More knowledge per reply; clickable widget links
+- The engine sent only the top 4 entries (6 for keyword ranking) to the AI,
+  so a broad question ("what do you have under $500k?") over many listings
+  saw only a few. Now every entry is ranked (embeddings where comparable
+  vectors exist, keyword order for the rest) and `fitKnowledge()` sends as
+  many as fit ~10,000 characters, max 30 entries, best first — a small
+  knowledge base goes in full. `rankByKeywords` now returns unmatched entries
+  after the matches instead of dropping them.
+- Widget (frontend `public/chatbot-widget.js`): http(s) URLs and Markdown
+  `[label](url)` links are clickable (new tab, noopener; built with DOM nodes,
+  never innerHTML); line breaks kept (`white-space: pre-wrap`).
+- Unit 86; e2e clinic 103, gym 108 (both check the link is clickable),
+  restaurant 67.

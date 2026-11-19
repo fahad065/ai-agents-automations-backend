@@ -233,6 +233,8 @@ async function openTab(page, label) {
     ok('class slot: points to the booking link, never confirms a spot itself', a.includes('https://book.example.com/ironfit') && !/you are booked|confirmed/i.test(a), a);
     a = await ask('Where is your Marina club located?');
     ok('answer comes with its Google Maps link', a.includes('Marina Walk') && a.includes('https://maps.app.goo.gl/ironfit-marina'), a);
+    const link = guest.locator('.lm-cb-msg a[href="https://maps.app.goo.gl/ironfit-marina"]').last();
+    ok('the link in the widget is clickable and opens in a new tab', (await link.count()) === 1 && (await link.getAttribute('target')) === '_blank' && /noopener/.test(await link.getAttribute('rel') || ''));
     a = await ask('Do you have a branch near Marina?');
     ok('answers about branches', /marina/i.test(a), a);
     const sys = calls().filter((c) => c.kind === 'openai.chat' && !c.json).pop()?.system || '';

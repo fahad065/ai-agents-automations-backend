@@ -35,9 +35,18 @@ describe('rankByKeywords', () => {
     expect(rankByKeywords(kb, 'hello!', 3)).toEqual(kb.slice(0, 3));
   });
 
-  it('returns everything untouched when the knowledge base is already small', () => {
-    const small = kb.slice(-3);
-    expect(rankByKeywords(small, 'halal', 6)).toBe(small);
+  it('keeps every entry of a small knowledge base, best match first', () => {
+    const small = kb.slice(-5);
+    const ranked = rankByKeywords(small, 'halal', 6);
+    expect(ranked).toHaveLength(5);
+    expect(ranked[0].question).toBe('Is the food halal?');
+  });
+
+  it('puts entries that match nothing after the matches, in their original order', () => {
+    const ranked = rankByKeywords(kb, 'vegan', kb.length);
+    expect(ranked).toHaveLength(kb.length);
+    expect(ranked[0].question).toBe('Do you have vegan options?');
+    expect(ranked[1]).toBe(kb[0]);
   });
 
   it('never returns more than the limit', () => {

@@ -257,6 +257,8 @@ async function openTab(page, label) {
     ok('appointment: shares the booking link, never confirms a slot itself', a.includes('https://book.example.com/meridian-clinic') && !/you are booked|confirmed/i.test(a), a);
     a = await ask('Where is your Jumeirah clinic located?');
     ok('answer comes with its Google Maps link', a.includes('Jumeirah Beach Road') && a.includes('https://maps.app.goo.gl/noor-jumeirah'), a);
+    const link = guest.locator('.lm-cb-msg a[href="https://maps.app.goo.gl/noor-jumeirah"]').last();
+    ok('the link in the widget is clickable and opens in a new tab', (await link.count()) === 1 && (await link.getAttribute('target')) === '_blank' && /noopener/.test(await link.getAttribute('rel') || ''));
     a = await ask('Do you have a branch near Barsha?');
     ok('answers about branches', /barsha/i.test(a), a);
     const sys = calls().filter((c) => c.kind === 'openai.chat' && !c.json).pop()?.system || '';

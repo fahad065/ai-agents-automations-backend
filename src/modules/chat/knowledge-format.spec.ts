@@ -1,4 +1,4 @@
-import { knowledgeSnippet, knowledgeEmbedText, validateKnowledge } from './knowledge-format';
+import { knowledgeSnippet, knowledgeEmbedText, validateKnowledge, fitKnowledge, KNOWLEDGE_CHAR_BUDGET, KNOWLEDGE_MAX_ENTRIES } from './knowledge-format';
 
 describe('knowledge-format', () => {
   it('shows the answer and its link together on the A: line', () => {
@@ -29,5 +29,37 @@ describe('knowledge-format', () => {
 
   it('embeds the question, answer and link label', () => {
     expect(knowledgeEmbedText({ type: 'faq', question: 'Where?', answer: 'Barsha', linkLabel: 'Google Maps location' })).toBe('Where? Barsha Google Maps location');
+  });
+});
+
+const listing = (i: number, size = 200) => ({
+  type: 'faq',
+  question: `Tell me about unit ${i}`,
+  answer: `Unit ${i}: 2 bedrooms, ${'x'.repeat(size)}`,
+  sourceUrl: `https://agency.example/listings/${i}`,
+  linkLabel: 'Listing',
+});
+
+describe('fitKnowledge', () => {
+  it('sends a small knowledge base in full (more than the old top 4)', () => {
+    const out = fitKnowledge(Array.from({ length: 12 }, (_, i) => listing(i)));
+    expect(out).toHaveLength(12);
+    expect(out[11]).toContain('https://agency.example/listings/11');
+  });
+
+  it('keeps ranked order and stops at the character budget', () => {
+    const out = fitKnowledge(Array.from({ length: 200 }, (_, i) => listing(i, 900)));
+    expect(out[0]).toContain('unit 0');
+    expect(out.join('').length).toBeLessThanOrEqual(KNOWLEDGE_CHAR_BUDGET);
+    expect(out.length).toBeGreaterThan(4);
+  });
+
+  it('never sends more than the entry cap', () => {
+    expect(fitKnowledge(Array.from({ length: 100 }, (_, i) => listing(i, 10)))).toHaveLength(KNOWLEDGE_MAX_ENTRIES);
+  });
+
+  it('always keeps the best match, even when it alone is over the budget', () => {
+    const out = fitKnowledge([listing(0, KNOWLEDGE_CHAR_BUDGET + 500), listing(1)]);
+    expect(out).toHaveLength(1);
   });
 });

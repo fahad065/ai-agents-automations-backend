@@ -52,3 +52,25 @@ export function validateKnowledge(k: KnowledgeLike): string | null {
   }
   return null;
 }
+
+// How much of the knowledge base goes into one reply's instructions: as many
+// entries as fit, best match first, instead of a fixed top 4 — so a small
+// knowledge base is read in full and a broad question ("what do you have
+// under $500k?") sees many listings. Bounded so the owner's AI bill per
+// message stays small (~10k characters ≈ 2.5k tokens).
+export const KNOWLEDGE_CHAR_BUDGET = 10000;
+export const KNOWLEDGE_MAX_ENTRIES = 30;
+
+export function fitKnowledge(ranked: KnowledgeLike[]): string[] {
+  const out: string[] = [];
+  let used = 0;
+  for (const entry of ranked) {
+    if (out.length >= KNOWLEDGE_MAX_ENTRIES) break;
+    const snippet = knowledgeSnippet(entry);
+    // Always keep the best match, even if it alone is long.
+    if (out.length && used + snippet.length > KNOWLEDGE_CHAR_BUDGET) break;
+    out.push(snippet);
+    used += snippet.length;
+  }
+  return out;
+}

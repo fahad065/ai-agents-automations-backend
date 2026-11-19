@@ -9,12 +9,11 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { callChatCompletion, embeddingProviderFor, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
-import { knowledgeSnippet } from './knowledge-format';
+import { fitKnowledge, knowledgeSnippet } from './knowledge-format';
 import { rankByKeywords } from './keyword-rank';
 
 // Entries given to the model when ranking by word matching. A few more than
 // the 4 used with semantic search, since word matching is less precise.
-const KEYWORD_TOP_N = 6;
 import { isChatbotBillingActive } from '../chatbots/billing-status.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType, NotificationPriority } from '../notifications/schemas/notification.schema';
@@ -438,55 +437,34 @@ ${knowledgeSection}`;
         .find({ userserviceId: chatbot._id })
         .select('+embedding');
 
-      let knowledgeSnippets: string[] = [];
-
-      if (embeddingApiKey && allKnowledge.length > 0) {
-        // Get embeddings for knowledge with vectors
-        const knowledgeWithEmbeddings = allKnowledge.filter(
-          (k) => k.embedding && k.embedding.length > 0,
-        );
-
-        if (knowledgeWithEmbeddings.length > 0) {
-          try {
-            const queryEmbedding = await getEmbeddingVector({
-              provider: embeddingProvider!,
-              apiKey: embeddingApiKey,
-              text: message,
-            });
-
-            // Find top 4 by cosine similarity. Only vectors from the same
-            // embedding model are comparable (an entry still waiting to be
-            // re-embedded after a provider switch has a different length).
-            const comparable = knowledgeWithEmbeddings.filter((k) => k.embedding.length === queryEmbedding.length);
-            if (!comparable.length) throw new Error('no comparable knowledge vectors');
-            const scored = comparable
+      // Rank every entry (semantic search where vectors exist, word matching
+      // for the rest or when there's no embedding key — e.g. a Claude bot),
+      // then send as many as fit the size budget, best first.
+      let ranked = rankByKeywords(allKnowledge, message, allKnowledge.length);
+      if (embeddingApiKey && allKnowledge.some((k) => k.embedding?.length)) {
+        try {
+          const queryEmbedding = await getEmbeddingVector({
+            provider: embeddingProvider!,
+            apiKey: embeddingApiKey,
+            text: message,
+          });
+          // Only vectors from the same embedding model are comparable (an
+          // entry still waiting to be re-embedded after a provider switch has
+          // a different length); those follow, ranked by word matching.
+          const comparable = allKnowledge.filter((k) => k.embedding?.length === queryEmbedding.length);
+          if (comparable.length) {
+            const bySimilarity = comparable
               .map((k) => ({ entry: k, score: cosineSim(queryEmbedding, k.embedding) }))
               .sort((a, b) => b.score - a.score)
-              .slice(0, 4);
-
-            knowledgeSnippets = scored.map((s) => {
-              return knowledgeSnippet(s.entry);
-            });
-          } catch {
-            // Embedding failed — fall back to word matching
-            knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-              return knowledgeSnippet(k);
-            });
+              .map((s) => s.entry);
+            const rest = ranked.filter((k) => !comparable.includes(k));
+            ranked = [...bySimilarity, ...rest];
           }
-        } else {
-          // Knowledge exists but no embeddings — word matching
-          knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-            return knowledgeSnippet(k);
-          });
+        } catch {
+          // Embedding failed — keep the word-matching order.
         }
-      } else {
-        // No embedding key (e.g. a Claude-only bot — Anthropic has no
-        // embeddings API): pick entries by word matching instead of just
-        // taking the first few, so entry #30 is as reachable as entry #1.
-        knowledgeSnippets = rankByKeywords(allKnowledge, message, KEYWORD_TOP_N).map((k) => {
-          return knowledgeSnippet(k);
-        });
       }
+      const knowledgeSnippets = fitKnowledge(ranked);
 
       const systemPrompt = this.buildSystemPrompt(chatbot, knowledgeSnippets);
 

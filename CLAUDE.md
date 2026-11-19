@@ -152,7 +152,7 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 ## What is next to build
 1. Real Estate chatbot (Clinic done: content, brochure, pricing, demo site `fahad065/logicmate-clinic-website`, test cases + e2e 97/97; owner records the demo), then Salon, Hotel, Auto Dealership.
 2. WhatsApp/Instagram go-live per client (code done; needs each client's Meta app).
-3. Agents/automations payment flow (they have no billing yet).
+3. Agents/automations payment flow (they have no billing yet). **Before starting any agent/automation work, remind the owner (deferred on 2026-11-19 to focus on chatbots):** (a) set `PIPELINE_SECRET` to the same random value (`openssl rand -hex 32`) on Railway backend and the Python service — until then the public fallback in `pipeline-secret.guard.ts` is in effect; (b) set `CRON_SECRET` on Railway (fallback in `pipeline-services.controller.ts`); (c) the backend never sends `Authorization: Bearer NESTJS_SERVICE_TOKEN` to Python `/pipeline/run`, so Python's auth check is either skipped (token unset) or would reject the backend — wire it up on both sides.
 4. Card payments (Stripe/Paddle) once the LLC exists; VAT on invoices once registered.
 5. Shared storage for Python pipeline output (S3/R2) before agents get real users or a second instance.
 6. Real booking-platform integration and AI voice calling — only on real client demand.

@@ -37,12 +37,24 @@ function cosineSim(a: number[], b: number[]): number {
   return magA && magB ? dot / (magA * magB) : 0;
 }
 
+// The model replies with exactly this when the knowledge base doesn't cover
+// the question; the server swaps it for the bot's fallback message in the
+// customer's language (an exact-text match on the English fallback broke as
+// soon as the model translated it for a French or Spanish customer).
+const NO_ANSWER = '[[NO_ANSWER]]';
+
 // Line added to a hand-off reply when we don't yet know how to reach the
-// customer (English, Arabic).
+// customer (English, Arabic; other languages are translated per reply).
 const CONTACT_REQUESTS = [
   'So our team can get back to you, could you share your name and phone number (or email)?',
   'عشان يتواصل معك فريقنا، ممكن ترسل لي اسمك ورقم تلفونك (أو إيميلك)؟',
 ];
+
+// Common English words: a plain-ASCII message containing one is treated as
+// English (no translation call needed).
+const ENGLISH_HINTS = new Set(
+  'the a an is are am do does did you your i my me we our can could would will what where when which who how why there here any any for to of in on at and or with have has this that it please hi hello thanks thank yes no not'.split(' '),
+);
 
 @Injectable()
 export class ChatService {
@@ -114,7 +126,7 @@ export class ChatService {
     return `You are ${chatbot.name}, a helpful customer service assistant.
 Persona: ${chatbot.persona || 'friendly and professional'}.
 Language: ${languageInstruction}
-IMPORTANT: Only answer questions based on the knowledge base and locations below. If the question is not covered, say: "${chatbot.fallbackMessage}".
+IMPORTANT: Only answer questions based on the knowledge base and locations below. If the question is not covered, reply with exactly ${NO_ANSWER} and nothing else.
 Do not make up information.
 When a knowledge-base answer includes a link (for example a Google Maps location, a menu, a booking page), share that exact link with the customer — never change or invent links.
 
@@ -223,12 +235,52 @@ ${knowledgeSection}`;
   // two ways a conversation escalates (see chat() below); the other is
   // simply the bot falling back because nothing in the knowledge base
   // covers the question.
-  // Asked when a conversation is handed to the team but we don't yet know
-  // how to reach the customer. Arabic when the bot is Arabic-only or the
-  // customer wrote in Arabic, otherwise English.
-  private contactRequest(chatbot: ChatbotView, message: string): string {
-    const arabic = chatbot.language === 'ar' || (chatbot.language !== 'en' && /[\u0600-\u06FF]/.test(message));
-    return arabic ? CONTACT_REQUESTS[1] : CONTACT_REQUESTS[0];
+  // Which language the fixed texts (fallback, contact request) go out in:
+  // the bot's fixed language, Arabic when the customer wrote Arabic,
+  // English when the message is plainly English, otherwise 'other' (the
+  // fixed texts are then translated with the owner's key).
+  private replyLanguage(chatbot: ChatbotView, message: string): 'en' | 'ar' | 'other' {
+    if (chatbot.language === 'en') return 'en';
+    if (chatbot.language === 'ar' || /[\u0600-\u06FF]/.test(message)) return 'ar';
+    if (!/\p{L}/u.test(message)) return 'en';
+    const ascii = /^[\x00-\x7F]*$/.test(message);
+    const words = message.toLowerCase().match(/[a-z']+/g) || [];
+    return ascii && words.some((w) => ENGLISH_HINTS.has(w)) ? 'en' : 'other';
+  }
+
+  private fallbackFor(chatbot: ChatbotView, lang: 'en' | 'ar' | 'other'): string {
+    return lang === 'ar' && chatbot.fallbackMessage_ar ? chatbot.fallbackMessage_ar : chatbot.fallbackMessage;
+  }
+
+  // Rewrites a fixed message in the language the customer wrote in. A small
+  // call with the owner's key, only for fallback/hand-off replies to a
+  // customer writing in neither English nor Arabic; keeps the original
+  // text if anything goes wrong.
+  private async inCustomerLanguage(
+    provider: ApiKeyProvider,
+    apiKey: string,
+    customerMessage: string,
+    text: string,
+  ): Promise<string> {
+    try {
+      const out = await callChatCompletion({
+        provider,
+        apiKey,
+        temperature: 0,
+        maxTokens: 300,
+        messages: [
+          {
+            role: 'system',
+            content:
+              "You translate a short customer-service message. Write it in the same language as the customer's message. Keep names, links, phone numbers and emails exactly as they are. Return only the translated message.",
+          },
+          { role: 'user', content: `Customer's message:\n${customerMessage}\n\nMessage to send:\n${text}` },
+        ],
+      });
+      return out?.trim() || text;
+    } catch {
+      return text;
+    }
   }
 
   private looksLikeHumanRequest(message: string): boolean {
@@ -341,7 +393,7 @@ ${knowledgeSection}`;
     // are tracked separately.
     if (!isChatbotBillingActive(row)) {
       return {
-        reply: chatbot.fallbackMessage,
+        reply: this.fallbackFor(chatbot, this.replyLanguage(chatbot, message)),
         sessionId,
         handoff: false,
       };
@@ -445,51 +497,60 @@ ${knowledgeSection}`;
         ...history.map((m) => ({ role: m.role as ChatMessage['role'], content: m.content })),
       ];
 
-      let reply = chatbot.fallbackMessage;
-
+      // 7. Call the configured provider. No key, an error, an empty reply or
+      // the NO_ANSWER marker all mean "not covered by the knowledge base".
+      let answer: string | null = null;
       if (apiKey) {
-        // 7. Call the configured provider
         try {
-          const content = await callChatCompletion({
+          const content = (await callChatCompletion({
             provider: chatProvider,
             model: chatModel,
             apiKey,
             messages: chatMessages,
             maxTokens: 512,
             temperature: 0.7,
-          });
-          reply = content || chatbot.fallbackMessage;
+          }))?.trim();
+          const isFallbackText = content === chatbot.fallbackMessage || (!!chatbot.fallbackMessage_ar && content === chatbot.fallbackMessage_ar);
+          if (content && !content.includes(NO_ANSWER) && !isFallbackText) answer = content;
         } catch (err: any) {
           this.logger.error(`${chatProvider} chat completion failed: ${err?.message}`);
         }
       }
+      const noAnswer = answer === null;
 
       // 8. Escalate to a human when the owner has opted in (humanHandoff)
-      // and either the bot fell back to its default "I don't know" message
-      // (nothing in the knowledge base covered the question) or the
+      // and either the knowledge base didn't cover the question or the
       // customer explicitly asked for a person. Off by default — an owner
-      // who hasn't enabled this keeps the plain fallback message, no status
-      // change, no notification. Decided before anything is appended below.
-      const isHandoff =
-        !!chatbot.humanHandoff && (reply === chatbot.fallbackMessage || this.looksLikeHumanRequest(message));
+      // who hasn't enabled this gets the plain fallback message, no status
+      // change, no notification.
+      const asksForPerson = this.looksLikeHumanRequest(message);
+      const isHandoff = !!chatbot.humanHandoff && (noAnswer || asksForPerson);
 
       // The team can only follow up if they know how to reach the customer.
       // WhatsApp already gives us the phone number; on the website or
-      // Instagram, ask for it whenever the chat is handed over while we
-      // still have neither a phone nor an email — unless the bot already
-      // asked earlier in this conversation (then only again when they
-      // explicitly ask for a person).
-      const alreadyAsked = conversation.messages.some(
-        (m) => m.role === 'assistant' && CONTACT_REQUESTS.some((q) => m.content.includes(q)),
-      );
-      if (
-        isHandoff &&
-        !conversation.visitorPhone &&
-        !conversation.visitorEmail &&
-        (!alreadyAsked || this.looksLikeHumanRequest(message))
-      ) {
-        reply = `${reply}\n\n${this.contactRequest(chatbot, message)}`;
+      // Instagram, ask whenever the chat is handed over while we still have
+      // neither a phone nor an email — unless the bot already asked in this
+      // conversation (then only again when they explicitly ask for a person).
+      const alreadyAsked =
+        !!conversation.contactRequestedAt ||
+        conversation.messages.some((m) => m.role === 'assistant' && CONTACT_REQUESTS.some((q) => m.content.includes(q)));
+      const askContact =
+        isHandoff && !conversation.visitorPhone && !conversation.visitorEmail && (!alreadyAsked || asksForPerson);
+
+      // The fixed texts (fallback, contact request) go out in the customer's
+      // language: the owner's English/Arabic wording when that fits,
+      // otherwise translated with the owner's key.
+      const lang = this.replyLanguage(chatbot, message);
+      const fixed: string[] = [];
+      if (noAnswer) fixed.push(this.fallbackFor(chatbot, lang));
+      if (askContact) fixed.push(CONTACT_REQUESTS[lang === 'ar' ? 1 : 0]);
+      let fixedText = fixed.join('\n\n');
+      const needsTranslation = lang === 'other' || (lang === 'ar' && noAnswer && !chatbot.fallbackMessage_ar);
+      if (fixedText && apiKey && needsTranslation) {
+        fixedText = await this.inCustomerLanguage(chatProvider, apiKey, message, fixedText);
       }
+      const reply = [answer, fixedText].filter(Boolean).join('\n\n');
+      if (askContact) conversation.contactRequestedAt = new Date();
 
       // 9. Add assistant reply
       conversation.messages.push({ role: 'assistant', content: reply, timestamp: new Date() });
@@ -558,7 +619,7 @@ ${knowledgeSection}`;
         },
       });
       // Fallback on any error
-      const fallback = chatbot.fallbackMessage;
+      const fallback = this.fallbackFor(chatbot, this.replyLanguage(chatbot, message));
       conversation.messages.push({ role: 'assistant', content: fallback, timestamp: new Date() });
       await conversation.save();
       return { reply: fallback, sessionId, handoff: false };

@@ -40,7 +40,9 @@ function fakeChat(body) {
     return JSON.stringify({ name, phone, email });
   }
 
-  const fallback = system.match(/say: "([^"]*)"/)?.[1] || 'Sorry, I cannot help with that.';
+  // Translation of a fixed reply (fallback / contact request): echo it back.
+  if (/^You translate a short customer-service message/.test(system)) return user.split('Message to send:\n')[1] || user;
+  const fallback = system.match(/reply with exactly (\[\[NO_ANSWER\]\])/)?.[1] || system.match(/say: "([^"]*)"/)?.[1] || 'Sorry, I cannot help with that.';
   const q = new Set(words(user));
   const snippets = [...system.matchAll(/Q: (.*)\nA: (.*)/g)].map((m) => ({ text: m[1] + ' ' + m[2], answer: m[2] }));
   let best = null; let bestScore = 0;

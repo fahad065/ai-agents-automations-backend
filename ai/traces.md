@@ -1195,3 +1195,20 @@ and reported the page jumping to the top when opening a provider dropdown.
   before the change never got it. Now asked whenever a hand-off has no
   phone/email, unless the bot already asked in that conversation (again only
   on an explicit request for a person). Unit 78; clinic e2e 102/102.
+
+## 2026-11-19 — Fallback and hand-off replies in the customer's language
+- The prompt told the model to say the English fallback text verbatim and
+  hand-off was detected by exact match, so a French/Spanish customer whose
+  question wasn't covered could get a translated fallback that never
+  triggered hand-off, and the contact request was English-only.
+- Now the model replies `[[NO_ANSWER]]` when nothing covers the question
+  (an exact fallback text is still accepted). The server builds the fixed
+  part — fallback + contact request — in the customer's language: owner's
+  English text, owner's Arabic `fallbackMessage_ar` + Arabic request, or
+  for any other language one small translation call with the owner's key
+  (`inCustomerLanguage`, cheap model; on error the English text is kept).
+  Same choice on the billing-gate and error fallbacks (no translation there).
+- `conversations.contactRequestedAt` (new optional field) records that the
+  contact request was sent, in any language.
+- fake-net: understands the marker and echoes translation calls. Unit 81;
+  e2e clinic 102, gym 107, restaurant 67.

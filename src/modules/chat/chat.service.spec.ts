@@ -363,6 +363,58 @@ describe('ChatService — human escalation (humanHandoff)', () => {
     expect(result.reply).toBe('Sorry, let me get someone to help you.');
   });
 
+  it('Spanish customer: the "no answer" reply and the contact request are sent in Spanish', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, language: 'both', billing: { tier: 'basic', status: 'active' } });
+    const { service, notificationsService } = makeService({ chatbot, hasOpenAiKey: true });
+    const reply = (content: string) => ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) }) as any;
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(reply('[[NO_ANSWER]]'))
+      .mockResolvedValueOnce(reply('Lo siento, le paso con alguien.\n\nPara que nuestro equipo le contacte, ¿nos deja su nombre y teléfono (o email)?'))
+      .mockResolvedValueOnce(reply('{}'));
+
+    const result = await service.chat('embed1', 'session-1', '¿Hay aparcamiento en la clínica de Sídney?', 'website');
+
+    expect(result.handoff).toBe(true);
+    expect(result.reply).toContain('Lo siento');
+    expect(result.reply).toContain('nombre y teléfono');
+    expect(result.reply).not.toContain('[[NO_ANSWER]]');
+    const translateCall = JSON.parse((fetchSpy.mock.calls[1][1] as any).body);
+    expect(translateCall.messages[0].content).toMatch(/^You translate a short customer-service message/);
+    expect(translateCall.messages[1].content).toContain('¿Hay aparcamiento');
+    expect(notificationsService.create).toHaveBeenCalledWith(expect.objectContaining({ type: NotificationType.CHATBOT_HANDOFF }));
+    fetchSpy.mockRestore();
+  });
+
+  it('English customer: the marker becomes the owner\'s fallback text, with no translation call', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, language: 'both', billing: { tier: 'basic', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: true });
+    const reply = (content: string) => ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) }) as any;
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce(reply('[[NO_ANSWER]]')).mockResolvedValueOnce(reply('{}'));
+
+    const result = await service.chat('embed1', 'session-1', 'Is there any parking at the Sydney branch?', 'website');
+
+    expect(result.reply).toBe(
+      "Sorry, let me get someone to help you.\n\nSo our team can get back to you, could you share your name and phone number (or email)?",
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // reply + lead extraction only
+    fetchSpy.mockRestore();
+  });
+
+  it('Arabic customer: uses the owner\'s Arabic fallback text', async () => {
+    const chatbot = makeChatbot({
+      humanHandoff: true,
+      language: 'both',
+      fallbackMessage_ar: 'آسفين، بنحولك لأحد من الفريق.',
+      billing: { tier: 'basic', status: 'active' },
+    });
+    const { service } = makeService({ chatbot, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'في باركنغ في فرع سيدني؟', 'website');
+
+    expect(result.reply).toBe('آسفين، بنحولك لأحد من الفريق.\n\nعشان يتواصل معك فريقنا، ممكن ترسل لي اسمك ورقم تلفونك (أو إيميلك)؟');
+  });
+
   it('does not re-notify on a second message in an already-escalated conversation', async () => {
     const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
     const existing = makeConversation({

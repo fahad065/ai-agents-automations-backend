@@ -55,6 +55,11 @@ export class Conversation {
   // every subsequent message once a conversation has already escalated.
   @Prop()
   handoffNotifiedAt?: Date;
+
+  // Set when the bot asked a handed-over customer for their name + phone/
+  // email (any language), so it doesn't keep asking on every message.
+  @Prop()
+  contactRequestedAt?: Date;
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);

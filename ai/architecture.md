@@ -694,7 +694,7 @@ sessionId, channel: website | whatsapp | instagram
 messages: [{role, content, timestamp}]       -- embedded; fine for a typical session, a real (if unlikely) MongoDB 16MB document-size ceiling for an unusually long-running one
 status: active | closed | handoff
 visitorName?, visitorEmail?, visitorPhone?
-leadNotifiedAt?, handoffNotifiedAt?
+leadNotifiedAt?, handoffNotifiedAt?, contactRequestedAt?
 createdAt, updatedAt
 ```
 No `isDeleted` — deliberate, see `rules.md`.

@@ -37,6 +37,13 @@ function cosineSim(a: number[], b: number[]): number {
   return magA && magB ? dot / (magA * magB) : 0;
 }
 
+// Line added to a hand-off reply when we don't yet know how to reach the
+// customer (English, Arabic).
+const CONTACT_REQUESTS = [
+  'So our team can get back to you, could you share your name and phone number (or email)?',
+  'عشان يتواصل معك فريقنا، ممكن ترسل لي اسمك ورقم تلفونك (أو إيميلك)؟',
+];
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -221,9 +228,7 @@ ${knowledgeSection}`;
   // customer wrote in Arabic, otherwise English.
   private contactRequest(chatbot: ChatbotView, message: string): string {
     const arabic = chatbot.language === 'ar' || (chatbot.language !== 'en' && /[\u0600-\u06FF]/.test(message));
-    return arabic
-      ? 'عشان يتواصل معك فريقنا، ممكن ترسل لي اسمك ورقم تلفونك (أو إيميلك)؟'
-      : 'So our team can get back to you, could you share your name and phone number (or email)?';
+    return arabic ? CONTACT_REQUESTS[1] : CONTACT_REQUESTS[0];
   }
 
   private looksLikeHumanRequest(message: string): boolean {
@@ -470,14 +475,18 @@ ${knowledgeSection}`;
 
       // The team can only follow up if they know how to reach the customer.
       // WhatsApp already gives us the phone number; on the website or
-      // Instagram, ask for it the first time the chat is handed over (and
-      // again whenever they explicitly ask for a person) while we still
-      // have neither a phone nor an email.
+      // Instagram, ask for it whenever the chat is handed over while we
+      // still have neither a phone nor an email — unless the bot already
+      // asked earlier in this conversation (then only again when they
+      // explicitly ask for a person).
+      const alreadyAsked = conversation.messages.some(
+        (m) => m.role === 'assistant' && CONTACT_REQUESTS.some((q) => m.content.includes(q)),
+      );
       if (
         isHandoff &&
         !conversation.visitorPhone &&
         !conversation.visitorEmail &&
-        (!conversation.handoffNotifiedAt || this.looksLikeHumanRequest(message))
+        (!alreadyAsked || this.looksLikeHumanRequest(message))
       ) {
         reply = `${reply}\n\n${this.contactRequest(chatbot, message)}`;
       }

@@ -1190,3 +1190,8 @@ and reported the page jumping to the top when opening a provider dropdown.
   when the conversation was already handed off, says the customer is waiting
   for the team; empty rows are hidden in both emails. Unit tests +4 (77);
   e2e clinic 102/102, gym 107/107, restaurant 67/67.
+- Follow-up (owner retested in the same widget session): the question was
+  only asked on a conversation's *first* hand-off, so a chat handed over
+  before the change never got it. Now asked whenever a hand-off has no
+  phone/email, unless the bot already asked in that conversation (again only
+  on an explicit request for a person). Unit 78; clinic e2e 102/102.

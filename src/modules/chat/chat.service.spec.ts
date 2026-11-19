@@ -329,9 +329,33 @@ describe('ChatService — human escalation (humanHandoff)', () => {
     expect(result.reply).toBe('Sorry, let me get someone to help you.');
   });
 
-  it('does not ask again on the next unanswered question', async () => {
+  it('asks in a conversation handed over earlier without asking (e.g. a chat from before this change)', async () => {
     const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
-    const existing = makeConversation({ status: 'handoff', handoffNotifiedAt: new Date(Date.now() - 60000) });
+    const existing = makeConversation({
+      status: 'handoff',
+      handoffNotifiedAt: new Date(Date.now() - 60000),
+      messages: [
+        { role: 'user', content: 'Parking?', timestamp: new Date() },
+        { role: 'assistant', content: 'Sorry, let me get someone to help you.', timestamp: new Date() },
+      ],
+    });
+    const { service } = makeService({ chatbot, existingConversation: existing, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'Is there any parking for the Sydney branch?', 'website');
+
+    expect(result.reply).toContain('could you share your name and phone number');
+  });
+
+  it('does not ask again once the bot has already asked in this conversation', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
+    const existing = makeConversation({
+      status: 'handoff',
+      handoffNotifiedAt: new Date(Date.now() - 60000),
+      messages: [
+        { role: 'user', content: 'Parking?', timestamp: new Date() },
+        { role: 'assistant', content: 'Sorry, let me get someone to help you.\n\nSo our team can get back to you, could you share your name and phone number (or email)?', timestamp: new Date() },
+      ],
+    });
     const { service } = makeService({ chatbot, existingConversation: existing, hasOpenAiKey: false });
 
     const result = await service.chat('embed1', 'session-1', 'And do you do X-rays?', 'website');

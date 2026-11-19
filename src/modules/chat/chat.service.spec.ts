@@ -288,12 +288,55 @@ describe('ChatService — human escalation (humanHandoff)', () => {
 
     const result = await service.chat('embed1', 'session-1', 'Can I talk to a real person about my order?', 'website');
 
-    expect(result.reply).toBe('Sure, I can help with that.'); // not the fallback — escalation is independent of it
+    expect(result.reply.startsWith('Sure, I can help with that.')).toBe(true); // not the fallback — escalation is independent of it
+    expect(result.reply).toContain('could you share your name and phone number'); // no contact yet -> asks for it
     expect(result.handoff).toBe(true);
     expect(notificationsService.create).toHaveBeenCalledWith(
       expect.objectContaining({ type: NotificationType.CHATBOT_HANDOFF }),
     );
     fetchSpy.mockRestore();
+  });
+
+  it('hand-off with no contact details: asks for name + phone, and the email says none were shared', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
+    const { service, emailService } = makeService({ chatbot, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'Is there parking at your Sydney clinic?', 'website');
+
+    expect(result.reply).toBe(
+      "Sorry, let me get someone to help you.\n\nSo our team can get back to you, could you share your name and phone number (or email)?",
+    );
+    const sent = emailService.sendChatbotHandoffEmail.mock.calls[0][1];
+    expect(sent.visitorPhone).toBeUndefined();
+    expect(sent.visitorEmail).toBeUndefined();
+  });
+
+  it('asks in Arabic when the customer writes in Arabic', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, language: 'both', billing: { tier: 'basic', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'في باركنغ في الفرع؟', 'website');
+
+    expect(result.reply).toContain('ممكن ترسل لي اسمك ورقم تلفونك');
+  });
+
+  it('does not ask for contact details on WhatsApp (the phone number is already known)', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'pro', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', '971500000001', 'Is there parking?', 'whatsapp');
+
+    expect(result.reply).toBe('Sorry, let me get someone to help you.');
+  });
+
+  it('does not ask again on the next unanswered question', async () => {
+    const chatbot = makeChatbot({ humanHandoff: true, billing: { tier: 'basic', status: 'active' } });
+    const existing = makeConversation({ status: 'handoff', handoffNotifiedAt: new Date(Date.now() - 60000) });
+    const { service } = makeService({ chatbot, existingConversation: existing, hasOpenAiKey: false });
+
+    const result = await service.chat('embed1', 'session-1', 'And do you do X-rays?', 'website');
+
+    expect(result.reply).toBe('Sorry, let me get someone to help you.');
   });
 
   it('does not re-notify on a second message in an already-escalated conversation', async () => {

@@ -206,6 +206,7 @@ ${knowledgeSection}`;
         visitorEmail: conversation.visitorEmail,
         visitorPhone: conversation.visitorPhone,
         snippet: snippet.slice(0, 200),
+        waitingForTeam: conversation.status === 'handoff',
       },
     );
   }
@@ -215,6 +216,16 @@ ${knowledgeSection}`;
   // two ways a conversation escalates (see chat() below); the other is
   // simply the bot falling back because nothing in the knowledge base
   // covers the question.
+  // Asked when a conversation is handed to the team but we don't yet know
+  // how to reach the customer. Arabic when the bot is Arabic-only or the
+  // customer wrote in Arabic, otherwise English.
+  private contactRequest(chatbot: ChatbotView, message: string): string {
+    const arabic = chatbot.language === 'ar' || (chatbot.language !== 'en' && /[\u0600-\u06FF]/.test(message));
+    return arabic
+      ? 'عشان يتواصل معك فريقنا، ممكن ترسل لي اسمك ورقم تلفونك (أو إيميلك)؟'
+      : 'So our team can get back to you, could you share your name and phone number (or email)?';
+  }
+
   private looksLikeHumanRequest(message: string): boolean {
     return /\b(human|real person|speak (to|with) (a |someone)|talk (to|with) (a |someone)|representative|agent|(?:a )?(?:real )?(?:staff|team) member)\b/i.test(
       message,
@@ -448,10 +459,33 @@ ${knowledgeSection}`;
         }
       }
 
-      // 8. Add assistant reply
+      // 8. Escalate to a human when the owner has opted in (humanHandoff)
+      // and either the bot fell back to its default "I don't know" message
+      // (nothing in the knowledge base covered the question) or the
+      // customer explicitly asked for a person. Off by default — an owner
+      // who hasn't enabled this keeps the plain fallback message, no status
+      // change, no notification. Decided before anything is appended below.
+      const isHandoff =
+        !!chatbot.humanHandoff && (reply === chatbot.fallbackMessage || this.looksLikeHumanRequest(message));
+
+      // The team can only follow up if they know how to reach the customer.
+      // WhatsApp already gives us the phone number; on the website or
+      // Instagram, ask for it the first time the chat is handed over (and
+      // again whenever they explicitly ask for a person) while we still
+      // have neither a phone nor an email.
+      if (
+        isHandoff &&
+        !conversation.visitorPhone &&
+        !conversation.visitorEmail &&
+        (!conversation.handoffNotifiedAt || this.looksLikeHumanRequest(message))
+      ) {
+        reply = `${reply}\n\n${this.contactRequest(chatbot, message)}`;
+      }
+
+      // 9. Add assistant reply
       conversation.messages.push({ role: 'assistant', content: reply, timestamp: new Date() });
 
-      // 9. Try to capture lead contact details from what the customer just
+      // 10. Try to capture lead contact details from what the customer just
       // shared — every tier gets this (not gated by billing.tier), since a
       // Basic-plan client following up manually needs a real phone/email
       // just as much as a Pro one. Stops running once all three are known.
@@ -471,14 +505,6 @@ ${knowledgeSection}`;
         if (extracted.phone) conversation.visitorPhone = extracted.phone;
       }
 
-      // 10. Escalate to a human when the owner has opted in (humanHandoff)
-      // and either the bot fell back to its default "I don't know" message
-      // (nothing in the knowledge base covered the question) or the
-      // customer explicitly asked for a person. Off by default — an owner
-      // who hasn't enabled this keeps today's behavior exactly as-is (just
-      // the fallback message, no status change, no notification).
-      const isHandoff =
-        !!chatbot.humanHandoff && (reply === chatbot.fallbackMessage || this.looksLikeHumanRequest(message));
       if (isHandoff && conversation.status !== 'handoff') {
         conversation.status = 'handoff';
       }

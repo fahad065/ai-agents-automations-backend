@@ -595,6 +595,8 @@ export class EmailService {
       visitorEmail?: string;
       visitorPhone?: string;
       snippet: string;
+      /** The conversation was already handed to the team (they're waiting). */
+      waitingForTeam?: boolean;
     },
   ): Promise<void> {
     const dashboardUrl = `${process.env.FRONTEND_URL || 'https://www.logicmate.io'}/dashboard/chatbots/${data.chatbotId}?tab=conversations`;
@@ -615,12 +617,14 @@ export class EmailService {
       <div style="padding:40px 36px;">
         <div style="font-size:44px;margin-bottom:12px;text-align:center;">🎯</div>
         <h1 style="color:#e5e5e5;font-size:20px;font-weight:700;margin:0 0 6px;text-align:center;">New lead from "${data.chatbotName}"</h1>
-        <p style="color:#737373;font-size:13px;margin:0 0 24px;text-align:center;">A customer shared their contact details in chat — reach out while it's fresh.</p>
+        <p style="color:#737373;font-size:13px;margin:0 0 24px;text-align:center;">${data.waitingForTeam
+          ? "This is the customer the bot handed to your team — they're waiting for you to get back to them."
+          : "A customer shared their contact details in chat — reach out while it's fresh."}</p>
         <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;margin:0 0 20px;">
           ${this.adminInfoRows([
-            { label: 'Name', value: data.visitorName || '—' },
-            { label: 'Phone', value: data.visitorPhone || '—' },
-            { label: 'Email', value: data.visitorEmail || '—' },
+            ...(data.visitorName ? [{ label: 'Name', value: data.visitorName }] : []),
+            ...(data.visitorPhone ? [{ label: 'Phone', value: data.visitorPhone }] : []),
+            ...(data.visitorEmail ? [{ label: 'Email', value: data.visitorEmail }] : []),
           ])}
         </div>
         <div style="background:#0d0d0d;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px 16px;margin:0 0 24px;">
@@ -671,13 +675,18 @@ export class EmailService {
         <div style="font-size:44px;margin-bottom:12px;text-align:center;">🙋</div>
         <h1 style="color:#e5e5e5;font-size:20px;font-weight:700;margin:0 0 6px;text-align:center;">A customer needs you — "${data.chatbotName}"</h1>
         <p style="color:#737373;font-size:13px;margin:0 0 24px;text-align:center;">The bot couldn't help with this one (or they asked for a person) — take it from here.</p>
-        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;margin:0 0 20px;">
+        ${data.visitorPhone || data.visitorEmail
+          ? `<div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;margin:0 0 20px;">
           ${this.adminInfoRows([
-            { label: 'Name', value: data.visitorName || '—' },
-            { label: 'Phone', value: data.visitorPhone || '—' },
-            { label: 'Email', value: data.visitorEmail || '—' },
+            ...(data.visitorName ? [{ label: 'Name', value: data.visitorName }] : []),
+            ...(data.visitorPhone ? [{ label: 'Phone', value: data.visitorPhone }] : []),
+            ...(data.visitorEmail ? [{ label: 'Email', value: data.visitorEmail }] : []),
           ])}
-        </div>
+        </div>`
+          : `<div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;margin:0 0 20px;">
+          <p style="color:#e5e5e5;font-size:13px;font-weight:600;margin:0 0 6px;">No contact details yet</p>
+          <p style="color:#a3a3a3;font-size:13px;line-height:1.6;margin:0;">${data.visitorName ? `${data.visitorName} hasn't` : "The customer hasn't"} shared a phone number or email. The bot has asked for them — if they reply, you'll get a "New lead" email with their details. Until then you can follow the chat in your dashboard.</p>
+        </div>`}
         <div style="background:#0d0d0d;border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px 16px;margin:0 0 24px;">
           <p style="color:#525252;font-size:11px;font-weight:600;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.04em;">Last message</p>
           <p style="color:#a3a3a3;font-size:13px;line-height:1.6;margin:0;font-style:italic;">"${data.snippet}"</p>

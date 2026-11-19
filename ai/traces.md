@@ -1173,3 +1173,20 @@ and reported the page jumping to the top when opening a provider dropdown.
   connections and aborts if the database isn't empty — a run had silently
   started on the previous day's data (2 API keys, invoice LM-…-0002).
   Clinic suite: 101/101.
+
+## 2026-11-19 — Hand-off with no contact details
+- Owner report (local clinic test): an out-of-scope question triggered the
+  hand-off email with Name/Phone/Email all "—". Not lost data — the visitor
+  never shared any — but the team had no way to reach them and the email
+  didn't say why.
+- `chat.service.ts`: hand-off is decided before anything is appended; when
+  it happens and neither phone nor email is known (website/Instagram —
+  WhatsApp always has the phone), the reply gets one line asking for name +
+  phone/email (Arabic when the bot is Arabic-only or the visitor wrote in
+  Arabic). Asked on the first hand-off and again on an explicit "talk to a
+  person", not on every unanswered question.
+- Hand-off email: no empty rows; shows "No contact details yet — the bot has
+  asked for them; you'll get a New lead email if they reply". Lead email:
+  when the conversation was already handed off, says the customer is waiting
+  for the team; empty rows are hidden in both emails. Unit tests +4 (77);
+  e2e clinic 102/102, gym 107/107, restaurant 67/67.

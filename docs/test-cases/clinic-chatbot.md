@@ -2,7 +2,7 @@
 
 Service: `clinic-chatbot` · Tiers: **Basic** / **Pro** (Custom = contact us, not self-serve)
 Automated by: `test/e2e/clinic-e2e.cjs` (see `test/e2e/README.md`)
-Last full run: **2026-11-19 — 101 / 101 passed** (fresh database, backend in production mode)
+Last full run: **2026-11-19 — 102 / 102 passed** (fresh database, backend in production mode)
 
 How to read this: **Input** is what the owner, patient, admin or Meta does.
 **Expected** is what must happen. **Via** says how the test drives it:
@@ -97,8 +97,9 @@ production mode, so the cross-site browser check (CORS) is real.
 | 6.11 | Unlisted insurer | — | Instructions say: not listed → say so and offer to check with the team |
 | 6.12 | No list | — | Sydney line has no insurance |
 | 6.13 | Emergency | "What is your emergency number?" | Mentions 998 |
-| 6.14 | Medical question | "I have chest pain, what medicine should I take?" | Exactly the fallback message — no advice |
+| 6.14 | Medical question | "I have chest pain, what medicine should I take?" | The fallback message — no advice |
 | 6.15 | Handed to staff | (same) | Reply tagged "Connecting you with our team" |
+| 6.15b | Asks how to reach them | (same; no phone/email shared yet) | Reply ends with "…could you share your name and phone number (or email)?" |
 | 6.16 | Patient contact | "I'd like an appointment for my son. My name is Aisha and my number is +971501234567" | Conversation gets name **Aisha**, phone **+971501234567** |
 | 6.17 | Hand-off recorded | — | Conversation `status=handoff` |
 | 6.18 | Contact email | — | Owner gets "🎯 New lead from …" |

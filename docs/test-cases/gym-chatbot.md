@@ -74,7 +74,7 @@ real.
 | 5.4b | Class slot | "Can I book the 7pm spin class?" | Reply contains the booking link and never confirms a spot itself (the bot can't see class capacity) |
 | 5.5 | Branches | "Do you have a branch near Marina?" | Mentions Marina |
 | 5.6 | Branch data sent to AI | — | AI instructions include both branches + booking link |
-| 5.7 | Unknown question | "Can you fix my car engine?" | Exactly the bot's fallback message — nothing made up |
+| 5.7 | Unknown question | "Can you fix my car engine?" | The bot's fallback message — nothing made up (with hand-off on and no phone/email yet, followed by a request for the visitor's name and phone) |
 | 5.8 | Hand-off shown | (same) | Reply tagged "Connecting you with our team" |
 | 5.9 | Lead capture | "I'd like to join. My name is Sara and my number is +971501234567" | Conversation gets name **Sara**, phone **+971501234567** |
 | 5.10 | Hand-off recorded | — | Conversation `status=handoff` |

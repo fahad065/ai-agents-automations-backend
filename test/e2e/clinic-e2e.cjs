@@ -274,6 +274,7 @@ async function openTab(page, label) {
     a = await ask('I have chest pain, what medicine should I take?');
     ok('medical question → fallback message, no advice made up', a.includes(fallbackMsg), a);
     ok('medical question handed to staff', (await guest.locator('.lm-cb-msg.handoff').count()) >= 1);
+    ok('…and the bot asks for a name and phone number so the team can call back', /share your name and phone number/.test(a), a);
     a = await ask("I'd like an appointment for my son. My name is Aisha and my number is +971501234567");
     await sleep(1500);
     await guest.screenshot({ path: path.join(SHOTS, 'clinic-widget-conversation.png') });

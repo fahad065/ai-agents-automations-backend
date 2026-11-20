@@ -60,15 +60,10 @@ covers the Gulf and Europe well. Cloudflare serves files worldwide either way.)
 in production.)
 
 ### Prod public bucket → `media.logicmate.io`
-A custom domain needs **logicmate.io's DNS to be managed by Cloudflare**.
-- If logicmate.io already uses Cloudflare DNS: go straight to the steps below.
-- If not (e.g. DNS is at GoDaddy/Namecheap/Vercel): in Cloudflare, **Add a
-  domain** → `logicmate.io` → Free plan, review the DNS records it imports
-  (check your Vercel and Railway records are all there), then change the
-  nameservers at your registrar to the two Cloudflare gives you. Wait until
-  Cloudflare shows the domain as **Active**.
+logicmate.io's DNS is already on Cloudflare (Active, confirmed 2026-11-20), so
+no nameserver change is needed. Connecting the subdomain adds one DNS record
+for `media` only — email routing and the Resend records are not touched.
 
-Then:
 1. Open `logicmate-prod-public` → **Settings** → **Custom Domains** → **Connect Domain**.
 2. Enter `media.logicmate.io` → **Continue** → **Connect domain**.
 3. Wait until the status is **Active** (usually a few minutes).
@@ -162,6 +157,7 @@ automated tests, which use a fake local storage server.
 
 ## Step 7 — Check it works (each environment)
 
+### Knowledge-base photos + brochure
 1. Open any chatbot → **Knowledge Base** → **Add Knowledge**.
 2. Under the link field you should see **Photos & brochure (optional) — 0/100
    photos · 0/20 PDFs on your plan**.
@@ -175,8 +171,31 @@ automated tests, which use a fake local storage server.
    appear under the reply.
 6. Delete the entry → the files disappear from the bucket.
 
+### Documents
+1. **Profile → Documents**: upload a file (photo or PDF), then click **View**
+   — it opens in a new tab.
+2. In the **private** bucket → **Objects**: `users/<user id>/documents/…`.
+3. Delete it → the file disappears from the bucket.
+
+### Invoices
+After you next confirm a payment, the private bucket has
+`invoices/<year>/LM-<year>-NNNN.pdf`, and the Billing tab's Invoice button
+downloads that copy.
+
 If the upload fails with a CORS error in the browser console, check Step 4
 (exact site address in `AllowedOrigins`, no trailing slash).
+
+## Step 8 — Move documents uploaded before R2 (once Step 7 works)
+Documents uploaded before R2 sit on Vercel Blob at public URLs. Once the R2
+settings are in place, copy them into the private bucket (run from the
+backend folder, with that environment's `MONGODB_URI` and R2 settings in `.env`):
+```bash
+node --env-file=.env scripts/migrate-documents-to-r2.cjs            # dry run: lists what would move
+node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply    # copy + update the rows
+node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply --delete-blob  # also delete the Blob copies (needs BLOB_READ_WRITE_TOKEN)
+```
+Each moved row gets `storageKey` + `fileName` and loses `fileUrl`. Running it
+again skips rows already moved.
 
 ---
 
@@ -210,15 +229,3 @@ PDFs) use `StorageService.putObject()`.
 Invoices: when an admin confirms a payment the backend saves the PDF to the
 private bucket as `invoices/<year>/<number>.pdf`; the Billing tab download
 serves that copy.
-
-### Moving documents uploaded before R2
-Documents uploaded before R2 sit on Vercel Blob at public URLs. Once the R2
-settings are in place, copy them into the private bucket (run from the
-backend folder, with that environment's `MONGODB_URI` and R2 settings in `.env`):
-```bash
-node --env-file=.env scripts/migrate-documents-to-r2.cjs            # dry run: lists what would move
-node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply    # copy + update the rows
-node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply --delete-blob  # also delete the Blob copies (needs BLOB_READ_WRITE_TOKEN)
-```
-Each moved row gets `storageKey` + `fileName` and loses `fileUrl`. Running it
-again skips rows already moved.

@@ -13,6 +13,10 @@ export class ChatMessage {
 
   @Prop({ default: () => new Date() })
   timestamp: Date;
+
+  // Photos/brochure sent with a bot reply (website chat), see ChatService.
+  @Prop({ type: [{ kind: String, url: String, name: String, _id: false }], default: undefined })
+  media?: { kind: 'image' | 'pdf'; url: string; name?: string }[];
 }
 
 const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);

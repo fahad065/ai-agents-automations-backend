@@ -17,6 +17,10 @@ for i in $(seq 1 30); do docker exec lm-mongo mongosh --quiet --eval 'db.getSibl
 [ "$(docker exec lm-mongo mongosh --quiet --eval 'db.getSiblingDB("lm_e2e").getCollectionNames().length' 2>/dev/null)" = "0" ] || { echo "Could not wipe the lm_e2e database — is lm-mongo up?"; exit 1; }
 rm -f "$E/calls.jsonl"; rm -rf "$E/shots"
 
+# 1b. Fake Cloudflare R2 for uploads (S3 API on :4566).
+pkill -f "fake-s3.cjs" 2>/dev/null; sleep 0.5
+(nohup node "$E/fake-s3.cjs" > "$E/fake-s3.log" 2>&1 </dev/null &)
+
 # 2. Backend from dist/ in production mode, outbound AI/email/Meta calls faked.
 pkill -f "dist/main" 2>/dev/null; sleep 1
 (cd "$BACKEND" && nohup env $(grep -v '^#' "$E/e2e.env" | xargs) node -r "$E/fake-net.cjs" dist/main.js > "$E/backend.log" 2>&1 </dev/null &)

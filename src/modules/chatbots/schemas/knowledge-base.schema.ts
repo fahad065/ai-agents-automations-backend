@@ -3,6 +3,29 @@ import { Document, Types } from 'mongoose';
 
 export type KnowledgeBaseDocument = KnowledgeBase & Document;
 
+// A photo or PDF stored in R2 (see chatbots/knowledge-media.ts).
+@Schema({ _id: false })
+export class KnowledgeAttachmentDoc {
+  @Prop({ enum: ['image', 'pdf'], required: true })
+  kind: 'image' | 'pdf';
+
+  @Prop({ required: true })
+  key: string;
+
+  @Prop({ required: true })
+  url: string;
+
+  @Prop()
+  name: string;
+
+  @Prop()
+  size: number;
+
+  @Prop()
+  contentType: string;
+}
+const KnowledgeAttachmentSchema = SchemaFactory.createForClass(KnowledgeAttachmentDoc);
+
 @Schema({ timestamps: true })
 export class KnowledgeBase {
   @Prop({ type: Types.ObjectId, ref: 'ChatbotUserService', required: true })
@@ -30,6 +53,11 @@ export class KnowledgeBase {
   // (e.g. "Google Maps location", "Menu (PDF)").
   @Prop()
   linkLabel?: string;
+
+  // Photos (up to 5) and one PDF brochure shown with this answer in the
+  // website chat.
+  @Prop({ type: [KnowledgeAttachmentSchema], default: [] })
+  attachments: KnowledgeAttachmentDoc[];
 
   @Prop({ type: [Number], default: [], select: false })
   embedding: number[];

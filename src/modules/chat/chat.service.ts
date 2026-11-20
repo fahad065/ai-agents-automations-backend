@@ -9,7 +9,7 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { ApiKeyProvider } from '../api-keys/schemas/api-key.schema';
 import { callChatCompletion, embeddingProviderFor, getEmbeddingVector, ChatMessage } from '../api-keys/ai-provider.util';
-import { fitKnowledge, knowledgeSnippet } from './knowledge-format';
+import { MEDIA_TAG_RE, fitKnowledge, knowledgeSnippet } from './knowledge-format';
 import { rankByKeywords } from './keyword-rank';
 
 // Entries given to the model when ranking by word matching. A few more than
@@ -40,6 +40,12 @@ function cosineSim(a: number[], b: number[]): number {
 // the question; the server swaps it for the bot's fallback message in the
 // customer's language (an exact-text match on the English fallback broke as
 // soon as the model translated it for a French or Spanish customer).
+export interface ReplyMedia {
+  kind: 'image' | 'pdf';
+  url: string;
+  name?: string;
+}
+
 const NO_ANSWER = '[[NO_ANSWER]]';
 
 // Line added to a hand-off reply when we don't yet know how to reach the
@@ -128,6 +134,7 @@ Language: ${languageInstruction}
 IMPORTANT: Only answer questions based on the knowledge base and locations below. If the question is not covered, reply with exactly ${NO_ANSWER} and nothing else.
 Do not make up information.
 When a knowledge-base answer includes a link (for example a Google Maps location, a menu, a booking page), share that exact link with the customer — never change or invent links.
+Some answers list photos or a brochure with a tag like [[MEDIA:…]]. When your reply is about that entry, put that exact tag at the end of your reply (the customer then sees the files). Use at most two tags, and never write a tag that isn't in the knowledge base.
 
 Whenever it's natural — especially if the customer wants to book, order, get a quote, or asks to be contacted — politely ask for their name, phone number and email if they haven't shared them yet. Weave this into the conversation over a message or two rather than demanding all three at once, and never block answering their actual question just to collect these details.
 
@@ -238,6 +245,18 @@ ${knowledgeSection}`;
   // the bot's fixed language, Arabic when the customer wrote Arabic,
   // English when the message is plainly English, otherwise 'other' (the
   // fixed texts are then translated with the owner's key).
+  private pickMedia(answer: string, entries: any[]): ReplyMedia[] {
+    const withMedia = entries.filter((k) => k.attachments?.length);
+    if (!withMedia.length) return [];
+    const ids = [...answer.matchAll(MEDIA_TAG_RE)].map((m) => m[1].toLowerCase());
+    let chosen = withMedia.filter((k) => ids.includes(String(k._id).toLowerCase()));
+    if (!chosen.length) chosen = withMedia.filter((k) => k.sourceUrl && answer.includes(k.sourceUrl));
+    const files = chosen.slice(0, 2).flatMap((k) => (k.attachments || []) as any[]);
+    const images = files.filter((f) => f.kind === 'image').slice(0, 10);
+    const pdfs = files.filter((f) => f.kind === 'pdf').slice(0, 2);
+    return [...images, ...pdfs].map((f) => ({ kind: f.kind, url: f.url, name: f.name }));
+  }
+
   private replyLanguage(chatbot: ChatbotView, message: string): 'en' | 'ar' | 'other' {
     if (chatbot.language === 'en') return 'en';
     if (chatbot.language === 'ar' || /[\u0600-\u06FF]/.test(message)) return 'ar';
@@ -374,7 +393,7 @@ ${knowledgeSection}`;
     sessionId: string,
     message: string,
     channel: 'website' | 'whatsapp' | 'instagram' = 'website',
-  ): Promise<{ reply: string; sessionId: string; handoff: boolean }> {
+  ): Promise<{ reply: string; sessionId: string; handoff: boolean; media?: ReplyMedia[] }> {
     // 1. Find chatbot
     const { chatbot, row } = await this.findBot(embedKey);
     if (!chatbot || !row || chatbot.status !== 'active') {
@@ -527,11 +546,16 @@ ${knowledgeSection}`;
       if (fixedText && apiKey && needsTranslation) {
         fixedText = await this.inCustomerLanguage(chatProvider, apiKey, message, fixedText);
       }
-      const reply = [answer, fixedText].filter(Boolean).join('\n\n');
+      // Photos/brochures of the entries this reply is about: the tags the
+      // model copied in, or (if it forgot) an entry whose link it shared.
+      // Shown by the website widget; other channels get the text only.
+      const media = answer ? this.pickMedia(answer, allKnowledge) : [];
+      const cleanAnswer = answer ? answer.replace(MEDIA_TAG_RE, '').replace(/[ \t]+\n/g, '\n').trim() : null;
+      const reply = [cleanAnswer, fixedText].filter(Boolean).join('\n\n');
       if (askContact) conversation.contactRequestedAt = new Date();
 
       // 9. Add assistant reply
-      conversation.messages.push({ role: 'assistant', content: reply, timestamp: new Date() });
+      conversation.messages.push({ role: 'assistant', content: reply, timestamp: new Date(), ...(media.length ? { media } : {}) });
 
       // 10. Try to capture lead contact details from what the customer just
       // shared — every tier gets this (not gated by billing.tier), since a
@@ -580,7 +604,7 @@ ${knowledgeSection}`;
         await conversation.save();
       }
 
-      return { reply, sessionId, handoff: isHandoff };
+      return { reply, sessionId, handoff: isHandoff, ...(media.length && channel === 'website' ? { media } : {}) };
     } catch (err) {
       this.logger.error(`chat() failed for embedKey=${embedKey}: ${err?.message}`, err?.stack);
       // This is caught here and never rethrown — the customer always gets

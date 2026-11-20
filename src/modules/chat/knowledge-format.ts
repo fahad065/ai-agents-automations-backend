@@ -15,6 +15,22 @@ export interface KnowledgeLike {
   content?: string;
   sourceUrl?: string;
   linkLabel?: string;
+  _id?: unknown;
+  attachments?: { kind: string; url: string; name?: string }[];
+}
+
+// Marker the AI copies into its reply when it uses an entry that has photos
+// or a brochure; the server swaps it for those files (see chat.service.ts).
+export const mediaTag = (k: KnowledgeLike) => `[[MEDIA:${String(k._id)}]]`;
+export const MEDIA_TAG_RE = /\[\[MEDIA:([a-f0-9]{24})\]\]/gi;
+
+function mediaText(k: KnowledgeLike): string {
+  const files = k.attachments || [];
+  if (!files.length || !k._id) return '';
+  const photos = files.filter((f) => f.kind === 'image').length;
+  const pdf = files.some((f) => f.kind === 'pdf');
+  const what = [photos ? `${photos} photo${photos > 1 ? 's' : ''}` : '', pdf ? 'a PDF brochure' : ''].filter(Boolean).join(' and ');
+  return `(${what}: ${mediaTag(k)})`;
 }
 
 function linkText(k: KnowledgeLike): string {
@@ -26,10 +42,10 @@ export function knowledgeSnippet(k: KnowledgeLike): string {
   const link = linkText(k);
   if (k.type === 'faq') {
     // Kept on one "A:" line so the answer and its link always travel together.
-    const answer = [k.answer?.trim(), link].filter(Boolean).join(' — ');
+    const answer = [k.answer?.trim(), link, mediaText(k)].filter(Boolean).join(' — ');
     return `Q: ${k.question || ''}\nA: ${answer}`;
   }
-  return [k.content?.trim(), link].filter(Boolean).join('\n');
+  return [k.content?.trim(), link, mediaText(k)].filter(Boolean).join('\n');
 }
 
 export function knowledgeEmbedText(k: KnowledgeLike): string {
@@ -44,7 +60,7 @@ export function validateKnowledge(k: KnowledgeLike): string | null {
   if (k.sourceUrl && !URL_RE.test(k.sourceUrl.trim())) return 'Links must start with http:// or https://';
   if (k.type === 'faq') {
     if (!k.question?.trim()) return 'Enter the question';
-    if (!k.answer?.trim() && !k.sourceUrl?.trim()) return 'Add an answer, a link, or both';
+    if (!k.answer?.trim() && !k.sourceUrl?.trim() && !k.attachments?.length) return 'Add an answer, a link, photos — or a mix';
   } else if (k.type === 'text') {
     if (!k.content?.trim()) return 'Enter the information';
   } else if (k.type === 'url') {

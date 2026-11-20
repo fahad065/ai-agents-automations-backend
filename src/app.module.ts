@@ -19,6 +19,8 @@ import { PipelineServicesModule } from './modules/userservices/pipeline-services
 import { EmailModule } from './modules/email/email.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { ChatbotsModule } from './modules/chatbots/chatbots.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 import { UserServicesModule } from './modules/userservices/userservices.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
@@ -86,6 +88,8 @@ import { DocumentsModule } from './modules/documents/documents.module';
     EmailModule,
     AdminModule,
     UserServicesModule,
+    StorageModule,
+    UploadsModule,
     ChatbotsModule,
     ChatModule,
     ActivityLogsModule,

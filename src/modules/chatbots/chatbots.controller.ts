@@ -64,6 +64,11 @@ export class ChatbotsController {
     return this.chatbotsService.addKnowledge(id, req.user._id.toString(), body, req.user.role === 'admin');
   }
 
+  @Get(':id/knowledge/media-usage')
+  knowledgeMediaUsage(@Req() req: any, @Param('id') id: string) {
+    return this.chatbotsService.knowledgeMediaUsage(id, req.user._id.toString(), req.user.role === 'admin');
+  }
+
   @Get(':id/knowledge')
   listKnowledge(@Req() req: any, @Param('id') id: string) {
     return this.chatbotsService.listKnowledge(id, req.user._id.toString(), req.user.role === 'admin');

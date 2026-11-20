@@ -72,8 +72,7 @@ function makeService(chatbot: any, userIsVerified = true, opts: { knowledgeBaseM
     billingService,
     emailService,
     servicesService,
-    activityLogsService,
-  );
+    activityLogsService, { deletePrefix: jest.fn(), deleteKeys: jest.fn(), isConfigured: () => false } as any);
 }
 
 const KB_ID = '507f1f77bcf86cd799439022';
@@ -297,8 +296,7 @@ describe('ChatbotsService.findAllAdmin() — template filter', () => {
       {} as any,
       {} as any,
       servicesService,
-      {} as any,
-    );
+      {} as any, { deletePrefix: jest.fn(), deleteKeys: jest.fn(), isConfigured: () => false } as any);
     return { service, chatbotModel };
   }
 
@@ -312,5 +310,26 @@ describe('ChatbotsService.findAllAdmin() — template filter', () => {
     const { service, chatbotModel } = makeAdminListService([]);
     await service.findAllAdmin();
     expect(chatbotModel.find).toHaveBeenCalledWith({ type: 'chatbot', isDeleted: false });
+  });
+});
+
+// Plan limits on knowledge photos/PDFs (checked before POST /uploads signs).
+describe('ChatbotsService — knowledge photo/PDF plan limits', () => {
+  function quotaService(used: { image?: number; pdf?: number }, tier = 'basic') {
+    const chatbot = makeChatbot({ billing: { tier, status: 'trial', trialEndsAt: new Date(Date.now() + 86400000) } });
+    const rows = Object.entries(used).map(([kind, n]) => ({ _id: kind, n }));
+    const knowledgeBaseModel: any = { aggregate: jest.fn().mockResolvedValue(rows) };
+    return makeService(chatbot, true, { knowledgeBaseModel });
+  }
+
+  it('Basic allows 100 photos and 20 PDFs per chatbot', async () => {
+    await expect(quotaService({ image: 99 }).assertMediaQuota(BOT_ID, 'owner1', false, 'image')).resolves.toBeUndefined();
+    await expect(quotaService({ image: 100 }).assertMediaQuota(BOT_ID, 'owner1', false, 'image')).rejects.toThrow(/allows 100 photos/);
+    await expect(quotaService({ pdf: 20 }).assertMediaQuota(BOT_ID, 'owner1', false, 'pdf')).rejects.toThrow(/allows 20 PDFs/);
+  });
+
+  it('Pro allows 500 photos', async () => {
+    await expect(quotaService({ image: 100 }, 'pro').assertMediaQuota(BOT_ID, 'owner1', false, 'image')).resolves.toBeUndefined();
+    await expect(quotaService({ image: 500 }, 'pro').assertMediaQuota(BOT_ID, 'owner1', false, 'image')).rejects.toThrow(/allows 500 photos/);
   });
 });

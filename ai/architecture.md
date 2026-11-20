@@ -682,6 +682,7 @@ type: text | faq | url
 question?, answer?                           -- faq only
 content?                                     -- text/url
 sourceUrl?, linkLabel?                       -- the link an answer shares (Google Maps, menu…), see chat/knowledge-format.ts
+attachments: [{kind: image|pdf, key, url, name, size, contentType}]  -- up to 5 photos + 1 PDF in the public R2 bucket under chatbots/<id>/knowledge/ (POST /uploads, purpose chatbot-knowledge)
 embedding: []                                -- hidden by default; a vector array, not for display; empty if the bot owner has no OpenAI key (graceful BYOK degrade, unchanged behavior)
 createdAt, updatedAt
 ```
@@ -691,7 +692,7 @@ No `isDeleted` — deliberate, see `rules.md`.
 ```
 _id, userserviceId                           -- was chatbotId (renamed 2026-11-17)
 sessionId, channel: website | whatsapp | instagram
-messages: [{role, content, timestamp}]       -- embedded; fine for a typical session, a real (if unlikely) MongoDB 16MB document-size ceiling for an unusually long-running one
+messages: [{role, content, timestamp, media?: [{kind, url, name}]}]       -- embedded; fine for a typical session, a real (if unlikely) MongoDB 16MB document-size ceiling for an unusually long-running one
 status: active | closed | handoff
 visitorName?, visitorEmail?, visitorPhone?
 leadNotifiedAt?, handoffNotifiedAt?, contactRequestedAt?

@@ -1233,3 +1233,31 @@ and reported the page jumping to the top when opening a provider dropdown.
   never innerHTML); line breaks kept (`white-space: pre-wrap`).
 - Unit 86; e2e clinic 103, gym 108 (both check the link is clickable),
   restaurant 67.
+
+## 2026-11-20 — File storage on Cloudflare R2; one upload endpoint; knowledge photos + PDF
+- Owner decisions: Cloudflare R2 (not Vercel Blob / AWS S3 — no egress fees);
+  dev buckets for local + future staging, prod buckets for production; one
+  general upload endpoint for every upload; photos ≤10 MB, PDFs ≤100 MB; no
+  video uploads. Plan limits per chatbot: Basic 100 photos/20 PDFs, Pro 500/100.
+- `storage` module (global `StorageService`): S3 SDK against R2, public and
+  private bucket per environment, signed PUT (type + size in the signature),
+  signed GET for private files, stat, delete, deletePrefix, putObject.
+  Checksums only when required (Cloudflare's guidance for R2).
+- `uploads` module: `POST /uploads` {purpose, contentType, size, name, …} →
+  signed URL + key; `DELETE /uploads` drops an unsaved upload (kept if a
+  record uses it); `GET /uploads/file` → 5-min link to a private file.
+  Purposes: chatbot-knowledge (owner/admin, public), service-brochure (admin,
+  public), user-document (owner/admin, private). The caller never picks the
+  folder.
+- Knowledge entries: `attachments` (≤5 photos + 1 PDF); saving checks each key
+  is in the bot's folder, exists and has an allowed type; removed files,
+  deleted entries and deleted bots delete their files. Snippets tell the AI
+  `(2 photos and a PDF brochure: [[MEDIA:<id>]])`; the reply's tags are
+  stripped and `media` returned (website only) and stored on the message.
+- Frontend: Knowledge Base form photo/PDF picker with plan usage; widget photo
+  strip + brochure chip; conversation thread shows sent media; admin Service
+  Catalog "Upload PDF" for brochures; reusable `ui/upload-button.tsx`.
+- e2e: `fake-s3.cjs` (S3 API with CORS) started by run.sh; clinic suite
+  uploads through the real UI, checks storage, widget, limits, cleanup.
+- Guide: `docs/cloudflare-r2-setup.md`. Documents page still on Vercel Blob
+  (to move to `user-document` with its existing files later).

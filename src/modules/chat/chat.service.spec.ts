@@ -55,13 +55,14 @@ function makeService(opts: {
   chatbot: any;
   existingConversation?: any;
   hasOpenAiKey?: boolean;
+  knowledge?: any[];
 }) {
-  const { chatbot, existingConversation = null, hasOpenAiKey = false } = opts;
+  const { chatbot, existingConversation = null, hasOpenAiKey = false, knowledge = [] } = opts;
 
   const createdConversations: any[] = [];
   const chatbotModel: any = { findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(chatbot) }) };
   const knowledgeBaseModel: any = {
-    find: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue([]) }),
+    find: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue(knowledge) }),
   };
   const conversationModel: any = {
     findOne: jest.fn().mockResolvedValue(existingConversation),
@@ -597,5 +598,72 @@ describe('WhatsApp / Instagram webhooks (Pro channels)', () => {
     await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'guess', 'CHALLENGE')).resolves.toBeNull();
     await expect(service.verifyMetaWebhook('whatsapp', 'key1', 'subscribe', 'vt-ig', 'CHALLENGE')).resolves.toBeNull();
     await expect(service.verifyMetaWebhook('instagram', 'key1', 'subscribe', 'vt-ig', 'C2')).resolves.toBe('C2');
+  });
+});
+
+// Photos/brochure on a knowledge entry go out with the reply that uses it.
+describe('ChatService — photos and brochures in replies', () => {
+  const listing = {
+    _id: '6a1b2c3d4e5f60718293a4b5',
+    type: 'faq',
+    question: 'Tell me about the 2-bed in Marina Heights',
+    answer: 'AED 2.35m, 1,250 sq ft, sea view.',
+    sourceUrl: 'https://agency.example/listings/marina-heights',
+    attachments: [
+      { kind: 'image', url: 'https://media.example/chatbots/b/knowledge/1.jpg', name: 'living.jpg' },
+      { kind: 'image', url: 'https://media.example/chatbots/b/knowledge/2.jpg', name: 'view.jpg' },
+      { kind: 'pdf', url: 'https://media.example/chatbots/b/knowledge/3.pdf', name: 'brochure.pdf' },
+    ],
+  };
+  const reply = (content: string) => ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) }) as any;
+
+  it('tells the AI which entry has files, returns them with the reply and strips the tag', async () => {
+    const chatbot = makeChatbot({ billing: { tier: 'basic', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: true, knowledge: [listing] });
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(reply('Yes, it is available at AED 2.35m. [[MEDIA:6a1b2c3d4e5f60718293a4b5]]'))
+      .mockResolvedValueOnce(reply('{}'));
+
+    const result = await service.chat('embed1', 'session-1', 'Is the Marina Heights 2-bed available?', 'website');
+
+    const system = JSON.parse((fetchSpy.mock.calls[0][1] as any).body).messages[0].content;
+    expect(system).toContain('(2 photos and a PDF brochure: [[MEDIA:6a1b2c3d4e5f60718293a4b5]])');
+    expect(result.reply).toBe('Yes, it is available at AED 2.35m.');
+    expect(result.media).toEqual([
+      { kind: 'image', url: listing.attachments[0].url, name: 'living.jpg' },
+      { kind: 'image', url: listing.attachments[1].url, name: 'view.jpg' },
+      { kind: 'pdf', url: listing.attachments[2].url, name: 'brochure.pdf' },
+    ]);
+    fetchSpy.mockRestore();
+  });
+
+  it('falls back to the entry whose link the AI shared when it forgot the tag', async () => {
+    const chatbot = makeChatbot({ billing: { tier: 'basic', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: true, knowledge: [listing] });
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(reply('Here it is: https://agency.example/listings/marina-heights'))
+      .mockResolvedValueOnce(reply('{}'));
+
+    const result = await service.chat('embed1', 'session-1', 'Show me Marina Heights', 'website');
+
+    expect(result.media).toHaveLength(3);
+    fetchSpy.mockRestore();
+  });
+
+  it('sends text only on WhatsApp (no media field), and never leaks the tag', async () => {
+    const chatbot = makeChatbot({ billing: { tier: 'pro', status: 'active' } });
+    const { service } = makeService({ chatbot, hasOpenAiKey: true, knowledge: [listing] });
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(reply('Available. [[MEDIA:6a1b2c3d4e5f60718293a4b5]]'))
+      .mockResolvedValueOnce(reply('{}'));
+
+    const result = await service.chat('embed1', '971500000001', 'Marina Heights?', 'whatsapp');
+
+    expect(result.media).toBeUndefined();
+    expect(result.reply).toBe('Available.');
+    fetchSpy.mockRestore();
   });
 });

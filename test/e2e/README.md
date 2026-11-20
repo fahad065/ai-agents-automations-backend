@@ -11,6 +11,7 @@ folder is the machinery that runs them.
 | NestJS backend from `dist/`, `NODE_ENV=production` (same CORS/security as Railway) | OpenAI / Anthropic calls — a tiny stand-in "model" that answers from the knowledge snippets in the prompt |
 | Next.js production build of the frontend, driven by Playwright | Resend (emails are recorded, not sent) |
 | MongoDB 7 (Docker, throwaway `lm_e2e` database) | Meta Graph API (WhatsApp/Instagram sends are recorded) |
+| Uploads: signed URLs, browser PUT, key checks, cleanup | Cloudflare R2 — `fake-s3.cjs` on :4566 (S3 API + CORS, started by `run.sh`; calls logged as kind `s3`) |
 | Encryption, BYOK key lookup, knowledge search, lead capture, hand-off, billing gates, webhook signatures | |
 
 The stand-in model proves the plumbing (right prompt, right key, right

@@ -175,6 +175,55 @@ async function openTab(page, label) {
     ok('answer + Google Maps link stored together', linked.sourceUrl === 'https://maps.app.goo.gl/noor-jumeirah' && linked.linkLabel === 'Google Maps location');
   }, page);
 
+  section = 'Basic: photos + brochure';
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
+  const s3 = () => calls().filter((c) => c.kind === 's3');
+  await step('photos + PDF on a knowledge entry', async () => {
+    await page.reload({ waitUntil: 'networkidle' }); await page.keyboard.press('Escape').catch(() => {});
+    await openTab(page, 'Knowledge Base');
+    // Upload then cancel: the unsaved file is removed from storage.
+    await page.getByRole('button', { name: /Add Knowledge/ }).click();
+    await page.locator('[data-testid="photo-input"]').setInputFiles({ name: 'draft.png', mimeType: 'image/png', buffer: PNG });
+    await page.locator('[data-testid="knowledge-media"] img').first().waitFor({ timeout: 10000 });
+    const draftKey = s3().filter((c) => c.op === 'put').pop()?.key;
+    await page.getByRole('button', { name: /^Cancel$/ }).first().click();
+    await sleep(1000);
+    ok('cancelled upload is deleted from storage', !!draftKey && s3().some((c) => c.op === 'delete' && c.keys.includes(draftKey)), draftKey);
+
+    await page.getByRole('button', { name: /Add Knowledge/ }).click();
+    await page.getByPlaceholder('Type the question a customer would ask').fill('Can I see photos of the Jumeirah clinic?');
+    await page.getByPlaceholder('Type the answer the bot should give').fill('Our Jumeirah clinic has a bright reception and a garden waiting area.');
+    const usage = await page.locator('[data-testid="knowledge-media"]').innerText();
+    ok('form shows the plan limits (Basic: 100 photos, 20 PDFs)', /0\/100 photos/.test(usage) && /0\/20 PDFs/.test(usage), usage.replace(/\n/g, ' ').slice(0, 120));
+    await page.locator('[data-testid="photo-input"]').setInputFiles([
+      { name: 'reception.png', mimeType: 'image/png', buffer: PNG },
+      { name: 'garden.png', mimeType: 'image/png', buffer: PNG },
+    ]);
+    await page.locator('[data-testid="pdf-input"]').setInputFiles({ name: 'clinic-brochure.pdf', mimeType: 'application/pdf', buffer: PDF });
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="knowledge-media"] img').length === 2 && /clinic-brochure\.pdf/.test(document.querySelector('[data-testid="knowledge-media"]').textContent), null, { timeout: 15000 });
+    await page.screenshot({ path: path.join(SHOTS, 'knowledge-media-form.png') });
+    const puts = s3().filter((c) => c.op === 'put').slice(-3);
+    ok('files went straight to storage with signed URLs', puts.length === 3 && puts.every((c) => c.signed && c.key.startsWith(`chatbots/${botId}/knowledge/`)), JSON.stringify(puts.map((c) => c.key)));
+    await page.getByRole('button', { name: /^Add Entry$/ }).click();
+    await page.waitForTimeout(1500);
+    const e = JSON.parse(mongo(`JSON.stringify(db.knowledgebases.findOne({question:"Can I see photos of the Jumeirah clinic?"}))`));
+    global.__mediaEntry = e;
+    ok('entry saved with 2 photos + 1 PDF', e?.attachments?.length === 3 && e.attachments.filter((a) => a.kind === 'image').length === 2 && e.attachments.some((a) => a.kind === 'pdf' && a.name === 'clinic-brochure.pdf'), JSON.stringify(e?.attachments?.map((a) => a.name)));
+    ok('public URLs on the media domain', e.attachments.every((a) => a.url === `http://localhost:4566/lm-e2e-public/${a.key}`));
+    ok('thumbnails shown in the knowledge list', (await page.locator('main').last().locator('img[alt="reception.png"]').count()) === 1);
+
+    // The one upload endpoint refuses what it should.
+    const bad = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'image/gif', size: 100 });
+    ok('POST /uploads refuses a GIF', bad.status === 400, `${bad.status}`);
+    const big = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'application/pdf', size: 101 * 1024 * 1024 });
+    ok('POST /uploads refuses a PDF over 100 MB', big.status === 400 && /100 MB/.test(JSON.stringify(big.data)), JSON.stringify(big.data));
+    const brochure = await api(token, 'POST', '/uploads', { purpose: 'service-brochure', serviceId: 'clinic-chatbot', contentType: 'application/pdf', size: 100 });
+    ok('POST /uploads: service brochures are admin-only', brochure.status === 403, `${brochure.status}`);
+    const foreign = await api(token, 'POST', '/chatbots/' + botId + '/knowledge', { type: 'faq', question: 'x', answer: 'y', attachments: [{ key: 'chatbots/someone-else/knowledge/a.png' }] });
+    ok('an entry cannot point at another bot\'s file', foreign.status === 400, `${foreign.status}`);
+  }, page);
+
   section = 'Basic: branches + insurance';
   await step('branches with insurance, booking link, go live', async () => {
     await api(token, 'PUT', `/chatbots/${botId}`, {
@@ -270,6 +319,14 @@ async function openTab(page, label) {
     ok('…New York has its own list (Aetna, Cigna, Medicare), not Dubai\'s', /Insurance accepted: Aetna, Cigna, Medicare/.test(nyL) && !/Daman/.test(nyL));
     ok('…unlisted insurer: told to say so and offer to check', /any other insurer: not listed/.test(dxb));
     ok('…branch with no list carries no insurance line', !/Insurance accepted/.test(syd));
+    a = await ask('Can I see photos of the Jumeirah clinic?');
+    ok('photo question answered from the entry, tag never shown', /bright reception/.test(a) && !/MEDIA/.test(a), a);
+    const gallery = guest.locator('.lm-cb-media').last();
+    await gallery.waitFor({ timeout: 5000 });
+    ok('widget shows the 2 photos', (await gallery.locator('.lm-cb-photos img').count()) === 2);
+    ok('…which actually load from storage', await gallery.locator('.lm-cb-photos img').first().evaluate((img) => img.complete && img.naturalWidth > 0));
+    ok('widget shows the PDF brochure link', /clinic-brochure\.pdf/.test(await gallery.locator('.lm-cb-file').innerText()) && (await gallery.locator('.lm-cb-file').getAttribute('target')) === '_blank');
+    await guest.screenshot({ path: path.join(SHOTS, 'widget-media.png') });
     a = await ask('What is your emergency number?');
     ok('emergency number shared', /998/.test(a), a);
     const fallbackMsg = mongo(`db.userservices.findOne({_id:ObjectId("${botId}")}).config.fallbackMessage`);
@@ -299,6 +356,22 @@ async function openTab(page, label) {
     const notes = JSON.stringify(n.data);
     ok('dashboard notifications for lead + hand-off', /lead/i.test(notes) && /hand/i.test(notes));
   }, page);
+
+  section = 'Basic: photo cleanup';
+  await step('removing photos deletes the files', async () => {
+    const e = global.__mediaEntry;
+    const [keep, drop] = e.attachments.filter((x) => x.kind === 'image');
+    const pdf = e.attachments.find((x) => x.kind === 'pdf');
+    const r = await api(token, 'PUT', `/chatbots/${botId}/knowledge/${e._id}`, { attachments: [{ key: keep.key, name: keep.name }, { key: pdf.key, name: pdf.name }] });
+    ok('entry saved without one photo', r.status === 200 && r.data.attachments.length === 2, `${r.status}`);
+    await sleep(500);
+    ok('the removed photo is deleted from storage', s3().some((c) => c.op === 'delete' && c.keys.includes(drop.key)));
+    const conv = JSON.parse(mongo(`JSON.stringify(db.conversations.findOne({userserviceId:ObjectId("${botId}"),channel:"website"}).messages.filter(m=>m.media))`));
+    ok('conversation history keeps what was sent', conv.length >= 1 && conv[0].media.length === 3);
+    const d = await api(token, 'DELETE', `/chatbots/${botId}/knowledge/${e._id}`);
+    await sleep(500);
+    ok('deleting the entry deletes its files', d.status === 200 && [keep.key, pdf.key].every((k) => s3().some((c) => c.op === 'delete' && c.keys.includes(k))));
+  });
 
   section = 'Basic: WhatsApp blocked';
   await step('WhatsApp webhook on Basic', async () => {

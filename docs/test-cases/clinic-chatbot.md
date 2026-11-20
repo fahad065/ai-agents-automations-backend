@@ -2,7 +2,7 @@
 
 Service: `clinic-chatbot` · Tiers: **Basic** / **Pro** (Custom = contact us, not self-serve)
 Automated by: `test/e2e/clinic-e2e.cjs` (see `test/e2e/README.md`)
-Last full run: **2026-11-19 — 102 / 102 passed** (fresh database, backend in production mode)
+Last full run: **2026-11-20 — 121 / 121 passed** (fresh database, backend in production mode)
 
 How to read this: **Input** is what the owner, patient, admin or Meta does.
 **Expected** is what must happen. **Via** says how the test drives it:
@@ -64,6 +64,22 @@ clinics in the USA, UK, UAE, Australia and Canada.
 | 4.3 | BYOK embedding | — | Every embedding call uses the **owner's** key | Call log |
 | 4.4 | Edit a price | GP consultation → "now costs AED 230" → Save Changes | Stored answer updated | UI + DB |
 | 4.5 | Answer + map link | "Where is your Jumeirah clinic located?" + Google Maps link | Stored together, labelled "Google Maps location" | UI + DB |
+
+## 4b. Photos & PDF brochure on an entry (Cloudflare R2; fake S3 in the run)
+
+| # | Case | Input | Expected | Via |
+|---|---|---|---|---|
+| 4b.1 | Cancel discards | Add Knowledge → upload a photo → Cancel | That file is deleted from storage | UI + storage log |
+| 4b.2 | Plan limits shown | Open the form | "0/100 photos · 0/20 PDFs on your plan" | UI |
+| 4b.3 | Upload | 2 photos + 1 PDF → Add Entry | Files PUT straight to storage with signed URLs under `chatbots/<bot>/knowledge/`; entry has 2 images + 1 PDF with public URLs; thumbnails in the list | UI + DB |
+| 4b.4 | Wrong type | `POST /uploads` with a GIF | 400 | API |
+| 4b.5 | Too big | PDF of 101 MB | 400 "max 100 MB" | API |
+| 4b.6 | Admin-only purpose | Owner asks to upload a service brochure | 403 | API |
+| 4b.7 | Foreign file | Save an entry pointing at another bot's file | 400 | API |
+| 4b.8 | Widget shows files | "Can I see photos of the Jumeirah clinic?" | Answer text (no tag), 2 photos that load, brochure link opening in a new tab | Widget |
+| 4b.9 | Remove a photo | Save the entry without one photo | That file deleted from storage | API + storage log |
+| 4b.10 | History | — | The conversation message keeps the 3 files sent | DB |
+| 4b.11 | Delete entry | Delete it | Its files deleted from storage | API + storage log |
 
 ## 5. Basic — branches & insurance
 

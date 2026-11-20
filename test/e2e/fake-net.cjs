@@ -58,7 +58,9 @@ function fakeChat(body) {
     const area = [...q].find((w) => system.toLowerCase().includes(w) && w.length > 4 && !['branch', 'deliver', 'location'].includes(w));
     if (area) return `Yes — we have a location that covers ${area}.`;
   }
-  return best ? best.answer : fallback;
+  // Like a real model: keep an entry's [[MEDIA:…]] tag, drop the note around it.
+  if (best) return best.answer.replace(/\s—\s\([^()]*?:\s(\[\[MEDIA:[a-f0-9]+\]\])\)/, ' $1');
+  return fallback;
 }
 
 global.fetch = async (input, init = {}) => {

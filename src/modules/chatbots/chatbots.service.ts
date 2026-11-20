@@ -18,6 +18,15 @@ import { EmailService } from '../email/email.service';
 import { ServicesService } from '../services/services.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
+import { StorageService } from '../storage/storage.service';
+import {
+  KnowledgeAttachment,
+  MEDIA_TYPES,
+  MediaKind,
+  cleanFileName,
+  mediaFolder,
+  planMediaLimits,
+} from './knowledge-media';
 
 // Fields the chatbot's own owner is allowed to change via PUT /chatbots/:id.
 // Deliberately excludes `billing` and `embedKey` — those are admin-only /
@@ -59,6 +68,7 @@ export class ChatbotsService {
     private emailService: EmailService,
     private servicesService: ServicesService,
     private activityLogsService: ActivityLogsService,
+    private storageService: StorageService,
   ) {}
 
   // Every new chatbot starts a 30-day free trial automatically — no admin
@@ -374,6 +384,7 @@ export class ChatbotsService {
       this.knowledgeBaseModel.deleteMany({ userserviceId: chatbotId }),
       this.conversationModel.deleteMany({ userserviceId: chatbotId }),
     ]);
+    await this.storageService.deletePrefix('public', `chatbots/${chatbotId.toString()}/`);
 
     await this.activityLogsService.record({
       userId: chatbot.userId.toString(), actorId: userId,
@@ -440,7 +451,10 @@ export class ChatbotsService {
     // Verify ownership (or admin access)
     const chatbot = await this.findOne(chatbotId, userId, isAdmin);
 
-    const fields = pickKnowledgeFields(dto);
+    const fields: Record<string, any> = pickKnowledgeFields(dto);
+    if (dto?.attachments !== undefined) {
+      fields.attachments = await this.resolveAttachments(chatbot, dto.attachments, [], null);
+    }
     const invalid = validateKnowledge(fields);
     if (invalid) throw new BadRequestException(invalid);
 
@@ -504,6 +518,13 @@ export class ChatbotsService {
 
     const changes = pickKnowledgeFields(dto);
     for (const [key, value] of Object.entries(changes)) (entry as any)[key] = value;
+    let removedKeys: string[] = [];
+    if (dto?.attachments !== undefined) {
+      const before = ((entry.attachments || []) as any[]).map((a) => (a.toObject ? a.toObject() : a)) as KnowledgeAttachment[];
+      const next = await this.resolveAttachments(chatbot, dto.attachments, before, entry._id as Types.ObjectId);
+      removedKeys = before.map((a) => a.key).filter((k) => !next.some((n) => n.key === k));
+      entry.set('attachments', next);
+    }
     const invalid = validateKnowledge(entry);
     if (invalid) throw new BadRequestException(invalid);
 
@@ -519,6 +540,7 @@ export class ChatbotsService {
     }
 
     const saved = await entry.save();
+    await this.storageService.deleteKeys('public', removedKeys);
 
     await this.activityLogsService.record({
       userId: chatbot.userId.toString(), actorId: userId,
@@ -529,6 +551,86 @@ export class ChatbotsService {
     });
 
     return saved;
+  }
+
+  // Photos/PDFs already attached across this bot's knowledge base.
+  private async mediaCounts(chatbotId: Types.ObjectId | string, excludeEntry?: Types.ObjectId | null): Promise<Record<MediaKind, number>> {
+    const match: any = { userserviceId: new Types.ObjectId(chatbotId.toString()) };
+    if (excludeEntry) match._id = { $ne: excludeEntry };
+    const rows = await this.knowledgeBaseModel.aggregate([
+      { $match: match },
+      { $unwind: '$attachments' },
+      { $group: { _id: '$attachments.kind', n: { $sum: 1 } } },
+    ]);
+    const out: Record<MediaKind, number> = { image: 0, pdf: 0 };
+    for (const r of rows) if (r._id in out) out[r._id as MediaKind] = r.n;
+    return out;
+  }
+
+  async knowledgeMediaUsage(chatbotId: string, userId: string, isAdmin = false) {
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
+    return {
+      enabled: this.storageService.isConfigured('public'),
+      used: await this.mediaCounts(chatbot._id as Types.ObjectId),
+      limits: planMediaLimits(chatbot.plan?.tier),
+      perEntry: { image: MEDIA_TYPES.image.perEntry, pdf: MEDIA_TYPES.pdf.perEntry },
+      maxBytes: { image: MEDIA_TYPES.image.maxBytes, pdf: MEDIA_TYPES.pdf.maxBytes },
+    };
+  }
+
+  // Called by the uploads service before signing a knowledge photo/PDF.
+  async assertMediaQuota(chatbotId: string, userId: string, isAdmin: boolean, kind: MediaKind): Promise<void> {
+    const chatbot = await this.findOne(chatbotId, userId, isAdmin);
+    const limit = planMediaLimits(chatbot.plan?.tier)[kind];
+    const used = (await this.mediaCounts(chatbot._id as Types.ObjectId))[kind];
+    if (used >= limit) throw new BadRequestException(this.limitMessage(kind, limit));
+  }
+
+  private limitMessage(kind: MediaKind, limit: number): string {
+    return `Your plan allows ${limit} ${kind === 'image' ? 'photos' : 'PDFs'} per chatbot. Remove some, or upgrade for more.`;
+  }
+
+  // Turns what the browser sends ({key, name}) into stored attachments:
+  // keys must belong to this bot and (unless already on the entry) exist in
+  // storage with an allowed type and size; per-entry and plan limits apply.
+  private async resolveAttachments(
+    chatbot: any,
+    incoming: any,
+    existing: KnowledgeAttachment[],
+    entryId: Types.ObjectId | null,
+  ): Promise<KnowledgeAttachment[]> {
+    if (!Array.isArray(incoming)) throw new BadRequestException('attachments must be a list');
+    const chatbotId = (chatbot._id as Types.ObjectId).toString();
+    const prefix = mediaFolder(chatbotId);
+    const out: KnowledgeAttachment[] = [];
+    for (const item of incoming) {
+      const key = String(item?.key || '');
+      if (!key.startsWith(prefix) || key.includes('..') || out.some((a) => a.key === key)) {
+        throw new BadRequestException('Invalid attachment');
+      }
+      const known = existing.find((a) => a.key === key);
+      if (known) {
+        out.push({ ...known, name: item?.name ? cleanFileName(item.name) : known.name });
+        continue;
+      }
+      if (!this.storageService.isConfigured('public')) throw new BadRequestException('Photo and PDF uploads are not set up on this server yet.');
+      const stat = await this.storageService.stat('public', key);
+      if (!stat) throw new BadRequestException('An uploaded file was not found — please upload it again');
+      const contentType = (stat.contentType || '').toLowerCase();
+      const kind = (Object.keys(MEDIA_TYPES) as MediaKind[]).find((k) => MEDIA_TYPES[k].types[contentType]);
+      if (!kind || stat.size > MEDIA_TYPES[kind].maxBytes) throw new BadRequestException('Unsupported file');
+      out.push({ kind, key, url: this.storageService.publicUrl(key), name: cleanFileName(item?.name), size: stat.size, contentType });
+    }
+    const limits = planMediaLimits(chatbot.plan?.tier);
+    const others = await this.mediaCounts(chatbot._id as Types.ObjectId, entryId);
+    for (const kind of Object.keys(MEDIA_TYPES) as MediaKind[]) {
+      const n = out.filter((a) => a.kind === kind).length;
+      if (n > MEDIA_TYPES[kind].perEntry) {
+        throw new BadRequestException(kind === 'image' ? `Up to ${MEDIA_TYPES.image.perEntry} photos per entry` : 'One PDF per entry');
+      }
+      if (others[kind] + n > limits[kind]) throw new BadRequestException(this.limitMessage(kind, limits[kind]));
+    }
+    return out;
   }
 
   async listKnowledge(chatbotId: string, userId: string, isAdmin = false): Promise<KnowledgeBaseDocument[]> {
@@ -546,6 +648,7 @@ export class ChatbotsService {
       userserviceId: new Types.ObjectId(chatbotId),
     });
     if (!result) throw new NotFoundException('Knowledge entry not found');
+    await this.storageService.deleteKeys('public', (result.attachments || []).map((a) => a.key));
 
     await this.activityLogsService.record({
       userId: chatbot.userId.toString(), actorId: userId,

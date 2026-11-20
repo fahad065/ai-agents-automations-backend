@@ -7,3 +7,4 @@ last-run.txt
 results-gym.txt
 results-agent.txt
 results-*.txt
+fake-s3.log

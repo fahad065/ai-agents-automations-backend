@@ -97,6 +97,17 @@ export class StorageService {
     await this.s3(kind).send(new PutObjectCommand({ Bucket: this.bucketName(kind), Key: key, Body: body, ContentType: contentType }));
   }
 
+  // Reads a whole object (small files the server serves itself, e.g. invoices).
+  async getObject(kind: BucketKind, key: string): Promise<Buffer | null> {
+    try {
+      const out = await this.s3(kind).send(new GetObjectCommand({ Bucket: this.bucketName(kind), Key: key }));
+      const bytes = await out.Body?.transformToByteArray();
+      return bytes ? Buffer.from(bytes) : null;
+    } catch {
+      return null;
+    }
+  }
+
   // Size + type of an uploaded object, or null if it isn't there.
   async stat(kind: BucketKind, key: string): Promise<{ size: number; contentType?: string } | null> {
     try {

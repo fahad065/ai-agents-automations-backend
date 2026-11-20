@@ -1,10 +1,11 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Billing, BillingDocument, BillingStatus, BillingType } from './schemas/billing.schema';
 import { InvoiceCounter, InvoiceCounterDocument } from './schemas/invoice-counter.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { renderInvoicePdf } from './invoice-pdf';
+import { StorageService } from '../storage/storage.service';
 
 export type PaymentKind = 'setup' | 'monthly' | 'upgrade';
 
@@ -17,6 +18,7 @@ const LEGACY_KIND_PREFIX: Record<PaymentKind, RegExp> = {
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   constructor(
     @InjectModel(Billing.name)
     private billingModel: Model<BillingDocument>,
@@ -24,6 +26,7 @@ export class BillingService {
     private counterModel: Model<InvoiceCounterDocument>,
     @InjectModel(User.name)
     private userModel: Model<UserDocument>,
+    private storage: StorageService,
   ) {}
 
   // Record a billing event
@@ -99,14 +102,9 @@ export class BillingService {
     return updated || (await this.billingModel.findById(id))!;
   }
 
-  // The invoice PDF for one record — its owner or an admin only.
-  async invoicePdf(id: string, viewer: { userId: string; isAdmin: boolean }): Promise<{ filename: string; pdf: Buffer }> {
-    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Invoice not found');
-    const record = await this.billingModel.findOne({ _id: id, isDeleted: false }).lean();
-    if (!record || !record.invoiceNumber) throw new NotFoundException('Invoice not found');
-    if (!viewer.isAdmin && String(record.userId) !== viewer.userId) throw new ForbiddenException();
+  private async renderPdf(record: any): Promise<Buffer> {
     const user: any = await this.userModel.findById(record.userId).select('name email profile.company profile.country').lean();
-    const pdf = await renderInvoicePdf({
+    return renderInvoicePdf({
       invoiceNumber: record.invoiceNumber,
       issuedAt: record.invoiceIssuedAt || record.billingDate,
       customer: {
@@ -122,7 +120,49 @@ export class BillingService {
       currency: record.currency || 'USD',
       transactionRef: record.transactionRef,
     });
-    return { filename: `LogicMate-Invoice-${record.invoiceNumber}.pdf`, pdf };
+  }
+
+  private filename(record: { invoiceNumber?: string }) {
+    return `LogicMate-Invoice-${record.invoiceNumber}.pdf`;
+  }
+
+  // Renders a just-issued invoice once and keeps that PDF in the private
+  // bucket, so every later download is this exact copy. If storage isn't
+  // set up the PDF is still returned (and rendered again on download).
+  async archiveInvoice(id: string): Promise<{ filename: string; pdf: Buffer }> {
+    const record: any = await this.billingModel.findById(id).lean();
+    if (!record || !record.invoiceNumber) throw new NotFoundException('Invoice not found');
+    if (record.invoiceKey) {
+      const saved = await this.storage.getObject('private', record.invoiceKey);
+      if (saved) return { filename: this.filename(record), pdf: saved };
+    }
+    const pdf = await this.renderPdf(record);
+    if (this.storage.isConfigured('private')) {
+      const year = new Date(record.invoiceIssuedAt || Date.now()).getUTCFullYear();
+      const key = `invoices/${year}/${record.invoiceNumber}.pdf`;
+      try {
+        await this.storage.putObject('private', key, pdf, 'application/pdf');
+        await this.billingModel.updateOne({ _id: record._id, invoiceKey: { $exists: false } }, { $set: { invoiceKey: key } });
+      } catch (err: any) {
+        this.logger.warn(`Saving invoice ${record.invoiceNumber} to storage failed: ${err?.message || err}`);
+      }
+    }
+    return { filename: this.filename(record), pdf };
+  }
+
+  // The invoice PDF for one record — its owner or an admin only. Serves the
+  // copy saved when it was issued; older invoices are rendered.
+  async invoicePdf(id: string, viewer: { userId: string; isAdmin: boolean }): Promise<{ filename: string; pdf: Buffer }> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Invoice not found');
+    const record = await this.billingModel.findOne({ _id: id, isDeleted: false }).lean();
+    if (!record || !record.invoiceNumber) throw new NotFoundException('Invoice not found');
+    if (!viewer.isAdmin && String(record.userId) !== viewer.userId) throw new ForbiddenException();
+    if (record.invoiceKey) {
+      const saved = await this.storage.getObject('private', record.invoiceKey);
+      if (saved) return { filename: this.filename(record), pdf: saved };
+      this.logger.warn(`Invoice ${record.invoiceNumber}: saved PDF not found in storage, rendering it again`);
+    }
+    return { filename: this.filename(record), pdf: await this.renderPdf(record) };
   }
 
   async findById(id: string): Promise<BillingDocument | null> {

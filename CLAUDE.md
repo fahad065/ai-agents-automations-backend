@@ -35,7 +35,7 @@ npm test            # unit tests (jest, *.spec.ts under src/)
 End-to-end: see `test/e2e/README.md` (local Docker Mongo + faked outbound network; **never point it at Atlas**).
 
 ## Environment variables
-Read by the code (see `.env.example`): `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN`, `ENCRYPTION_KEY` (exactly 32 chars, encrypts API keys), `GOOGLE_CLIENT_ID/SECRET/CALLBACK_URL`, `FRONTEND_URL`, `BACKEND_URL` / `PUBLIC_API_URL` (this API's public origin, used in embed code + webhook URLs), `PYTHON_SERVICE_URL`, `PIPELINE_SECRET` (shared with the Python service, sent as `x-pipeline-secret`), `CRON_SECRET`, `RESEND_API_KEY`, `SMTP_FROM`, `REPLY_TO_EMAIL`, `ADMIN_NOTIFY_EMAIL` (defaults to hello@logicmate.io), `SENTRY_DSN`, `BLOB_READ_WRITE_TOKEN` (old Documents uploads only), `ATLAS_API_KEY`, and file storage on Cloudflare R2: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BUCKET`, `R2_PRIVATE_BUCKET`, `R2_PUBLIC_URL` (`R2_ENDPOINT` only for the e2e fake). Setup guide: `docs/cloudflare-r2-setup.md` — dev buckets for local/staging, prod buckets for production.
+Read by the code (see `.env.example`): `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN`, `ENCRYPTION_KEY` (exactly 32 chars, encrypts API keys), `GOOGLE_CLIENT_ID/SECRET/CALLBACK_URL`, `FRONTEND_URL`, `BACKEND_URL` / `PUBLIC_API_URL` (this API's public origin, used in embed code + webhook URLs), `PYTHON_SERVICE_URL`, `PIPELINE_SECRET` (shared with the Python service, sent as `x-pipeline-secret`), `CRON_SECRET`, `RESEND_API_KEY`, `SMTP_FROM`, `REPLY_TO_EMAIL`, `ADMIN_NOTIFY_EMAIL` (defaults to hello@logicmate.io), `SENTRY_DSN`, `BLOB_READ_WRITE_TOKEN` (only to delete documents uploaded before R2, until they're migrated), `ATLAS_API_KEY`, and file storage on Cloudflare R2: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BUCKET`, `R2_PRIVATE_BUCKET`, `R2_PUBLIC_URL` (`R2_ENDPOINT` only for the e2e fake). Setup guide: `docs/cloudflare-r2-setup.md` — dev buckets for local/staging, prod buckets for production.
 
 **`PIPELINE_SECRET` and `CRON_SECRET` must be set in production** — the code has hard-coded fallbacks for both, which are public in this repo.
 
@@ -65,7 +65,7 @@ Only one thing: `ServicesService.onModuleInit()` seeds the service catalog (`see
 | `notifications` | In-dashboard notifications |
 | `activity-logs` | Append-only audit trail |
 | `account-deletion` | Data export, 7-day deletion request/cancel + cron |
-| `documents` | Uploaded files (still Vercel Blob; moves to the `user-document` upload purpose later) |
+| `documents` | A user's private files (ID, licence…): uploaded via `POST /uploads` purpose `user-document` to the private R2 bucket, opened through 5-min signed links. Rows from before R2 keep a public Vercel Blob `fileUrl` until `scripts/migrate-documents-to-r2.cjs` moves them |
 | `storage` | Cloudflare R2 client (`StorageService`, global): signed upload/download URLs, stat, delete, server-side `putObject` |
 | `uploads` | **The one upload endpoint** `POST /uploads` — every upload names a *purpose* (`chatbot-knowledge`, `service-brochure`, `user-document`); the purpose decides bucket, folder, types, size and who may upload. New upload features add a purpose in `uploads.service.ts` |
 | `feedback` | Testimonials/feedback |
@@ -81,7 +81,7 @@ Only one thing: `ServicesService.onModuleInit()` seeds the service catalog (`see
   - `PipelineUserService` (`PIPELINE_FILTER`): pipelineType, niche, schedule, paused, customPrompt, videoModel, lastRunAt/totalRuns/totalCost.
   - `UserService`: untyped `config` — used for the admin subscription actions that work on any type.
 - **knowledgebases / conversations / billings** link to a chatbot via `userserviceId`.
-- **billings** — ledger rows; chatbot payments carry `kind` (setup|monthly|upgrade), `transactionRef`, and once confirmed `invoiceNumber` (`LM-<year>-0001`), `invoiceIssuedAt`, `invoiceLine`, `periodStart/End`.
+- **billings** — ledger rows; chatbot payments carry `kind` (setup|monthly|upgrade), `transactionRef`, and once confirmed `invoiceNumber` (`LM-<year>-0001`), `invoiceIssuedAt`, `invoiceLine`, `periodStart/End`, `invoiceKey` (the issued PDF saved in the private bucket).
 
 ## API routes (all under `/api/v1`, JWT unless noted)
 ```
@@ -110,7 +110,7 @@ activity-logs   GET my | admin
 account         GET export | deletion/status · POST deletion/request | deletion/cancel
 uploads         POST / {purpose, contentType, size, name, …details} → signed PUT URL + key · DELETE /?purpose&key (unsaved upload) · GET file?purpose&key (5-min link to a private file)
                 GET chatbots/:id/knowledge/media-usage (photo/PDF counts + plan limits)
-documents       POST / · GET / · DELETE :id
+documents       POST / {documentType, key, name, userId?(admin)} after an upload · GET / · GET :id/file (5-min link) · DELETE :id
 feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 ```
 
@@ -133,7 +133,7 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 ## Billing & invoices (manual bank transfer, no card payments yet)
 1. Admin sets/edits prices (`PUT /chatbots/:id/pricing`); Basic→Pro can be requested by the customer.
 2. The customer transfers money and submits the reference (`POST :id/notify-payment` → PENDING `billings` row with `kind` + `transactionRef`, admin alert email).
-3. The admin clicks Confirm (`POST :id/confirm-payment`): the subscription becomes active (+30 days renewal, Pro for upgrades), the matching PENDING row is marked PAID — or a PAID row is created if the customer never submitted one — and an invoice is issued: next `LM-<year>-NNNN` number (atomic counter in `invoicecounters`), PDF rendered with pdfkit (`billing/invoice-pdf.ts`), emailed to the owner as an attachment, downloadable from the Billing tab (`GET /billing/:id/invoice`).
+3. The admin clicks Confirm (`POST :id/confirm-payment`): the subscription becomes active (+30 days renewal, Pro for upgrades), the matching PENDING row is marked PAID — or a PAID row is created if the customer never submitted one — and an invoice is issued: next `LM-<year>-NNNN` number (atomic counter in `invoicecounters`), PDF rendered with pdfkit (`billing/invoice-pdf.ts`), emailed to the owner as an attachment, saved to the private R2 bucket as `invoices/<year>/<number>.pdf` (`invoiceKey`), and downloadable from the Billing tab (`GET /billing/:id/invoice` serves the saved copy; older invoices, or a server without R2, are rendered from the row).
 - Issuer details (name, address, TRN, VAT rate) live in `billing/invoice-issuer.ts` — currently "LogicMate, Dubai", no VAT. Update it when the LLC / VAT registration is in place.
 - `chatbot-billing.cron.ts` (10:00 UTC daily) emails the 5-days-left warning and moves a lapsed trial to `past_due`; the chat engine's real-time gate doesn't wait for the cron.
 

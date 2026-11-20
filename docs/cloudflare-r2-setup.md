@@ -1,7 +1,7 @@
 # Cloudflare R2 — file storage setup
 
 All uploads on LogicMate (knowledge-base photos and PDF brochures, service
-brochures, user documents, and later invoices) are stored in **Cloudflare R2**
+brochures, user documents and issued invoices) are stored in **Cloudflare R2**
 through one backend endpoint, `POST /api/v1/uploads` (see "How uploads work"
 at the end).
 
@@ -207,6 +207,18 @@ To add upload anywhere new: add a purpose there, then use the
 call `POST /uploads` from the page. Files the server creates itself (e.g. invoice
 PDFs) use `StorageService.putObject()`.
 
-Still on Vercel Blob: the existing Documents page (`documents` module). It
-moves to the `user-document` purpose in a follow-up, together with its
-existing files.
+Invoices: when an admin confirms a payment the backend saves the PDF to the
+private bucket as `invoices/<year>/<number>.pdf`; the Billing tab download
+serves that copy.
+
+### Moving documents uploaded before R2
+Documents uploaded before R2 sit on Vercel Blob at public URLs. Once the R2
+settings are in place, copy them into the private bucket (run from the
+backend folder, with that environment's `MONGODB_URI` and R2 settings in `.env`):
+```bash
+node --env-file=.env scripts/migrate-documents-to-r2.cjs            # dry run: lists what would move
+node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply    # copy + update the rows
+node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply --delete-blob  # also delete the Blob copies (needs BLOB_READ_WRITE_TOKEN)
+```
+Each moved row gets `storageKey` + `fileName` and loses `fileUrl`. Running it
+again skips rows already moved.

@@ -8,11 +8,7 @@ import {
   Query,
   Req,
   UseGuards,
-  UseInterceptors,
-  UploadedFile,
-  BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -21,23 +17,26 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class DocumentsController {
   constructor(private documentsService: DocumentsService) {}
 
-  // Admin can pass body.userId to upload on a client's behalf (e.g.
-  // onboarding) - same bypass shape every other admin-aware route in this
-  // codebase uses (api-keys, chatbots). Ignored for non-admins.
+  // Step 2 of an upload: the browser already PUT the file to the private
+  // bucket via POST /uploads (purpose 'user-document'); this records it.
+  // Admin can pass body.userId to add a document on a client's behalf
+  // (e.g. onboarding) — ignored for non-admins.
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
-  async upload(
+  async create(
     @Req() req: any,
-    @Body('documentType') documentType: string,
-    @Body('userId') targetUserId: string | undefined,
-    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { documentType: string; key: string; name?: string; userId?: string },
   ) {
-    if (!file) throw new BadRequestException('A file is required');
-    const ownerId = req.user.role === 'admin' && targetUserId ? targetUserId : req.user._id.toString();
-    return this.documentsService.uploadDocument(ownerId, documentType, file, {
+    const ownerId = req.user.role === 'admin' && body?.userId ? body.userId : req.user._id.toString();
+    return this.documentsService.createDocument(ownerId, body?.documentType, { key: body?.key, name: body?.name }, {
       id: req.user._id.toString(),
       role: req.user.role,
     });
+  }
+
+  // A short-lived link to open the file (owner or admin).
+  @Get(':id/file')
+  file(@Req() req: any, @Param('id') id: string) {
+    return this.documentsService.documentUrl(req.user._id.toString(), id, req.user.role === 'admin');
   }
 
   // Admin can pass ?userId= to check a specific client's documents.

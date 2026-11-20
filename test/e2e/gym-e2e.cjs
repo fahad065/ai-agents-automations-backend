@@ -341,6 +341,11 @@ async function openTab(page, label) {
     const [dl] = await Promise.all([ap.waitForEvent('download', { timeout: 10000 }), ap.getByRole('button', { name: /^Invoice$/ }).first().click()]);
     ok('Billing tab "Invoice" button downloads the PDF', dl.suggestedFilename() === `LogicMate-Invoice-${rec.invoiceNumber}.pdf`, dl.suggestedFilename());
     fs.writeFileSync(path.join(SHOTS, 'invoice.pdf'), pdfBytes);
+    const year = new Date().getUTCFullYear();
+    const savedKey = mongo(`db.billings.findOne({_id:ObjectId("${rec._id}")}).invoiceKey`);
+    ok('invoice PDF saved in the private bucket when issued', savedKey === `invoices/${year}/${rec.invoiceNumber}.pdf` && calls().some((c) => c.kind === 's3' && c.op === 'put' && c.key === savedKey && c.type === 'application/pdf'), savedKey);
+    const stored = await fetch(`http://localhost:4566/lm-e2e-private/${savedKey}`).then((r) => r.arrayBuffer()).then((b) => Buffer.from(b));
+    ok('download serves that saved copy', stored.equals(pdfBytes), `${stored.length} vs ${pdfBytes.length}`);
 
     // Admin services form: chatbot shows no Pipeline tab, Niche on Basic tab.
     await ap.goto(`${FE}/dashboard/cms-modules`, { waitUntil: 'networkidle' });
@@ -461,6 +466,40 @@ async function openTab(page, label) {
     await page.waitForTimeout(800);
     await page.screenshot({ path: path.join(SHOTS, 'pro-analytics.png') });
     ok('Analytics tab renders numbers', /\d/.test(await page.locator('main').last().innerText()) && /WhatsApp|whatsapp/.test(await page.locator('main').last().innerText()));
+  }, page);
+
+  section = 'Documents (private)';
+  await step('documents go to the private bucket', async () => {
+    // A PNG scan: headless Chromium downloads PDFs instead of showing them, so
+    // the View-button check below needs a file type the tab displays.
+    const PDF = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const up = await api(token, 'POST', '/uploads', { purpose: 'user-document', contentType: 'image/png', size: PDF.length, name: 'trade-licence.png' });
+    const me = mongo(`db.users.findOne({email:"${OWNER.email}"})._id.toString()`);
+    ok('upload signed into the owner\'s private folder (no public URL)', up.status === 201 && up.data.bucket === 'private' && up.data.url === null && up.data.key.startsWith(`users/${me}/documents/`), JSON.stringify(up.data).slice(0, 160));
+    const put = await fetch(up.data.uploadUrl, { method: 'PUT', headers: up.data.headers, body: PDF });
+    const created = await api(token, 'POST', '/documents', { documentType: 'Trade licence', key: up.data.key, name: up.data.name });
+    ok('document recorded with its private key', put.ok && created.status === 201 && created.data.storageKey === up.data.key && !created.data.fileUrl, `${created.status}`);
+    const list = await api(token, 'GET', '/documents');
+    ok('document list never exposes the storage key', list.data.length === 1 && !('storageKey' in list.data[0]) && list.data[0].fileName === 'trade-licence.png');
+    const link = await api(token, 'GET', `/documents/${created.data._id}/file`);
+    const body = link.status === 200 ? Buffer.from(await (await fetch(link.data.url)).arrayBuffer()) : Buffer.alloc(0);
+    ok('owner opens it through a signed link', /X-Amz-Expires=300/.test(link.data?.url || '') && body.equals(PDF), link.data?.url?.slice(0, 90));
+    const stranger = { name: 'Doc Stranger', email: `doc.${Date.now()}@gym.test`, password: 'Owner@12345' };
+    await api(null, 'POST', '/auth/register', stranger);
+    const sTok = (await api(null, 'POST', '/auth/login', { email: stranger.email, password: stranger.password })).data.accessToken;
+    const s1 = await api(sTok, 'GET', `/documents/${created.data._id}/file`);
+    const s2 = await api(sTok, 'POST', '/documents', { documentType: 'Stolen', key: up.data.key });
+    ok('another user can neither open nor claim it', s1.status === 404 && s2.status === 400, `${s1.status} ${s2.status}`);
+    // The Profile page's View button opens the signed link in a new tab.
+    await page.goto(`${FE}/dashboard/profile`, { waitUntil: 'networkidle' });
+    await page.keyboard.press('Escape').catch(() => {});
+    const [popup] = await Promise.all([page.waitForEvent('popup', { timeout: 10000 }), page.getByRole('button', { name: /^View$/ }).first().click()]);
+    await popup.waitForURL(/lm-e2e-private\//, { timeout: 10000 }).catch(() => {});
+    ok('Profile → Documents → View opens the private file', /lm-e2e-private\/users\/.*X-Amz-Signature/.test(popup.url()), popup.url().slice(0, 100));
+    await popup.close();
+    const d = await api(token, 'DELETE', `/documents/${created.data._id}`);
+    await sleep(500);
+    ok('deleting the document deletes the file', d.status === 200 && calls().some((c) => c.kind === 's3' && c.op === 'delete' && c.keys.includes(up.data.key)));
   }, page);
 
   section = 'AI model';

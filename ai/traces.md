@@ -1261,3 +1261,20 @@ and reported the page jumping to the top when opening a provider dropdown.
   uploads through the real UI, checks storage, widget, limits, cleanup.
 - Guide: `docs/cloudflare-r2-setup.md`. Documents page still on Vercel Blob
   (to move to `user-document` with its existing files later).
+
+## 2026-11-20 — Documents and invoices on R2
+- Documents (Profile → Documents) now upload through `POST /uploads` purpose
+  `user-document` into the private bucket, are recorded with
+  `POST /documents {documentType, key, name}` and opened with
+  `GET /documents/:id/file` (5-min signed link). The list never exposes the
+  storage key. Deleting a document, or the account, deletes the file.
+- Found: documents uploaded before this were stored on Vercel Blob as
+  **public** URLs. `scripts/migrate-documents-to-r2.cjs` copies them into the
+  private bucket (`$set storageKey, fileName`, `$unset fileUrl`; optional
+  `--delete-blob`). Dry run by default; tested on a scratch database with the
+  fake S3. Not run on any real database — waiting for the owner's OK (rules #13).
+- Invoices: on confirm the PDF is saved to `invoices/<year>/<number>.pdf`
+  (private) and `billings.invoiceKey` set; downloads serve the saved copy.
+  Older invoices and servers without R2 still render from the row.
+- `StorageService.getObject()` added. e2e (gym): invoice saved + served copy
+  matches; documents upload/list/open/another-user-blocked/delete.

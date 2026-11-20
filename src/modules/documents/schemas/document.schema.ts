@@ -21,8 +21,18 @@ export class UploadedDocument {
   @Prop({ required: true, trim: true })
   documentType: string;
 
-  @Prop({ required: true })
-  fileUrl: string;
+  // Private Cloudflare R2 object (users/<userId>/documents/…), uploaded
+  // through POST /uploads (purpose 'user-document'). Opened only through a
+  // 5-minute signed link (GET /documents/:id/file).
+  @Prop()
+  storageKey?: string;
+
+  @Prop()
+  fileName?: string;
+
+  // Older documents only: a Vercel Blob URL (uploaded before 2026-11-20).
+  @Prop()
+  fileUrl?: string;
 
   @Prop()
   fileType?: string;

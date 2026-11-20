@@ -321,7 +321,18 @@ designed.
   reusing it server-side from Railway is fine. Upload is server-side only
   (`DocumentsService.uploadDocument()` calls `put()` directly with the
   token) — the token is never sent to the browser.
-- `POST /documents` accepts multipart/form-data (`FileInterceptor('file')`
+- **2026-11-20: moved to Cloudflare R2 (private bucket).** New fields
+  `storageKey` (`users/<id>/documents/<rand>.<ext>`, never returned by
+  `GET /documents`) and `fileName`; `fileUrl` is now only on rows from before
+  R2 (public Vercel Blob URLs). Upload = `POST /uploads` purpose
+  `user-document` → browser PUT → `POST /documents {documentType, key, name}`
+  (JSON; the key is re-checked: exists, in the owner's folder, allowed type).
+  Open = `GET /documents/:id/file` → 5-minute signed link (owner or admin).
+  Old rows move with `scripts/migrate-documents-to-r2.cjs` (dry run by
+  default; `--apply` sets storageKey/fileName and unsets fileUrl;
+  `--delete-blob` also deletes the Blob copy). The text below is the original
+  2026-11-11 design.
+- (original) `POST /documents` accepts multipart/form-data (`FileInterceptor('file')`
   from `@nestjs/platform-express` — `multer` itself already resolved
   transitively via that package, only `@types/multer` needed adding as a
   dev dependency for `Express.Multer.File` typing). 10MB cap, JPG/PNG/
@@ -548,9 +559,13 @@ billings.invoiceIssuedAt
 billings.invoiceLine                          -- frozen text printed on the invoice
 billings.periodStart / periodEnd              -- service period (monthly/upgrade)
 invoicecounters: { _id: 'invoice-<year>', seq } -- atomic $inc, never reused
+billings.invoiceKey                           -- invoices/<year>/<number>.pdf in the private R2 bucket (2026-11-20)
 ```
-The PDF isn't stored: `GET /billing/:id/invoice` renders it from the row
-(pdfkit, `billing/invoice-pdf.ts`), and the same PDF is emailed on confirm.
+Since 2026-11-20 the PDF is rendered once on confirm (pdfkit,
+`billing/invoice-pdf.ts`), saved to the private bucket and emailed;
+`GET /billing/:id/invoice` serves that saved copy. Rows without `invoiceKey`
+(older invoices, or no R2 on the server) are rendered from the row as before.
+```
 Issuer details: `billing/invoice-issuer.ts` (LogicMate, Dubai; no VAT/TRN yet).
 
 ### `activity_logs` — DONE, 2026-11-09. Visible to the account owner (own

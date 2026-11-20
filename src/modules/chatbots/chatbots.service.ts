@@ -907,7 +907,8 @@ export class ChatbotsService {
       });
       const owner = await this.userModel.findById(chatbot.userId).select('name email').lean();
       if (!owner) return;
-      const { filename, pdf } = await this.billingService.invoicePdf(String(issued._id), { userId: '', isAdmin: true });
+      // Rendered once, saved to the private bucket, then emailed.
+      const { filename, pdf } = await this.billingService.archiveInvoice(String(issued._id));
       await this.emailService.sendInvoiceEmail(owner as any, {
         chatbotId: id, serviceName, invoiceNumber: issued.invoiceNumber!, amount: issued.amount,
         currency: issued.currency || 'USD', filename, pdf,

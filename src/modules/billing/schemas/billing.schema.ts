@@ -88,6 +88,13 @@ export class Billing {
   @Prop()
   invoiceNumber?: string;
 
+  // The issued invoice PDF, saved in the private R2 bucket
+  // (invoices/<year>/<number>.pdf) at the moment it's issued, so the copy
+  // never changes afterwards. Older invoices have none and are rendered on
+  // download.
+  @Prop()
+  invoiceKey?: string;
+
   @Prop()
   invoiceIssuedAt?: Date;
 

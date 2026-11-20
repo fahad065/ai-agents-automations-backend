@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { put, del } from '@vercel/blob';
+import { del } from '@vercel/blob';
+import { StorageService } from '../storage/storage.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { UploadedDocument, UploadedDocumentDocument } from './schemas/document.schema';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { ActivityAction, ActorRole } from '../activity-logs/schemas/activity-log.schema';
@@ -11,13 +13,6 @@ export interface Actor {
   role: 'user' | 'admin';
 }
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const ALLOWED_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'application/pdf',
-]);
 
 @Injectable()
 export class DocumentsService {
@@ -26,48 +21,52 @@ export class DocumentsService {
   constructor(
     @InjectModel(UploadedDocument.name) private documentModel: Model<UploadedDocumentDocument>,
     private activityLogsService: ActivityLogsService,
+    private storage: StorageService,
+    private uploads: UploadsService,
   ) {}
 
-  private get blobToken(): string {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      throw new BadRequestException(
-        'Document uploads are not configured yet — BLOB_READ_WRITE_TOKEN is missing on this server.',
-      );
+  // Removes a stored file: R2 (private bucket) for current documents, Vercel
+  // Blob for older ones. Never throws — a storage hiccup must not block the
+  // database-side delete.
+  private async removeFile(doc: { _id?: unknown; storageKey?: string; fileUrl?: string }) {
+    if (doc.storageKey) return this.storage.deleteKeys('private', [doc.storageKey]);
+    if (doc.fileUrl && process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        await del(doc.fileUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
+      } catch (err: any) {
+        this.logger.warn(`Failed to delete blob for document=${String(doc._id)}: ${err?.message}`);
+      }
     }
-    return token;
   }
 
-  async uploadDocument(
-    userId: string,
+  // The browser has already uploaded the file to the private bucket through
+  // POST /uploads (purpose 'user-document'); this records it after checking
+  // the file is in that owner's folder, exists and is an allowed type.
+  async createDocument(
+    ownerId: string,
     documentType: string,
-    file: { originalname: string; buffer: Buffer; mimetype: string; size: number },
-    actor?: Actor,
+    upload: { key: string; name?: string },
+    actor: Actor,
   ): Promise<UploadedDocumentDocument> {
     if (!documentType?.trim()) throw new BadRequestException('Document type is required');
-    if (!file) throw new BadRequestException('A file is required');
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      throw new BadRequestException('File is too large — max 10MB');
-    }
-    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-      throw new BadRequestException('Unsupported file type — only JPG, PNG, WEBP, or PDF are accepted');
-    }
-
-    const pathname = `documents/${userId}/${Date.now()}-${file.originalname}`;
-    const blob = await put(pathname, file.buffer, {
-      access: 'public',
-      contentType: file.mimetype,
-      token: this.blobToken,
-    });
+    if (!upload?.key) throw new BadRequestException('A file is required');
+    const file = await this.uploads.verifyUploaded(
+      { userId: actor.id, isAdmin: actor.role === 'admin' },
+      'user-document',
+      { userId: ownerId },
+      upload.key,
+    );
 
     const created = await this.documentModel.create({
-      userId: new Types.ObjectId(userId),
+      userId: new Types.ObjectId(ownerId),
       documentType: documentType.trim(),
-      fileUrl: blob.url,
-      fileType: file.mimetype,
+      storageKey: file.key,
+      fileName: String(upload.name || '').split(/[\\/]/).pop()?.slice(0, 120) || undefined,
+      fileType: file.contentType,
       fileSize: file.size,
       uploadedAt: new Date(),
     });
+    const userId = ownerId;
 
     await this.activityLogsService.record({
       userId,
@@ -86,7 +85,21 @@ export class DocumentsService {
   async listDocuments(userId: string) {
     return this.documentModel
       .find({ userId: new Types.ObjectId(userId), isDeleted: { $ne: true } })
+      .select('-storageKey')
       .sort({ uploadedAt: -1 });
+  }
+
+  // A link to open one document: a 5-minute signed R2 link, or the old Blob
+  // URL for documents uploaded before the move. Owner or admin only.
+  async documentUrl(userId: string, docId: string, isAdmin = false): Promise<{ url: string }> {
+    if (!Types.ObjectId.isValid(docId)) throw new NotFoundException('Document not found');
+    const filter: any = { _id: new Types.ObjectId(docId), isDeleted: { $ne: true } };
+    if (!isAdmin) filter.userId = new Types.ObjectId(userId);
+    const doc = await this.documentModel.findOne(filter).lean();
+    if (!doc) throw new NotFoundException('Document not found');
+    if (doc.storageKey) return { url: await this.storage.presignDownload(doc.storageKey, doc.fileName) };
+    if (doc.fileUrl) return { url: doc.fileUrl };
+    throw new NotFoundException('File not found');
   }
 
   // Account deletion: hard-delete every document row for this user —
@@ -96,14 +109,8 @@ export class DocumentsService {
   // deleteDocument() below).
   async purgeAllForUser(userId: string): Promise<number> {
     const uid = new Types.ObjectId(userId);
-    const docs = await this.documentModel.find({ userId: uid }).select('fileUrl').lean();
-    for (const doc of docs) {
-      try {
-        await del(doc.fileUrl, { token: this.blobToken });
-      } catch (err: any) {
-        this.logger.warn(`Account deletion: failed to delete blob for document=${doc._id}: ${err?.message}`);
-      }
-    }
+    const docs = await this.documentModel.find({ userId: uid }).select('fileUrl storageKey').lean();
+    for (const doc of docs) await this.removeFile(doc);
     const result = await this.documentModel.deleteMany({ userId: uid });
     return result.deletedCount ?? 0;
   }
@@ -123,14 +130,7 @@ export class DocumentsService {
     const doc = await this.documentModel.findOne(filter);
     if (!doc) throw new NotFoundException('Document not found');
 
-    try {
-      await del(doc.fileUrl, { token: this.blobToken });
-    } catch (err: any) {
-      // Blob may already be gone, or BLOB_READ_WRITE_TOKEN missing in a
-      // local/dev environment — never block the DB-side delete over a
-      // storage-provider cleanup failure.
-      this.logger.warn(`Failed to delete blob for document=${docId}: ${err?.message}`);
-    }
+    await this.removeFile(doc);
 
     doc.isDeleted = true;
     await doc.save();

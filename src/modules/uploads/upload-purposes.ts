@@ -37,10 +37,16 @@ export interface UploadPurpose {
 const MB = 1024 * 1024;
 export const IMAGE_MAX_BYTES = 10 * MB;
 export const PDF_MAX_BYTES = 100 * MB;
+// Photo formats every modern browser can display (owner, 2026-11-24: accept
+// every photo format, AVIF included). HEIC/HEIF and TIFF can't be shown in
+// most browsers, so the upload page converts those to JPG first.
 export const IMAGE_TYPES = {
   'image/jpeg': { ext: 'jpg', maxBytes: IMAGE_MAX_BYTES },
   'image/png': { ext: 'png', maxBytes: IMAGE_MAX_BYTES },
   'image/webp': { ext: 'webp', maxBytes: IMAGE_MAX_BYTES },
+  'image/avif': { ext: 'avif', maxBytes: IMAGE_MAX_BYTES },
+  'image/gif': { ext: 'gif', maxBytes: IMAGE_MAX_BYTES },
+  'image/bmp': { ext: 'bmp', maxBytes: IMAGE_MAX_BYTES },
 };
 export const PDF_TYPES = { 'application/pdf': { ext: 'pdf', maxBytes: PDF_MAX_BYTES } };
 
@@ -58,6 +64,7 @@ export const SERVICE_MEDIA_TYPES: Record<string, { ext: string; maxBytes: number
   'image/webp': { ext: 'webp', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
   'image/gif': { ext: 'gif', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
   'image/avif': { ext: 'avif', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'image/bmp': { ext: 'bmp', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
   'application/pdf': { ext: 'pdf', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
   'application/msword': { ext: 'doc', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: 'docx', maxBytes: SERVICE_DOC_MAX, folder: 'files' },

@@ -15,7 +15,7 @@ export interface KnowledgeAttachment {
 }
 
 export const MEDIA_TYPES: Record<MediaKind, { types: Record<string, string>; maxBytes: number; perEntry: number }> = {
-  image: { types: { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }, maxBytes: IMAGE_MAX_BYTES, perEntry: 5 },
+  image: { types: { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/avif': 'avif', 'image/gif': 'gif', 'image/bmp': 'bmp' }, maxBytes: IMAGE_MAX_BYTES, perEntry: 5 },
   pdf: { types: { 'application/pdf': 'pdf' }, maxBytes: PDF_MAX_BYTES, perEntry: 1 },
 };
 

@@ -214,14 +214,44 @@ async function openTab(page, label) {
     ok('thumbnails shown in the knowledge list', (await page.locator('main').last().locator('img[alt="reception.png"]').count()) === 1);
 
     // The one upload endpoint refuses what it should.
-    const bad = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'image/gif', size: 100 });
-    ok('POST /uploads refuses a GIF', bad.status === 400, `${bad.status}`);
+    const bad = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'image/svg+xml', size: 100 });
+    ok('POST /uploads refuses an SVG (scripts on the media domain)', bad.status === 400, `${bad.status}`);
     const big = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'application/pdf', size: 101 * 1024 * 1024 });
     ok('POST /uploads refuses a PDF over 100 MB', big.status === 400 && /100 MB/.test(JSON.stringify(big.data)), JSON.stringify(big.data));
     const brochure = await api(token, 'POST', '/uploads', { purpose: 'service-brochure', serviceId: 'clinic-chatbot', contentType: 'application/pdf', size: 100 });
     ok('POST /uploads: service brochures are admin-only', brochure.status === 403, `${brochure.status}`);
     const foreign = await api(token, 'POST', '/chatbots/' + botId + '/knowledge', { type: 'faq', question: 'x', answer: 'y', attachments: [{ key: 'chatbots/someone-else/knowledge/a.png' }] });
     ok('an entry cannot point at another bot\'s file', foreign.status === 400, `${foreign.status}`);
+  }, page);
+
+  section = 'Basic: photo formats';
+  await step('every photo format: AVIF as-is, HEIC converted to JPG, unreadable files refused', async () => {
+    await page.goto(`${FE}/dashboard/chatbots/${botId}`, { waitUntil: 'networkidle' });
+    await page.keyboard.press('Escape').catch(() => {});
+    await openTab(page, 'Knowledge Base');
+    await page.getByRole('button', { name: /Add Knowledge/ }).click();
+    await page.getByPlaceholder('Type the question a customer would ask').fill('What does the Marina clinic look like?');
+    await page.getByPlaceholder('Type the answer the bot should give').fill('Modern, with a sea-view waiting room.');
+    const before = s3().filter((c) => c.op === 'put').length;
+    await page.locator('[data-testid="photo-input"]').setInputFiles([
+      { name: 'marina.avif', mimeType: 'image/avif', buffer: fs.readFileSync(path.join(E, 'fixtures', 'photo.avif')) },
+      // A browser-readable photo with an iPhone extension: converted to JPG before upload.
+      { name: 'IMG_0042.HEIC', mimeType: 'image/heic', buffer: PNG },
+      // Not a photo the browser can open: refused with a clear message, nothing uploaded.
+      { name: 'scan.tiff', mimeType: 'image/tiff', buffer: Buffer.from('not really a tiff') },
+    ]);
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="knowledge-media"] img').length === 2, null, { timeout: 15000 });
+    await page.waitForTimeout(800);
+    const puts = s3().filter((c) => c.op === 'put').slice(before);
+    ok('AVIF uploaded as AVIF', puts.some((c) => c.type === 'image/avif' && /\.avif$/.test(c.key)), JSON.stringify(puts.map((c) => [c.key, c.type])));
+    ok('HEIC converted to a JPG before upload', puts.some((c) => c.type === 'image/jpeg' && /\.jpg$/.test(c.key)) && /IMG_0042\.jpg/.test(await page.locator('[data-testid="knowledge-media"]').innerHTML()));
+    ok('an unreadable photo is refused with a message, not uploaded', puts.length === 2 && (await page.getByText(/scan\.tiff: this photo format can't be opened here/).count()) >= 1);
+    await page.getByRole('button', { name: /^Add Entry$/ }).click();
+    await page.waitForTimeout(1500);
+    const e = JSON.parse(mongo(`JSON.stringify(db.knowledgebases.findOne({question:"What does the Marina clinic look like?"}))`));
+    ok('entry saved with the AVIF and the converted JPG', e?.attachments?.length === 2 && e.attachments.every((a) => a.kind === 'image'), JSON.stringify(e?.attachments?.map((a) => a.name)));
+    // Remove it again so later photo counts are unchanged.
+    await api(token, 'DELETE', `/chatbots/${botId}/knowledge/${e._id}`);
   }, page);
 
   section = 'Basic: branches + insurance';

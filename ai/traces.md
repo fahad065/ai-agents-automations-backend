@@ -1336,3 +1336,15 @@ and reported the page jumping to the top when opening a provider dropdown.
   nothing is deleted; a folder where >25% (and >10) files look unused is
   skipped and reported to Sentry. An object with no date counts as new.
 - `StorageService.listObjects()` added. Unit tests: 114/114.
+
+## 2026-11-24 — Every photo format in the knowledge base
+- Owner: accept all photo formats, AVIF included. Server photo types
+  (`IMAGE_TYPES`, knowledge `MEDIA_TYPES.image`) now JPG, PNG, WebP, AVIF,
+  GIF, BMP — every format a modern browser displays. HEIC/HEIF and TIFF can't
+  be shown in most browsers (the widget would show a broken image), so the
+  knowledge picker converts any photo the browser can open to JPG before upload
+  (canvas; no new library — installing `heic2any` was blocked by the sandbox
+  permission check). A file the browser can't open gets "save it as JPG or PNG".
+  SVG stays refused (script risk on the public media domain).
+- Tests: unit 115/115 (formats accepted/refused); clinic e2e step uploads an
+  AVIF, a HEIC-named photo (arrives as JPG) and an unreadable TIFF (refused).

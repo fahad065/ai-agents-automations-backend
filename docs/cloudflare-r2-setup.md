@@ -19,7 +19,7 @@ at the end).
 - Local and staging share the dev buckets, the same way they share the local
   database. Test files never mix with real customers' files.
 
-Limits enforced by the backend: photos (JPG, PNG, WebP) up to **10 MB**, PDFs
+Limits enforced by the backend: photos (JPG, PNG, WebP, AVIF, GIF, BMP; iPhone HEIC and TIFF are converted to JPG in the browser) up to **10 MB**, PDFs
 up to **100 MB**. Per chatbot: Basic 100 photos + 20 PDFs, Pro 500 + 100.
 No video uploads (link YouTube or a virtual tour instead).
 

@@ -41,6 +41,17 @@ describe('UploadsService — POST /uploads', () => {
     expect(chatbots.assertMediaQuota).toHaveBeenCalledWith(BOT, 'u1', false, 'image');
   });
 
+  it('knowledge photos: every browser-viewable format (AVIF, GIF, BMP…); HEIC/TIFF/SVG are refused', async () => {
+    const { service } = make();
+    for (const [type, ext] of [['image/avif', 'avif'], ['image/gif', 'gif'], ['image/bmp', 'bmp'], ['image/webp', 'webp'], ['image/png', 'png']]) {
+      const out = await service.createUpload(owner, { purpose: 'chatbot-knowledge', chatbotId: BOT, contentType: type, size: MB, name: `x.${ext}` });
+      expect(out.key.endsWith(`.${ext}`)).toBe(true);
+    }
+    for (const type of ['image/heic', 'image/tiff', 'image/svg+xml']) {
+      await expect(service.createUpload(owner, { purpose: 'chatbot-knowledge', chatbotId: BOT, contentType: type, size: MB })).rejects.toThrow(/isn't allowed/);
+    }
+  });
+
   it('allows PDFs up to 100 MB and photos up to 10 MB', async () => {
     const { service } = make();
     await expect(service.createUpload(owner, { purpose: 'chatbot-knowledge', chatbotId: BOT, contentType: 'application/pdf', size: 100 * MB })).resolves.toHaveProperty('uploadUrl');

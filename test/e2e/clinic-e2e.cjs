@@ -483,6 +483,17 @@ async function openTab(page, label) {
     await pub.waitForTimeout(800);
     const shown = (await pub.locator(`video[src="${v2}"]`).count()) + (await pub.locator(`#demo a[href="${v2}"]`).count());
     ok('service page shows the uploaded video', shown === 1, `${shown}`);
+    // "Watch demo" opens the pop-up player; an unplayable file shows a message + link instead of crashing.
+    const perr = []; pub.on('pageerror', (e) => perr.push(e.message));
+    await pub.getByRole('button', { name: /Watch demo/ }).first().click();
+    const modal = pub.locator('[data-testid="demo-video-modal"]');
+    await modal.waitFor({ timeout: 8000 });
+    await pub.waitForTimeout(1500);
+    const playerOrLink = (await modal.locator(`video[src="${v2}"]`).count()) + (await modal.locator(`a[href="${v2}"]`).count());
+    ok('"Watch demo" opens the video in a pop-up (no navigation, no crash)', playerOrLink === 1 && pub.url().endsWith('/chatbots/clinic-chatbot') && perr.length === 0, `${playerOrLink} ${perr.join('|')}`);
+    await pub.keyboard.press('Escape');
+    await pub.waitForTimeout(300);
+    ok('…and Escape closes it', (await modal.count()) === 0);
     await pub.close();
 
     // Customer Services: the admin's one list of every client's services.
@@ -599,6 +610,24 @@ async function openTab(page, label) {
     mongo(`db.userservices.updateOne({_id:ObjectId("${botId}")},{$set:{status:"trial",trialEndDate:new Date(Date.now()-864e5)}})`);
     const r = await api(null, 'POST', `/chat/${embedKey}`, { sessionId: 's-after-trial', message: 'Do I need to fast before a blood test?', channel: 'website' });
     ok('no AI answer after the trial ends unpaid', !/10 to 12 hours/.test(JSON.stringify(r.data)), JSON.stringify(r.data).slice(0, 120));
+  });
+
+  section = 'Account deletion';
+  await step('deleting the account deletes the bot\'s files', async () => {
+    // Make sure the bot has a stored file right now (earlier steps removed theirs).
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const up = await api(token, 'POST', '/uploads', { purpose: 'chatbot-knowledge', chatbotId: botId, contentType: 'image/png', size: PNG.length, name: 'reception.png' });
+    await fetch(up.data.uploadUrl, { method: 'PUT', headers: up.data.headers, body: PNG });
+    await api(token, 'POST', `/chatbots/${botId}/knowledge`, { type: 'faq', question: 'What does reception look like?', answer: 'Bright and calm.', attachments: [{ key: up.data.key, name: 'reception.png' }] });
+    const keys = JSON.parse(mongo(`JSON.stringify(db.knowledgebases.find({userserviceId:ObjectId("${botId}")}).toArray().flatMap(e=>(e.attachments||[]).map(a=>a.key)))`));
+    const exists = async (k) => (await fetch(`http://localhost:4566/lm-e2e-public/${k}`, { method: 'HEAD' })).status === 200;
+    ok('bot still has knowledge files before deletion', keys.length > 0 && (await exists(keys[0])), `${keys.length} files`);
+    const del = await api(token, 'POST', '/account/deletion/request', { mode: 'instant' });
+    await sleep(1000);
+    const left = [];
+    for (const k of keys) if (await exists(k)) left.push(k);
+    ok('instant account deletion removes every knowledge photo/PDF from storage', del.status < 300 && left.length === 0, `${del.status} left=${left.length}`);
+    ok('…and the bot and its knowledge base from the database', mongo(`db.userservices.countDocuments({_id:ObjectId("${botId}")})`) === '0' && mongo(`db.knowledgebases.countDocuments({userserviceId:ObjectId("${botId}")})`) === '0');
   });
 
   ok('no browser errors', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));

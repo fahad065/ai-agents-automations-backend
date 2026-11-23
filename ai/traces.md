@@ -1296,3 +1296,18 @@ and reported the page jumping to the top when opening a provider dropdown.
   re-uploads service files from the admin panel. Dropped `documents.fileUrl`,
   `@vercel/blob`, `BLOB_READ_WRITE_TOKEN`, `scripts/migrate-documents-to-r2.cjs`
   (never run on a real database).
+
+## 2026-11-23 — Demo video pop-up; account deletion removes chatbot files; privacy/terms draft
+- Account deletion (instant and day-8 scheduled) now also deletes every
+  chatbot's knowledge-base photos/PDFs from storage (`chatbots/<id>/`).
+  Before, the database rows went but the files stayed. Found while checking
+  what the Privacy Policy draft could truthfully promise.
+- `docs/legal/privacy-terms-file-storage.md`: EN + Gulf-Arabic HTML for the
+  Privacy Policy ("How we store your files") and Terms ("Files and content you
+  upload"), for the owner to paste into the CMS. No bucket/folder names; says
+  knowledge-base files are public, documents/invoices private (5-min links),
+  Cloudflare + other providers, deletion rules, invoices kept for accounting.
+  Needs a lawyer's review.
+- e2e (clinic, 131 → more): "Watch demo" opens the pop-up player (no
+  navigation/crash) and Escape closes it; instant account deletion removes the
+  bot's files and rows.

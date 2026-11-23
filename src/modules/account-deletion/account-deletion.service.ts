@@ -1,3 +1,4 @@
+import { StorageService } from '../storage/storage.service';
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -40,6 +41,7 @@ export class AccountDeletionService {
     private emailService: EmailService,
     private activityLogsService: ActivityLogsService,
     private documentsService: DocumentsService,
+    private storage: StorageService,
   ) {}
 
   // ─── Request / cancel ──────────────────────────────────────
@@ -282,6 +284,8 @@ export class AccountDeletionService {
       this.notificationModel.deleteMany({ userId: uid }),
       // Uploaded identity/business documents (and their stored files).
       this.documentsService.purgeAllForUser(uid.toString()),
+      // Every chatbot's uploaded knowledge-base photos and PDFs.
+      ...chatbotIds.map((id: Types.ObjectId) => this.storage.deletePrefix('public', `chatbots/${id.toString()}/`)),
     ]);
 
     // Anonymize, don't delete — stable _id keeps Billing/ActivityLog

@@ -135,6 +135,20 @@ export class StorageService {
     }
   }
 
+  // Every object under a prefix with its last-modified time (paged).
+  async listObjects(kind: BucketKind, prefix: string): Promise<{ key: string; lastModified: Date }[]> {
+    const out: { key: string; lastModified: Date }[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.s3(kind).send(
+        new ListObjectsV2Command({ Bucket: this.bucketName(kind), Prefix: prefix, ContinuationToken: token }),
+      );
+      for (const o of page.Contents || []) if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified ? new Date(o.LastModified) : new Date() });
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return out;
+  }
+
   async deletePrefix(kind: BucketKind, prefix: string): Promise<void> {
     if (!this.isConfigured(kind)) return;
     try {

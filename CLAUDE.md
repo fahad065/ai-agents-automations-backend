@@ -66,7 +66,7 @@ Only one thing: `ServicesService.onModuleInit()` seeds the service catalog (`see
 | `activity-logs` | Append-only audit trail |
 | `account-deletion` | Data export, 7-day deletion request/cancel + cron |
 | `documents` | A user's private files (ID, licence…): uploaded via `POST /uploads` purpose `user-document` to the private R2 bucket, opened through 5-min signed links. |
-| `storage` | Cloudflare R2 client (`StorageService`, global): signed upload/download URLs, stat, delete, server-side `putObject` |
+| `storage` | Cloudflare R2 client (`StorageService`, global): signed upload/download URLs, stat, list, delete, server-side `putObject`/`getObject` |
 | `uploads` | **The one upload endpoint** `POST /uploads` — every upload names a *purpose* (`chatbot-knowledge`, `service-media`, `service-brochure`, `user-document`); the purpose decides bucket, folder, types, size and who may upload. New upload features add a purpose in `uploads.service.ts` |
 | `feedback` | Testimonials/feedback |
 | `email` | All email templates (Resend) |
@@ -149,6 +149,7 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 | `pipeline-services.cron.ts` | 10:00 | welcome email sequence (day 1/3/7) |
 | `chatbot-billing.cron.ts` | 10:00 | chatbot trial 5-day warning + expiry |
 | `account-deletion.cron.ts` | 03:00 | day-7 reminder, day-8 deletion |
+| `uploads/storage-cleanup.service.ts` | 04:00 | delete stray uploads (>24h old, not on any saved knowledge entry / service / document) from `chatbots/`, `services/`, `users/`; never invoices; skips a folder if >25% would go (bug guard) |
 
 ## Testing
 - Unit: `npm test`.

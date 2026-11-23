@@ -1323,3 +1323,16 @@ and reported the page jumping to the top when opening a provider dropdown.
   30-day trial, no auto-renewal. Replaces the old seed text (which said "7
   working days" and listed only MongoDB Atlas + Vercel). Owner pastes by hand;
   checklist at the end (entity name, governing law, retention, lawyer review).
+
+## 2026-11-23 — Daily clean-up of stray uploads
+- Owner confirmed: storage cost is absorbed (capped by plan limits), and
+  asked for the daily clean-up of files uploaded but never saved.
+- `uploads/storage-cleanup.service.ts`, `@Cron('0 4 * * *')`: lists
+  `chatbots/` and `services/` (public) and `users/` (private); deletes objects
+  older than 24h that no saved record uses (knowledge `attachments.key`,
+  service `content.demoVideoUrl/brochureUrl` matched on the `services/…` path so
+  a media-domain change never counts as unused, `documents.storageKey`).
+  Never touches `invoices/` or database rows. If the database can't be read,
+  nothing is deleted; a folder where >25% (and >10) files look unused is
+  skipped and reported to Sentry. An object with no date counts as new.
+- `StorageService.listObjects()` added. Unit tests: 114/114.

@@ -115,6 +115,7 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 ```
 
 ## Guards & conventions
+- **Every file lives in Cloudflare R2, uploaded from the browser (owner rule, 2026-11-23).** Brochures, demo videos, user documents, invoices, quotations and any future file go through `POST /uploads` with a purpose (add one in `uploads.service.ts` for a new kind of file); server-made files (invoices) use `StorageService.putObject()`. Never Vercel Blob, never a pasted file URL. Admin/customer upload fields are **upload-only**: first time an Upload button; afterwards a preview (`ui/media-preview.tsx`) with Replace (saves at once, old file deleted from R2) and Remove (confirm, clears the field, deletes the file).
 - `JwtAuthGuard` everywhere; `@Public()` opts out. Admin checks are inline (`req.user.role === 'admin'` / `assertAdmin()`) in most controllers — follow whichever pattern the controller already uses.
 - `PipelineSecretGuard` checks the `x-pipeline-secret` header against `PIPELINE_SECRET`.
 - Customer-editable chatbot fields go through the `CUSTOMER_EDITABLE_FIELDS` whitelist in `chatbots.service.ts` (`plan`/billing and `embedKey` are never customer-writable). Add a new editable field there explicitly.

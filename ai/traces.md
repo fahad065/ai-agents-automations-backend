@@ -1348,3 +1348,14 @@ and reported the page jumping to the top when opening a provider dropdown.
   SVG stays refused (script risk on the public media domain).
 - Tests: unit 115/115 (formats accepted/refused); clinic e2e step uploads an
   AVIF, a HEIC-named photo (arrives as JPG) and an unreadable TIFF (refused).
+
+## 2026-11-24 — Spa & Salon chatbot: pricing, CMS content, brochure
+- Owner confirmed: Basic $99/mo ($79/mo yearly), Pro $149/mo ($119/mo
+  yearly); standard chatbot features on Basic/Pro. Salon extras (live booking
+  into a booking system, staff availability, reminders, no-show follow-ups,
+  payments/deposits, loyalty) are built on request on the **Custom** plan.
+- CMS content (EN + Gulf AR, tab by tab, for Service Catalog → salon-chatbot)
+  and the overview brochure (`docs/brochures/spa-salon-chatbot.html` → PDF)
+  delivered to the owner. Nothing seeded; owner pastes content and uploads the
+  PDF by hand. Old copy promised booking/stylist availability the bot can't do
+  — replaced with what it does (booking link or appointment request).

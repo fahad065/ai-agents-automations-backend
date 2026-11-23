@@ -471,6 +471,31 @@ async function openTab(page, label) {
     let b1 = '';
     for (let i = 0; i < 30 && !b1; i++) { await ap.waitForTimeout(300); b1 = svcMedia().brochureUrl || ''; }
     ok('brochure accepts other formats too (PowerPoint)', /\/services\/clinic-chatbot\/files\/[a-z0-9]+\.pptx$/.test(b1), b1);
+    // Upload-only fields: no text box; with a file, a preview + Replace + Remove.
+    const vField = ap.locator('[data-testid="service-video-input-field"]');
+    ok('video field has no text box, only upload', (await vField.locator('input:not([type=file])').count()) === 0 && (await ap.locator('[data-testid="service-brochure-input-field"] input:not([type=file])').count()) === 0);
+    // Reopen the service (second visit): the saved video shows as a preview with Replace/Remove.
+    await ap.keyboard.press('Escape'); await ap.waitForTimeout(500);
+    await ap.locator('button', { hasText: 'Edit' }).first().click();
+    await ap.waitForTimeout(800);
+    const vNow = svcMedia().demoVideoUrl;
+    ok('editing again shows the saved video as a preview, with Replace and Remove', (await vField.locator(`video[src="${vNow}"]`).count()) === 1 && /Replace/.test(await vField.innerText()) && (await ap.locator('[data-testid="service-video-input-remove"]').count()) === 1, (await vField.innerText()).replace(/\n/g, ' '));
+    const pdfKeyBefore = svcMedia().brochureUrl;
+    // Remove the brochure: confirm dialog, then cleared in the database and deleted from storage.
+    await ap.locator('[data-testid="service-brochure-input-remove"]').click();
+    await ap.locator('[data-testid="confirm-remove-media"]').click();
+    let bAfter = 'x';
+    for (let i = 0; i < 30 && bAfter; i++) { await ap.waitForTimeout(300); bAfter = svcMedia().brochureUrl || ''; }
+    await sleep(500);
+    ok('Remove (after confirming) clears the brochure and deletes the file', bAfter === '' && calls().some((c) => c.kind === 's3' && c.op === 'delete' && c.keys.includes(pdfKeyBefore.slice(BASE.length))), pdfKeyBefore);
+    ok('…and the field goes back to Upload', /Upload/.test(await ap.locator('[data-testid="service-brochure-input-field"]').innerText()));
+    // Upload the brochure again (a PDF previews inline).
+    await ap.locator('[data-testid="service-brochure-input"]').setInputFiles({ name: 'clinic-overview.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%%EOF\n') });
+    let b2 = '';
+    for (let i = 0; i < 30 && !b2; i++) { await ap.waitForTimeout(300); b2 = svcMedia().brochureUrl || ''; }
+    await ap.waitForTimeout(500);
+    ok('uploading again saves the new brochure with a PDF preview', /\/files\/[a-z0-9]+\.pdf$/.test(b2) && (await ap.locator('[data-testid="media-preview-pdf"]').count()) === 1, b2);
+    await ap.screenshot({ path: path.join(SHOTS, 'admin-service-media.png') });
     const other = svcMedia();
     ok('saving one field leaves the rest of the content alone', (other.description || '').length > 20 && Array.isArray(other.faq), `${(other.description || '').length} chars`);
     const bad = await api(token, 'POST', '/uploads', { purpose: 'service-media', serviceId: 'clinic-chatbot', contentType: 'video/mp4', size: 10 });

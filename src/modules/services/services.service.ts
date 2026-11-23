@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleIni
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Service, ServiceDocument, ServiceStatus } from './schemas/service.schema';
+import { StorageService } from '../storage/storage.service';
 import { legacyModuleToService } from './legacy-module.mapper';
 import { LEGACY_SEED_MODULES } from './seed-services';
 
@@ -19,7 +20,20 @@ export class ServicesService implements OnModuleInit {
 
   constructor(
     @InjectModel(Service.name) private serviceModel: Model<ServiceDocument>,
+    private readonly storage: StorageService,
   ) {}
+
+  // Media fields that may point at a file uploaded to our public bucket.
+  private static readonly MEDIA_FIELDS = ['demoVideoUrl', 'brochureUrl'] as const;
+
+  // The R2 key behind one of our own uploaded service files, else null
+  // (YouTube links, other sites, files outside services/).
+  private ownedMediaKey(url: unknown): string | null {
+    const base = (process.env.R2_PUBLIC_URL || '').replace(/\/+$/, '');
+    if (!base || typeof url !== 'string' || !url.startsWith(base + '/')) return null;
+    const key = decodeURIComponent(url.slice(base.length + 1).split(/[?#]/)[0]);
+    return key.startsWith('services/') && !key.includes('..') ? key : null;
+  }
 
   // Fills the catalog on a brand-new (empty) database only — a local or test
   // database. Once the collection has any document, nothing runs: the
@@ -93,6 +107,7 @@ export class ServicesService implements OnModuleInit {
 
   async update(idOrSlug: string, data: Record<string, any>): Promise<ServiceDocument> {
     const { _id, createdAt, updatedAt, ...rest } = data;
+    const before = await this.serviceModel.findOne({ ...this.keyFilter(idOrSlug), isDeleted: false }).select('content').lean();
     const service = await this.serviceModel.findOneAndUpdate(
       { ...this.keyFilter(idOrSlug), isDeleted: false },
       rest,
@@ -103,6 +118,12 @@ export class ServicesService implements OnModuleInit {
       { new: true, strict: 'throw', runValidators: true },
     ).catch(rejectUnknownField);
     if (!service) throw new NotFoundException('Service not found');
+    // A replaced or cleared demo video / brochure: delete the old uploaded file.
+    const old = ServicesService.MEDIA_FIELDS
+      .filter((f) => (before as any)?.content?.[f] !== (service as any).content?.[f])
+      .map((f) => this.ownedMediaKey((before as any)?.content?.[f]))
+      .filter((k): k is string => !!k);
+    if (old.length) await this.storage.deleteKeys('public', old);
     return service;
   }
 

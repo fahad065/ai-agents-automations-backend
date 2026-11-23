@@ -71,6 +71,29 @@ describe('UploadsService — POST /uploads', () => {
     expect(out.key).toMatch(/^services\/clinic-chatbot\/brochures\/[a-z0-9]+\.pdf$/);
   });
 
+  it('service media: admin only, any media type, sorted into folders by kind', async () => {
+    const { service } = make();
+    await expect(service.createUpload(owner, { purpose: 'service-media', serviceId: 'gym-chatbot', contentType: 'video/mp4', size: 1 })).rejects.toThrow(/Only admins/);
+    const cases: [string, number, RegExp][] = [
+      ['video/mp4', 1500 * MB, /^services\/gym-chatbot\/videos\/[a-z0-9]+\.mp4$/],
+      ['video/quicktime', 10 * MB, /\/videos\/[a-z0-9]+\.mov$/],
+      ['audio/mpeg', 10 * MB, /\/audio\/[a-z0-9]+\.mp3$/],
+      ['image/gif', 1 * MB, /\/images\/[a-z0-9]+\.gif$/],
+      ['application/pdf', 150 * MB, /\/files\/[a-z0-9]+\.pdf$/],
+      ['application/vnd.openxmlformats-officedocument.presentationml.presentation', 5 * MB, /\/files\/[a-z0-9]+\.pptx$/],
+    ];
+    for (const [contentType, size, re] of cases) {
+      const out = await service.createUpload(admin, { purpose: 'service-media', serviceId: 'gym-chatbot', contentType, size });
+      expect(out.key).toMatch(re);
+      expect(out.url).toContain(out.key);
+    }
+    // Nothing that runs in a browser is served from the public media domain.
+    for (const contentType of ['text/html', 'image/svg+xml', 'application/javascript']) {
+      await expect(service.createUpload(admin, { purpose: 'service-media', serviceId: 'gym-chatbot', contentType, size: 1 })).rejects.toThrow(/isn't allowed/);
+    }
+    await expect(service.createUpload(admin, { purpose: 'service-media', serviceId: 'gym-chatbot', contentType: 'video/mp4', size: 2049 * MB })).rejects.toThrow(/too large/);
+  });
+
   it('user documents go to the private bucket in the caller\'s own folder (admin may pick a user)', async () => {
     const { service, storage } = make();
     const mine = await service.createUpload(owner, { purpose: 'user-document', userId: 'someone-else', contentType: 'application/pdf', size: 1 });

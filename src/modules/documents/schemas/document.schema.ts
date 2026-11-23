@@ -30,10 +30,6 @@ export class UploadedDocument {
   @Prop()
   fileName?: string;
 
-  // Older documents only: a Vercel Blob URL (uploaded before 2026-11-20).
-  @Prop()
-  fileUrl?: string;
-
   @Prop()
   fileType?: string;
 

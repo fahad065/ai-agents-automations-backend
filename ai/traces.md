@@ -1278,3 +1278,21 @@ and reported the page jumping to the top when opening a provider dropdown.
   Older invoices and servers without R2 still render from the row.
 - `StorageService.getObject()` added. e2e (gym): invoice saved + served copy
   matches; documents upload/list/open/another-user-blocked/delete.
+
+## 2026-11-23 — Admin service media uploads; Vercel Blob removed
+- Owner confirmed R2 works (dev + prod buckets set up; a knowledge photo
+  uploaded on localhost showed in the widget). Owner decision: the admin
+  uploads every service file (demo / how-it-works video, brochure, audio,
+  images, documents) from the Service edit screen, from local or prod.
+- New upload purpose `service-media` (admin, public bucket,
+  `services/<slug>/<videos|audio|images|files>/`): video ≤2 GB (MP4, WebM,
+  MOV, OGG, M4V, MKV, AVI), audio ≤500 MB, images ≤25 MB, PDF/Office/CSV/
+  TXT/ZIP ≤200 MB. HTML/SVG/JS are refused so nothing runnable is served
+  from the media domain.
+- `ServicesService.update` deletes the old R2 file when the demo video or
+  brochure is replaced or cleared (only our own `services/` files; YouTube or
+  other links are never touched).
+- Vercel Blob removed: owner deletes pre-R2 documents in Compass and
+  re-uploads service files from the admin panel. Dropped `documents.fileUrl`,
+  `@vercel/blob`, `BLOB_READ_WRITE_TOKEN`, `scripts/migrate-documents-to-r2.cjs`
+  (never run on a real database).

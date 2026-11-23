@@ -176,7 +176,7 @@ export class AccountDeletionService {
     const documents = await this.documentsService.listDocuments(userId);
     const docs = wb.addWorksheet('Documents');
     docs.addRow(['Document type', 'File type', 'Size (bytes)', 'Uploaded', 'File link']);
-    documents.forEach((d: any) => docs.addRow([d.documentType, d.fileType, d.fileSize, d.uploadedAt, d.fileUrl || `${d.fileName || 'file'} (stored privately — open it from Profile → Documents)`]));
+    documents.forEach((d: any) => docs.addRow([d.documentType, d.fileType, d.fileSize, d.uploadedAt, `${d.fileName || 'file'} (stored privately — open it from Profile → Documents)`]));
 
     const logs = wb.addWorksheet('Activity Log');
     logs.addRow(['Action', 'Module', 'Description', 'Date']);

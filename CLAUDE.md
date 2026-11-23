@@ -35,7 +35,7 @@ npm test            # unit tests (jest, *.spec.ts under src/)
 End-to-end: see `test/e2e/README.md` (local Docker Mongo + faked outbound network; **never point it at Atlas**).
 
 ## Environment variables
-Read by the code (see `.env.example`): `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN`, `ENCRYPTION_KEY` (exactly 32 chars, encrypts API keys), `GOOGLE_CLIENT_ID/SECRET/CALLBACK_URL`, `FRONTEND_URL`, `BACKEND_URL` / `PUBLIC_API_URL` (this API's public origin, used in embed code + webhook URLs), `PYTHON_SERVICE_URL`, `PIPELINE_SECRET` (shared with the Python service, sent as `x-pipeline-secret`), `CRON_SECRET`, `RESEND_API_KEY`, `SMTP_FROM`, `REPLY_TO_EMAIL`, `ADMIN_NOTIFY_EMAIL` (defaults to hello@logicmate.io), `SENTRY_DSN`, `BLOB_READ_WRITE_TOKEN` (only to delete documents uploaded before R2, until they're migrated), `ATLAS_API_KEY`, and file storage on Cloudflare R2: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BUCKET`, `R2_PRIVATE_BUCKET`, `R2_PUBLIC_URL` (`R2_ENDPOINT` only for the e2e fake). Setup guide: `docs/cloudflare-r2-setup.md` — dev buckets for local/staging, prod buckets for production.
+Read by the code (see `.env.example`): `PORT`, `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN`, `ENCRYPTION_KEY` (exactly 32 chars, encrypts API keys), `GOOGLE_CLIENT_ID/SECRET/CALLBACK_URL`, `FRONTEND_URL`, `BACKEND_URL` / `PUBLIC_API_URL` (this API's public origin, used in embed code + webhook URLs), `PYTHON_SERVICE_URL`, `PIPELINE_SECRET` (shared with the Python service, sent as `x-pipeline-secret`), `CRON_SECRET`, `RESEND_API_KEY`, `SMTP_FROM`, `REPLY_TO_EMAIL`, `ADMIN_NOTIFY_EMAIL` (defaults to hello@logicmate.io), `SENTRY_DSN`, `ATLAS_API_KEY`, and file storage on Cloudflare R2: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BUCKET`, `R2_PRIVATE_BUCKET`, `R2_PUBLIC_URL` (`R2_ENDPOINT` only for the e2e fake). Setup guide: `docs/cloudflare-r2-setup.md` — dev buckets for local/staging, prod buckets for production.
 
 **`PIPELINE_SECRET` and `CRON_SECRET` must be set in production** — the code has hard-coded fallbacks for both, which are public in this repo.
 
@@ -65,9 +65,9 @@ Only one thing: `ServicesService.onModuleInit()` seeds the service catalog (`see
 | `notifications` | In-dashboard notifications |
 | `activity-logs` | Append-only audit trail |
 | `account-deletion` | Data export, 7-day deletion request/cancel + cron |
-| `documents` | A user's private files (ID, licence…): uploaded via `POST /uploads` purpose `user-document` to the private R2 bucket, opened through 5-min signed links. Rows from before R2 keep a public Vercel Blob `fileUrl` until `scripts/migrate-documents-to-r2.cjs` moves them |
+| `documents` | A user's private files (ID, licence…): uploaded via `POST /uploads` purpose `user-document` to the private R2 bucket, opened through 5-min signed links. |
 | `storage` | Cloudflare R2 client (`StorageService`, global): signed upload/download URLs, stat, delete, server-side `putObject` |
-| `uploads` | **The one upload endpoint** `POST /uploads` — every upload names a *purpose* (`chatbot-knowledge`, `service-brochure`, `user-document`); the purpose decides bucket, folder, types, size and who may upload. New upload features add a purpose in `uploads.service.ts` |
+| `uploads` | **The one upload endpoint** `POST /uploads` — every upload names a *purpose* (`chatbot-knowledge`, `service-media`, `service-brochure`, `user-document`); the purpose decides bucket, folder, types, size and who may upload. New upload features add a purpose in `uploads.service.ts` |
 | `feedback` | Testimonials/feedback |
 | `email` | All email templates (Resend) |
 

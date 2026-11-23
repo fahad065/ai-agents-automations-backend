@@ -328,10 +328,9 @@ designed.
   `user-document` → browser PUT → `POST /documents {documentType, key, name}`
   (JSON; the key is re-checked: exists, in the owner's folder, allowed type).
   Open = `GET /documents/:id/file` → 5-minute signed link (owner or admin).
-  Old rows move with `scripts/migrate-documents-to-r2.cjs` (dry run by
-  default; `--apply` sets storageKey/fileName and unsets fileUrl;
-  `--delete-blob` also deletes the Blob copy). The text below is the original
-  2026-11-11 design.
+  2026-11-23: Vercel Blob removed entirely (`fileUrl` field, `@vercel/blob`
+  dependency, the migration script) — the owner deleted the pre-R2 rows by
+  hand. The text below is the original 2026-11-11 design.
 - (original) `POST /documents` accepts multipart/form-data (`FileInterceptor('file')`
   from `@nestjs/platform-express` — `multer` itself already resolved
   transitively via that package, only `@types/multer` needed adding as a

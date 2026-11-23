@@ -449,6 +449,42 @@ async function openTab(page, label) {
     ok('admin form: chatbot has no Pipeline tab', !/\bPipeline\b/.test(dtext.split('\n').slice(0, 12).join(' ')) && /Niche/.test(dtext), dtext.slice(0, 80).replace(/\n/g, ' '));
     await ap.screenshot({ path: path.join(SHOTS, 'admin-form-chatbot.png') });
 
+    // Service media: the admin uploads the how-it-works video and a brochure
+    // from their computer; on an existing service each is saved at once.
+    const BASE = 'http://localhost:4566/lm-e2e-public/';
+    const svcMedia = () => JSON.parse(mongo('JSON.stringify(db.services.findOne({slug:"clinic-chatbot"}).content)'));
+    const VIDEO1 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(64, 1)]);
+    await ap.locator('[data-testid="service-video-input"]').setInputFiles({ name: 'clinic-how-it-works.mp4', mimeType: 'video/mp4', buffer: VIDEO1 });
+    let v1 = '';
+    for (let i = 0; i < 30 && !v1.startsWith(BASE); i++) { await ap.waitForTimeout(300); v1 = svcMedia().demoVideoUrl || ''; }
+    ok('admin uploads the demo video → saved on the service at once', /^http:\/\/localhost:4566\/lm-e2e-public\/services\/clinic-chatbot\/videos\/[a-z0-9]+\.mp4$/.test(v1), v1);
+    const k1 = v1.slice(BASE.length);
+    ok('…the file is in the public bucket', calls().some((c) => c.kind === 's3' && c.op === 'put' && c.key === k1 && c.type === 'video/mp4' && c.bytes === VIDEO1.length));
+    ok('…and previews in the form', (await ap.locator('[data-testid="media-preview-video"]').getAttribute('src').catch(() => '')) === v1);
+    // Replacing it deletes the old file.
+    await ap.locator('[data-testid="service-video-input"]').setInputFiles({ name: 'clinic-how-it-works-v2.mov', mimeType: '', buffer: Buffer.alloc(80, 2) });
+    let v2 = v1;
+    for (let i = 0; i < 30 && v2 === v1; i++) { await ap.waitForTimeout(300); v2 = svcMedia().demoVideoUrl || ''; }
+    await sleep(500);
+    ok('a new video (type taken from the .mov name) replaces it and the old file is deleted', /\/videos\/[a-z0-9]+\.mov$/.test(v2) && calls().some((c) => c.kind === 's3' && c.op === 'delete' && c.keys.includes(k1)), v2);
+    await ap.locator('[data-testid="service-brochure-input"]').setInputFiles({ name: 'clinic-overview.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.alloc(50, 3) });
+    let b1 = '';
+    for (let i = 0; i < 30 && !b1; i++) { await ap.waitForTimeout(300); b1 = svcMedia().brochureUrl || ''; }
+    ok('brochure accepts other formats too (PowerPoint)', /\/services\/clinic-chatbot\/files\/[a-z0-9]+\.pptx$/.test(b1), b1);
+    const other = svcMedia();
+    ok('saving one field leaves the rest of the content alone', (other.description || '').length > 20 && Array.isArray(other.faq), `${(other.description || '').length} chars`);
+    const bad = await api(token, 'POST', '/uploads', { purpose: 'service-media', serviceId: 'clinic-chatbot', contentType: 'video/mp4', size: 10 });
+    ok('POST /uploads: service media is admin-only', bad.status === 403, `${bad.status}`);
+    await ap.keyboard.press('Escape').catch(() => {});
+    // The public page plays the uploaded file.
+    const pub = await adminCtx.newPage();
+    await pub.goto(`${FE}/chatbots/clinic-chatbot`, { waitUntil: 'networkidle' });
+    // (The test bytes aren't a playable video, so the player may fall back to its "open video" link.)
+    await pub.waitForTimeout(800);
+    const shown = (await pub.locator(`video[src="${v2}"]`).count()) + (await pub.locator(`#demo a[href="${v2}"]`).count());
+    ok('service page shows the uploaded video', shown === 1, `${shown}`);
+    await pub.close();
+
     // Customer Services: the admin's one list of every client's services.
     await ap.goto(`${FE}/dashboard/chatbots`, { waitUntil: 'networkidle' });
     await ap.waitForURL(/customer-services/, { timeout: 10000 }).catch(() => {});

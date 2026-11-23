@@ -185,18 +185,6 @@ downloads that copy.
 If the upload fails with a CORS error in the browser console, check Step 4
 (exact site address in `AllowedOrigins`, no trailing slash).
 
-## Step 8 — Move documents uploaded before R2 (once Step 7 works)
-Documents uploaded before R2 sit on Vercel Blob at public URLs. Once the R2
-settings are in place, copy them into the private bucket (run from the
-backend folder, with that environment's `MONGODB_URI` and R2 settings in `.env`):
-```bash
-node --env-file=.env scripts/migrate-documents-to-r2.cjs            # dry run: lists what would move
-node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply    # copy + update the rows
-node --env-file=.env scripts/migrate-documents-to-r2.cjs --apply --delete-blob  # also delete the Blob copies (needs BLOB_READ_WRITE_TOKEN)
-```
-Each moved row gets `storageKey` + `fileName` and loses `fileUrl`. Running it
-again skips rows already moved.
-
 ---
 
 ## How uploads work (for developers)
@@ -218,7 +206,8 @@ Purposes today (`src/modules/uploads/uploads.service.ts`):
 | Purpose | Who | Bucket | Folder | Types |
 |---|---|---|---|---|
 | `chatbot-knowledge` | chatbot owner / admin | public | `chatbots/<id>/knowledge/` | photos + PDF |
-| `service-brochure` | admin | public | `services/<slug>/brochures/` | PDF + photos |
+| `service-media` | admin | public | `services/<slug>/videos|audio|images|files/` | video (≤2 GB), audio (≤500 MB), images (≤25 MB), PDF/Office/CSV/TXT/ZIP (≤200 MB) |
+| `service-brochure` | admin | public | `services/<slug>/brochures/` | PDF + photos (older button; `service-media` replaces it) |
 | `user-document` | the user / admin | private | `users/<id>/documents/` | PDF + photos |
 
 To add upload anywhere new: add a purpose there, then use the

@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { del } from '@vercel/blob';
 import { StorageService } from '../storage/storage.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { UploadedDocument, UploadedDocumentDocument } from './schemas/document.schema';
@@ -25,18 +24,12 @@ export class DocumentsService {
     private uploads: UploadsService,
   ) {}
 
-  // Removes a stored file: R2 (private bucket) for current documents, Vercel
-  // Blob for older ones. Never throws — a storage hiccup must not block the
-  // database-side delete.
-  private async removeFile(doc: { _id?: unknown; storageKey?: string; fileUrl?: string }) {
-    if (doc.storageKey) return this.storage.deleteKeys('private', [doc.storageKey]);
-    if (doc.fileUrl && process.env.BLOB_READ_WRITE_TOKEN) {
-      try {
-        await del(doc.fileUrl, { token: process.env.BLOB_READ_WRITE_TOKEN });
-      } catch (err: any) {
-        this.logger.warn(`Failed to delete blob for document=${String(doc._id)}: ${err?.message}`);
-      }
-    }
+  // Removes a stored file from the private bucket. Never throws — a storage
+  // hiccup must not block the database-side delete.
+  private async removeFile(doc: { storageKey?: string }) {
+    if (!doc.storageKey) return;
+    await this.storage.deleteKeys('private', [doc.storageKey]).catch((err: any) =>
+      this.logger.warn(`Failed to delete file ${doc.storageKey}: ${err?.message || err}`));
   }
 
   // The browser has already uploaded the file to the private bucket through
@@ -98,7 +91,6 @@ export class DocumentsService {
     const doc = await this.documentModel.findOne(filter).lean();
     if (!doc) throw new NotFoundException('Document not found');
     if (doc.storageKey) return { url: await this.storage.presignDownload(doc.storageKey, doc.fileName) };
-    if (doc.fileUrl) return { url: doc.fileUrl };
     throw new NotFoundException('File not found');
   }
 
@@ -109,7 +101,7 @@ export class DocumentsService {
   // deleteDocument() below).
   async purgeAllForUser(userId: string): Promise<number> {
     const uid = new Types.ObjectId(userId);
-    const docs = await this.documentModel.find({ userId: uid }).select('fileUrl storageKey').lean();
+    const docs = await this.documentModel.find({ userId: uid }).select('storageKey').lean();
     for (const doc of docs) await this.removeFile(doc);
     const result = await this.documentModel.deleteMany({ userId: uid });
     return result.deletedCount ?? 0;

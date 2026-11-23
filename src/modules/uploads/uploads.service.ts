@@ -8,6 +8,7 @@ import { KnowledgeBase, KnowledgeBaseDocument } from '../chatbots/schemas/knowle
 import {
   IMAGE_TYPES,
   PDF_TYPES,
+  SERVICE_MEDIA_TYPES,
   UploadCaller,
   UploadContext,
   UploadPurpose,
@@ -55,6 +56,16 @@ export class UploadsService implements OnModuleInit {
         folder: async ({ caller, input }) => {
           requireAdmin(caller);
           return `services/${safeId(input.serviceId || 'general', 'serviceId')}/brochures/`;
+        },
+      },
+      // Any media for a catalog service (admin): demo video, brochure,
+      // audio, images, documents — under services/<slug>/<videos|audio|images|files>/.
+      'service-media': {
+        bucket: 'public',
+        types: SERVICE_MEDIA_TYPES,
+        folder: async ({ caller, input, contentType }) => {
+          requireAdmin(caller);
+          return `services/${safeId(input.serviceId || 'general', 'serviceId')}/${SERVICE_MEDIA_TYPES[contentType]?.folder || 'files'}/`;
         },
       },
       // A user's own documents (ID, trade licence…) — private.

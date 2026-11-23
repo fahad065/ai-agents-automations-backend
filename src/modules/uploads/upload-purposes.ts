@@ -44,6 +44,48 @@ export const IMAGE_TYPES = {
 };
 export const PDF_TYPES = { 'application/pdf': { ext: 'pdf', maxBytes: PDF_MAX_BYTES } };
 
+// Owner decision (2026-11-23): the admin may upload any media for a catalog
+// service (demo / "how it works" video, brochure, audio, images, documents).
+// Allow-listed by type so nothing that runs in a browser (HTML, SVG, JS) is
+// ever served from the public media domain.
+const SERVICE_IMAGE_MAX = 25 * MB;
+const SERVICE_DOC_MAX = 200 * MB;
+const SERVICE_AUDIO_MAX = 500 * MB;
+const SERVICE_VIDEO_MAX = 2048 * MB;
+export const SERVICE_MEDIA_TYPES: Record<string, { ext: string; maxBytes: number; folder: string }> = {
+  'image/jpeg': { ext: 'jpg', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'image/png': { ext: 'png', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'image/webp': { ext: 'webp', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'image/gif': { ext: 'gif', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'image/avif': { ext: 'avif', maxBytes: SERVICE_IMAGE_MAX, folder: 'images' },
+  'application/pdf': { ext: 'pdf', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/msword': { ext: 'doc', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { ext: 'docx', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/vnd.ms-powerpoint': { ext: 'ppt', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': { ext: 'pptx', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/vnd.ms-excel': { ext: 'xls', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { ext: 'xlsx', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'text/csv': { ext: 'csv', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'text/plain': { ext: 'txt', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'application/zip': { ext: 'zip', maxBytes: SERVICE_DOC_MAX, folder: 'files' },
+  'audio/mpeg': { ext: 'mp3', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/mp4': { ext: 'm4a', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/x-m4a': { ext: 'm4a', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/aac': { ext: 'aac', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/wav': { ext: 'wav', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/x-wav': { ext: 'wav', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/ogg': { ext: 'ogg', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/webm': { ext: 'weba', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'audio/flac': { ext: 'flac', maxBytes: SERVICE_AUDIO_MAX, folder: 'audio' },
+  'video/mp4': { ext: 'mp4', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/webm': { ext: 'webm', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/quicktime': { ext: 'mov', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/ogg': { ext: 'ogv', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/x-m4v': { ext: 'm4v', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/x-matroska': { ext: 'mkv', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+  'video/x-msvideo': { ext: 'avi', maxBytes: SERVICE_VIDEO_MAX, folder: 'videos' },
+};
+
 export function requireAdmin(caller: UploadCaller) {
   if (!caller.isAdmin) throw new ForbiddenException('Only admins can upload this');
 }

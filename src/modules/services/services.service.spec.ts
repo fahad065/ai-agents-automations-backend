@@ -71,7 +71,7 @@ describe('LEGACY_SEED_MODULES', () => {
 describe('ServicesService.onModuleInit (seed only an empty database)', () => {
   const build = (count: number) => {
     const model: any = { estimatedDocumentCount: jest.fn().mockResolvedValue(count), insertMany: jest.fn().mockResolvedValue([]) };
-    return { svc: new ServicesService(model), model };
+    return { svc: new ServicesService(model, {} as any), model };
   };
 
   it('seeds the whole catalog into an empty database', async () => {
@@ -85,5 +85,34 @@ describe('ServicesService.onModuleInit (seed only an empty database)', () => {
     const { svc, model } = build(1);
     await svc.onModuleInit();
     expect(model.insertMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('ServicesService.update (uploaded media cleanup)', () => {
+  const BASE = 'https://media.logicmate.io';
+  const OLD_VIDEO = `${BASE}/services/gym-chatbot/videos/abc.mp4`;
+  const build = (before: any, after: any) => {
+    const model: any = {
+      findOne: jest.fn(() => ({ select: () => ({ lean: async () => before }) })),
+      findOneAndUpdate: jest.fn(() => Promise.resolve(after)),
+    };
+    const storage: any = { deleteKeys: jest.fn().mockResolvedValue(undefined) };
+    return { svc: new ServicesService(model, storage), storage };
+  };
+  beforeEach(() => { process.env.R2_PUBLIC_URL = BASE; });
+
+  it('deletes the old uploaded video when it is replaced', async () => {
+    const { svc, storage } = build({ content: { demoVideoUrl: OLD_VIDEO } }, { content: { demoVideoUrl: `${BASE}/services/gym-chatbot/videos/new.mp4` } });
+    await svc.update('gym-chatbot', { content: { demoVideoUrl: 'x' } });
+    expect(storage.deleteKeys).toHaveBeenCalledWith('public', ['services/gym-chatbot/videos/abc.mp4']);
+  });
+
+  it('keeps files when nothing changed, and never touches outside links', async () => {
+    const same = build({ content: { demoVideoUrl: OLD_VIDEO } }, { content: { demoVideoUrl: OLD_VIDEO } });
+    await same.svc.update('gym-chatbot', { name: 'Gym' });
+    expect(same.storage.deleteKeys).not.toHaveBeenCalled();
+    const yt = build({ content: { demoVideoUrl: 'https://youtu.be/x', brochureUrl: 'https://blob.example/old.pdf' } }, { content: {} });
+    await yt.svc.update('gym-chatbot', { content: {} });
+    expect(yt.storage.deleteKeys).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,5 @@
 import { Types } from 'mongoose';
 
-const del = jest.fn();
-jest.mock('@vercel/blob', () => ({ put: jest.fn(), del: (...a: any[]) => del(...a) }));
-
 import { DocumentsService } from './documents.service';
 
 function storageMock() {
@@ -19,14 +16,12 @@ describe('DocumentsService.purgeAllForUser (account deletion)', () => {
   let service: DocumentsService;
 
   beforeEach(() => {
-    process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
-    del.mockReset().mockResolvedValue(undefined);
     storage = storageMock();
     model = {
       find: jest.fn(() => ({
         select: () => ({
           lean: async () => [
-            { _id: 'd1', fileUrl: 'https://blob/emirates-id.pdf' },
+            { _id: 'd1', storageKey: `users/${userId}/documents/emirates-id.pdf` },
             { _id: 'd2', storageKey: `users/${userId}/documents/passport.png` },
           ],
         }),
@@ -36,9 +31,9 @@ describe('DocumentsService.purgeAllForUser (account deletion)', () => {
     service = new DocumentsService(model, {} as any, storage, {} as any);
   });
 
-  it('deletes every stored file (R2 and older Blob ones) and hard-deletes all rows', async () => {
+  it('deletes every stored file and hard-deletes all rows', async () => {
     await expect(service.purgeAllForUser(userId)).resolves.toBe(2);
-    expect(del).toHaveBeenCalledTimes(1);
+    expect(storage.deleteKeys).toHaveBeenCalledWith('private', [`users/${userId}/documents/emirates-id.pdf`]);
     expect(storage.deleteKeys).toHaveBeenCalledWith('private', [`users/${userId}/documents/passport.png`]);
     const filter = model.find.mock.calls[0][0];
     expect(filter).not.toHaveProperty('isDeleted');
@@ -46,7 +41,7 @@ describe('DocumentsService.purgeAllForUser (account deletion)', () => {
   });
 
   it('still deletes the rows when a file delete fails', async () => {
-    del.mockRejectedValueOnce(new Error('blob gone'));
+    storage.deleteKeys.mockRejectedValueOnce(new Error('storage down'));
     await expect(service.purgeAllForUser(userId)).resolves.toBe(2);
     expect(model.deleteMany).toHaveBeenCalled();
   });
@@ -69,11 +64,10 @@ describe('DocumentsService — private R2 documents', () => {
     expect(created[0].fileUrl).toBeUndefined();
   });
 
-  it('opens a private document through a short-lived signed link; old Blob documents keep their URL', async () => {
+  it('opens a private document through a short-lived signed link', async () => {
     const storage = storageMock();
     const docs: Record<string, any> = {
       r2: { storageKey: 'users/u/documents/a.pdf', fileName: 'a.pdf' },
-      blob: { fileUrl: 'https://blob/old.pdf' },
     };
     const model: any = { findOne: jest.fn((f: any) => ({ lean: async () => docs[f.__which] })) };
     const service = new DocumentsService(model, {} as any, storage as any, {} as any);
@@ -82,8 +76,8 @@ describe('DocumentsService — private R2 documents', () => {
     model.findOne.mockImplementationOnce(() => ({ lean: async () => docs.r2 }));
     await expect(service.documentUrl(owner, id)).resolves.toEqual({ url: 'https://r2.example/signed-get' });
     expect(storage.presignDownload).toHaveBeenCalledWith('users/u/documents/a.pdf', 'a.pdf');
-    model.findOne.mockImplementationOnce(() => ({ lean: async () => docs.blob }));
-    await expect(service.documentUrl(owner, id)).resolves.toEqual({ url: 'https://blob/old.pdf' });
+    model.findOne.mockImplementationOnce(() => ({ lean: async () => ({ fileName: 'no-file.pdf' }) }));
+    await expect(service.documentUrl(owner, id)).rejects.toThrow(/not found/);
   });
 
   it('a non-admin only finds their own documents', async () => {

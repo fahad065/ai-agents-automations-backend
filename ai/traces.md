@@ -1302,7 +1302,7 @@ and reported the page jumping to the top when opening a provider dropdown.
   chatbot's knowledge-base photos/PDFs from storage (`chatbots/<id>/`).
   Before, the database rows went but the files stayed. Found while checking
   what the Privacy Policy draft could truthfully promise.
-- `docs/legal/privacy-terms-file-storage.md`: EN + Gulf-Arabic HTML for the
+- `docs/legal/privacy-terms-file-storage.md` (superseded the same day by the full pages in `docs/legal/privacy-and-terms-pages.md`): EN + Gulf-Arabic HTML for the
   Privacy Policy ("How we store your files") and Terms ("Files and content you
   upload"), for the owner to paste into the CMS. No bucket/folder names; says
   knowledge-base files are public, documents/invoices private (5-min links),
@@ -1311,3 +1311,15 @@ and reported the page jumping to the top when opening a provider dropdown.
 - e2e (clinic, 131 → more): "Watch demo" opens the pop-up player (no
   navigation/crash) and Escape closes it; instant account deletion removes the
   bot's files and rows.
+
+## 2026-11-23 — Full Privacy Policy + Terms of Service (EN + AR)
+- `docs/legal/privacy-and-terms-pages.md`: complete pages for the CMS
+  (`privacy`, `terms`): title/subtitle/meta per language + HTML for `content`
+  and `content_ar` (Gulf Arabic). Written from the code: BYOK AI keys, chatbot
+  visitor data (business = controller, LogicMate = processor), lead capture,
+  WhatsApp/Instagram via Meta, private vs public files, provider list, consent
+  -gated Google Analytics, instant or day-8 scheduled deletion, anonymised
+  invoices kept, YouTube API / Google Limited Use disclosure, bank transfer,
+  30-day trial, no auto-renewal. Replaces the old seed text (which said "7
+  working days" and listed only MongoDB Atlas + Vercel). Owner pastes by hand;
+  checklist at the end (entity name, governing law, retention, lawyer review).

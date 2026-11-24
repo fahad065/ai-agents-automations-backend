@@ -17,4 +17,6 @@ brochure and the website must never disagree.
 |---|---|---|
 | Restaurant chatbot | restaurant-chatbot.html | Basic $79 / $49 · Pro $120 / $99 |
 | Gym chatbot | gym-chatbot.html | Basic $79 / $49 · Pro $120 / $99 |
+| Clinic chatbot | clinic-chatbot.html | Basic $99 / $79 · Pro $149 / $119 |
+| Real Estate chatbot | real-estate-chatbot.html | Basic $129 / $99 · Pro $199 / $159 |
 | Spa & Salon chatbot | spa-salon-chatbot.html | Basic $99 / $79 · Pro $149 / $119 |

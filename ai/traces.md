@@ -1359,3 +1359,7 @@ and reported the page jumping to the top when opening a provider dropdown.
   delivered to the owner. Nothing seeded; owner pastes content and uploads the
   PDF by hand. Old copy promised booking/stylist availability the bot can't do
   — replaced with what it does (booking link or appointment request).
+
+## 2026-11-24 — Brochures: photos & PDF in answers
+- Restaurant, gym, clinic and real-estate brochures now mention knowledge-base photos (up to 5) and a PDF per answer: intro sentence, "What it handles" bullet, a pricing-table row (all tiers), storage line (within the plan's photo/PDF limits) and a "Your data" line about image rights (clinic: never patient photos/records). Matches the spa & salon brochure.
+- Clinic and real-estate HTML sources added to `docs/brochures/` (previously only the rendered PDFs existed); README table updated.

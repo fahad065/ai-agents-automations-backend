@@ -1363,3 +1363,8 @@ and reported the page jumping to the top when opening a provider dropdown.
 ## 2026-11-24 — Brochures: photos & PDF in answers
 - Restaurant, gym, clinic and real-estate brochures now mention knowledge-base photos (up to 5) and a PDF per answer: intro sentence, "What it handles" bullet, a pricing-table row (all tiers), storage line (within the plan's photo/PDF limits) and a "Your data" line about image rights (clinic: never patient photos/records). Matches the spa & salon brochure.
 - Clinic and real-estate HTML sources added to `docs/brochures/` (previously only the rendered PDFs existed); README table updated.
+
+## 2026-11-24 — Hotel chatbot: pricing, CMS content, brochure
+- Pricing confirmed by the owner: Basic $129/mo ($99/mo yearly), Pro $199/mo ($159/mo yearly) — same as real estate. Standard chatbot features on Basic/Pro; hotel extras (live availability/rates from the PMS or booking engine, booking and payment in the chat, pre-arrival/in-stay messaging, housekeeping/room-service requests into hotel systems, upsells, several properties on one account) are Custom-only.
+- CMS content (EN + Gulf AR, tab by tab, for Service Catalog → hotel-chatbot) delivered to the owner; renames "Hotel & Travel Concierge Bot" → "Hotel Chatbot" and drops the old "live availability is on our roadmap" / "availability and rate questions" promises. The owner pastes it by hand (no seed change).
+- Brochure source `docs/brochures/hotel-chatbot.html` → `LogicMate-Hotel-Chatbot-Overview.pdf`, uploaded by the owner from the admin Service Catalog.

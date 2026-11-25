@@ -21,3 +21,4 @@ brochure and the website must never disagree.
 | Real Estate chatbot | real-estate-chatbot.html | Basic $129 / $99 · Pro $199 / $159 |
 | Spa & Salon chatbot | spa-salon-chatbot.html | Basic $99 / $79 · Pro $149 / $119 |
 | Hotel chatbot | hotel-chatbot.html | Basic $129 / $99 · Pro $199 / $159 |
+| Auto Dealership chatbot | auto-dealership-chatbot.html | Basic $129 / $99 · Pro $199 / $159 |

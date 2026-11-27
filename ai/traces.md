@@ -1382,3 +1382,9 @@ and reported the page jumping to the top when opening a provider dropdown.
 - New chatbot template `home_services` ↔ slug `home-services-chatbot` (`chatbot-view.ts`). Frontend: template profile with "Services offered", "Areas covered" (new optional `areasLabel`/`areasHint` on the profile), "No walk-in office" switch and "Service booking link"; added to the create-chatbot picker and the marketing slug map. The catalog service itself is created by hand (no seed change).
 - CMS content (EN + Gulf AR), knowledge base (70 entries) for the demo company Sparkwell Home Services, brochure `docs/brochures/home-services-chatbot.html`.
 - Demo site `fahad065/logicmate-home-services-website` (Sparkwell, 6 branches) built from the same data file as the knowledge base; 16 routes checked at desktop and phone width.
+
+## 2026-11-27 — Service form placeholders, automatic sort order, CMS file rule
+- Owner report: creating a new service showed "YouTube Agent" as the Name placeholder (every example in the form was written for the YouTube agent). Frontend `admin-modules.tsx`: per-type examples (chatbot / agent / automation), all prefixed "e.g." / "مثال:"; a new service no longer starts with pipeline type `youtube`, niche `content_social`, icon 🤖 or stale prices. Other forms' example placeholders prefixed with "e.g." too.
+- Sort order: the form fills the next free number for the chosen type (highest existing + 1); `ServicesService.create()` does the same when `display.sortOrder` is missing or 0 (unit tests added).
+- New niche `home_services` ("Home & Property Services") in the admin dropdown and `translations.ts`.
+- Owner rule recorded in CLAUDE.md ("Service CMS content files"): every content file lists every form field with an exact value, including colour, niche, sort order, platforms and status.

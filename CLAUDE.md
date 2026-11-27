@@ -151,6 +151,12 @@ feedback        GET public · POST / · GET / · PATCH :id/approve · DELETE :id
 | `account-deletion.cron.ts` | 03:00 | day-7 reminder, day-8 deletion |
 | `uploads/storage-cleanup.service.ts` | 04:00 | delete stray uploads (>24h old, not on any saved knowledge entry / service / document) from `chatbots/`, `services/`, `users/`; never invoices; skips a folder if >25% would go (bug guard) |
 
+## Service CMS content files (owner rule, 2026-11-27)
+Every `<service>-content.md` handed to the owner lists **every field of the admin Service Catalog form**, tab by tab, with a ready-to-paste value — including the ones that are dropdowns or look obvious. Never "pick the closest one": give the exact option.
+- **Basic:** Name · Slug (exact; chatbots must match `TEMPLATE_TO_SERVICE_SLUG`) · Tagline · Icon (emoji) · Color (hex) · Type (`Chatbot` / `Agent` / `Automation`) · Sort Order (filled automatically: highest existing number for that type + 1 — state the number the owner should see) · Niche (one of: Content & Social Media `content_social`, Real Estate `real_estate`, Healthcare & Clinics `healthcare`, HR & Recruitment `hr_recruitment`, E-commerce & Retail `ecommerce_retail`, Marketing & Agencies `marketing`, Hospitality & Tourism `hospitality`, Education & Schools `education`, Logistics & Delivery `logistics`, Agriculture `agriculture`, Finance & Microfinance `finance`, Internal Copilot `internal_copilot`, Home & Property Services `home_services` — the list lives in `admin-modules.tsx` `NICHE_OPTIONS` + `translations.ts` `industries_*`; add a niche there if none fits) · Description · Capabilities · Platforms · Demo video + Brochure (Upload) · Status (`Active` / `Coming soon` / `Inactive (hidden)`).
+- **Pipeline** (agents/automations only): Pipeline Type (one of `PIPELINE_TYPES`), Pipeline Category (`Standalone Agent` / `Niche Pipeline`), Niche, Components, Required API Keys (from `API_KEY_OPTIONS`).
+- **Content:** Hero Stats, Features, How It Works, FAQ. **Pricing:** chatbots Basic/Pro monthly + annual + features; agents/automations monthly + annual + features. **Arabic:** every `_ar` field, same line count and order as English.
+
 ## Testing
 - Unit: `npm test`.
 - End-to-end (`test/e2e/run.sh restaurant|gym|clinic|agent`): real backend + frontend + local Mongo, outbound OpenAI/Anthropic/Gemini/Resend/Meta calls faked by `fake-net.cjs`. Each new service gets `docs/test-cases/<service>.md` + `test/e2e/<service>-e2e.cjs`.

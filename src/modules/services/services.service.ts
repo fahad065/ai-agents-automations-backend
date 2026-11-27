@@ -100,6 +100,17 @@ export class ServicesService implements OnModuleInit {
     if (data.slug && await this.serviceModel.exists({ slug: data.slug })) {
       throw new BadRequestException(`Slug "${data.slug}" already exists`);
     }
+    // No sort order given (or 0): the next free number for this type —
+    // 7 chatbots numbered 1–7 means a new chatbot gets 8.
+    const display = (data as any).display ?? {};
+    if (!(display.sortOrder > 0) && data.type) {
+      const last = await this.serviceModel
+        .findOne({ type: data.type, isDeleted: false })
+        .sort({ 'display.sortOrder': -1 })
+        .select('display.sortOrder')
+        .lean();
+      (data as any).display = { ...display, sortOrder: ((last as any)?.display?.sortOrder ?? 0) + 1 };
+    }
     // strict 'throw': an unknown field is a 400, never silently dropped
     // (see update()).
     return new this.serviceModel(data, null, { strict: 'throw' }).save().catch(rejectUnknownField);

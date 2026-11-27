@@ -116,3 +116,34 @@ describe('ServicesService.update (uploaded media cleanup)', () => {
     expect(yt.storage.deleteKeys).not.toHaveBeenCalled();
   });
 });
+
+describe('ServicesService.create (sort order)', () => {
+  const build = (lastSortOrder: number | null) => {
+    const saved: any[] = [];
+    const model: any = jest.fn().mockImplementation((data) => ({ save: () => { saved.push(data); return Promise.resolve(data); } }));
+    model.exists = jest.fn().mockResolvedValue(null);
+    const query = { sort: jest.fn().mockReturnThis(), select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(lastSortOrder == null ? null : { display: { sortOrder: lastSortOrder } }) };
+    model.findOne = jest.fn().mockReturnValue(query);
+    return { svc: new ServicesService(model, {} as any), model, saved };
+  };
+
+  it('gives a new chatbot the next number after the existing chatbots', async () => {
+    const { svc, model, saved } = build(7);
+    await svc.create({ slug: 'home-services-chatbot', name: 'Home Services', type: ServiceType.CHATBOT } as any);
+    expect(model.findOne).toHaveBeenCalledWith({ type: ServiceType.CHATBOT, isDeleted: false });
+    expect(saved[0].display.sortOrder).toBe(8);
+  });
+
+  it('starts at 1 for the first service of a type, and treats 0 as "not set"', async () => {
+    const { svc, saved } = build(null);
+    await svc.create({ slug: 'a', name: 'A', type: ServiceType.AUTOMATION, display: { sortOrder: 0, icon: '⏰' } } as any);
+    expect(saved[0].display).toEqual({ sortOrder: 1, icon: '⏰' });
+  });
+
+  it('keeps a sort order the admin chose', async () => {
+    const { svc, model, saved } = build(7);
+    await svc.create({ slug: 'b', name: 'B', type: ServiceType.CHATBOT, display: { sortOrder: 3 } } as any);
+    expect(model.findOne).not.toHaveBeenCalled();
+    expect(saved[0].display.sortOrder).toBe(3);
+  });
+});

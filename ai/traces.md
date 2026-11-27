@@ -1376,3 +1376,8 @@ and reported the page jumping to the top when opening a provider dropdown.
 
 ## 2026-11-26 — Auto Dealership demo website
 - `fahad065/logicmate-aut-dealership-website`: Meridian Motors, 6 showrooms and 24 cars, built from the same data file as the chatbot knowledge base (prices, finance examples and links match). Inventory filters, a page per car, finance calculator, trade-in / test-drive / service / contact mock forms.
+
+## 2026-11-27 — Home Services chatbot
+- Pricing confirmed by the owner: Basic $99/mo ($79/mo yearly), Pro $149/mo ($119/mo yearly). Standard features on Basic/Pro; home-services extras (booking into job-management software, instant photo quotes, online payment, technician tracking, contract renewals, several brands) are Custom-only.
+- New chatbot template `home_services` ↔ slug `home-services-chatbot` (`chatbot-view.ts`). Frontend: template profile with "Services offered", "Areas covered" (new optional `areasLabel`/`areasHint` on the profile), "No walk-in office" switch and "Service booking link"; added to the create-chatbot picker and the marketing slug map. The catalog service itself is created by hand (no seed change).
+- CMS content (EN + Gulf AR), knowledge base (70 entries) for the demo company Sparkwell Home Services, brochure `docs/brochures/home-services-chatbot.html`.

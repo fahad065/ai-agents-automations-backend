@@ -253,7 +253,7 @@ export class Outlet {
   deliveryPlatforms: string[];
 
   // What this branch offers, labelled per template in the dashboard
-  // (gym/hotel: "Facilities", clinic/salon: "Services offered", …).
+  // (gym/hotel: "Facilities", clinic/salon/home services: "Services offered", …).
   @Prop({ type: [String], default: [] })
   facilities: string[];
 

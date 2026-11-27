@@ -16,6 +16,7 @@ export const TEMPLATE_TO_SERVICE_SLUG: Record<string, string> = {
   salon: 'salon-chatbot',
   hotel: 'hotel-chatbot',
   auto_dealership: 'auto-dealership-chatbot',
+  home_services: 'home-services-chatbot',
 };
 export const SERVICE_SLUG_TO_TEMPLATE: Record<string, string> = Object.fromEntries(
   Object.entries(TEMPLATE_TO_SERVICE_SLUG).map(([template, slug]) => [slug, template]),
